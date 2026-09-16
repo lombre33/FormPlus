@@ -86,6 +86,28 @@ Méthode manuelle, si le widget ne parvient pas à lire les métadonnées : util
 
 Pour être notés au retour : le widget s'affiche-t-il bien en navigation privée via l'adresse `/s/`, l'envoi crée-t-il la ligne, et le bouton « Configuration » est-il bien absent pour l'anonyme.
 
+## 6. Test du périmètre fonctionnel : lecture multi-tables, condition, écriture multi-tables
+
+Outil : `multi-table-test.html`. Objectif : prouver, avec le transport `/s/<clé>`, que le widget peut lire une liste de choix depuis une table quelconque du document, afficher une question conditionnelle, et écrire la réponse dans une table différente de celle du formulaire natif.
+
+**À faire d'abord sur un document de test**, cet outil modifie la structure du document (ajout d'une colonne). Prévoir 5 tables :
+
+| Table | Rôle | Colonnes minimales |
+|---|---|---|
+| `Departements` | Source des choix (table X) | `nom` Texte |
+| `Reponses` | Table A, porte le formulaire natif publié | n'importe quelle colonne de départ |
+| `Commentaires` | Table B, destination de la question conditionnelle | `Texte` Texte |
+
+1. Sur une page, ajouter un widget **Formulaire** sur `Reponses`, le publier, copier le lien.
+2. Sur la **même page**, ajouter un widget **Formulaire** sur `Commentaires`, et le publier aussi. Il n'a pas besoin d'être configuré ni rempli : son seul rôle est d'ouvrir l'accès en écriture à `Commentaires` pour la même clé.
+3. Sur la même page, ajouter un widget **Personnalisé**, URL `https://lombre33.github.io/FormPlus/poc/multi-table-test.html`, accès complet.
+4. Étape 1 de l'outil : coller le lien du formulaire `Reponses`, **Valider**.
+5. Étape 2 : Table source `Departements`, colonne `nom`, **Aperçu de l'action** puis **Ajouter ce champ**. Ceci ajoute une colonne cachée `FormPlus_src_Departements` (Référence vers `Departements`) à `Reponses`, et l'attache masquée au formulaire natif publié.
+6. Étape 3 : condition sur une valeur de `Departements`, table B `Commentaires`, colonne `Texte`. Le message doit confirmer qu'un formulaire publié existe pour `Commentaires` sur cette page. **Enregistrer la configuration**.
+7. Copier l'adresse générée, l'ouvrir en navigation privée (ou cliquer **Tester ici**). Le journal en bas de la page doit afficher : lecture de `Departements` réussie avec le nombre d'options, puis, après avoir choisi une valeur déclenchant la condition, rempli le second champ et cliqué Envoyer, deux lignes de succès : écriture dans `Reponses` et écriture dans `Commentaires`.
+
+Si une étape échoue, le journal affiche le message d'erreur exact de Grist, à coller ici pour diagnostic.
+
 ### Dépannage : « JSON.parse: unexpected character at line 1 column 2 »
 
 Une version du widget du 16 septembre 2026 a écrit la clé `customView` des options de section en objet au lieu d'une chaîne JSON, ce qui fait planter la page qui porte le widget. Trois remèdes, du plus simple au plus technique :
