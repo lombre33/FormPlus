@@ -347,16 +347,26 @@
   // différence de l'écriture dans une table _grist_* qui n'est, elle, pas couverte. Réussite =
   // droits d'édition réels sur le document (concepteur) ; échec = session de partage anonyme.
   async function probeCanEdit(vsId) {
+    let tableId;
     try {
-      const tableId = await getFormTableId(vsId);
-      if (!tableId) return false;
-      const probeCol = '_FormPlus_probe_' + Date.now();
-      await grist.docApi.applyUserActions([
-        ['AddColumn', tableId, probeCol, { type: 'Text' }],
-        ['RemoveColumn', tableId, probeCol],
-      ]);
-      return true;
-    } catch (e) { console.warn('[FormPlus] probeCanEdit', e); return false; }
+      tableId = await getFormTableId(vsId);
+    } catch (e) {
+      diag({ event: 'probeCanEdit-lookup-failed', message: e.message, vsId });
+      return false;
+    }
+    if (!tableId) { diag({ event: 'probeCanEdit-no-table', vsId }); return false; }
+    const probeCol = '_FormPlus_probe_' + Date.now();
+    try {
+      // Seul l'ajout fait foi (refusé sans exception à une session de partage) : un souci sur le
+      // nettoyage qui suit ne doit pas, à tort, faire conclure à une session anonyme.
+      await grist.docApi.applyUserActions([['AddColumn', tableId, probeCol, { type: 'Text' }]]);
+    } catch (e) {
+      diag({ event: 'probeCanEdit-addcolumn-failed', message: e.message, tableId, probeCol });
+      return false;
+    }
+    grist.docApi.applyUserActions([['RemoveColumn', tableId, probeCol]])
+      .catch(e => diag({ event: 'probeCanEdit-cleanup-failed', message: e.message, tableId, probeCol }));
+    return true;
   }
 
   // ───────────────────────── Configuration (concepteur) ─────────────────────────
