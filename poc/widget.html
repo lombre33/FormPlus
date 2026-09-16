@@ -28,6 +28,10 @@
     width: 100%; padding: 9px 11px; font: inherit; color: inherit; background: transparent; border: 1px solid var(--border); border-radius: 6px;
   }
   input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+  /* La liste déroulante native force souvent un fond blanc pour ses options, quelle que soit la
+     couleur de fond de la page ; sans ceci le texte clair du mode sombre devient illisible. */
+  select { background-color: var(--card); }
+  select option { color: #1e1e1e; background-color: #fff; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .row input, .row select { flex: 1; min-width: 160px; }
   button { font: inherit; font-weight: 600; padding: 9px 14px; border-radius: 6px; border: 1px solid var(--border); cursor: pointer; background: var(--card); color: var(--text); }
