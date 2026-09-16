@@ -93,7 +93,15 @@
   .qcard-chevron { flex-shrink: 0; color: var(--muted); display: flex; transition: transform .15s; }
   .qcard.expanded .qcard-chevron { transform: rotate(180deg); }
   .qcard-body { padding: 4px 14px 16px; border-top: 1px solid var(--border-soft); }
-  .qf-choice-fields, .qf-advanced, .qf-condition { margin-top: 8px; padding-top: 4px; }
+  .qf-choice-fields, .qf-text-fields, .qf-table-override, .qf-condition { margin-top: 8px; padding-top: 4px; }
+  .qf-table-override { margin-top: 10px; }
+
+  /* Combobox de recherche pour les tables et colonnes */
+  .combo { position: relative; }
+  .combo-list { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; max-height: 220px; overflow-y: auto; background: var(--card); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); padding: 4px; }
+  .combo-opt { padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: .9rem; }
+  .combo-opt:hover { background: var(--accent-soft); }
+  .combo-empty { padding: 8px 10px; color: var(--muted); font-size: .85rem; }
   .qcard-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-soft); }
   .qcard-footer-left { display: flex; gap: 2px; }
   .qcard-footer-right { display: flex; gap: 8px; }
@@ -151,6 +159,8 @@
       <div id="qlist"></div>
       <p id="qlist-empty" class="empty-hint hidden">Aucune question supplémentaire pour l'instant.</p>
       <button id="qadd" type="button" class="add-question-btn"></button>
+      <button id="qimport" type="button" class="qf-link" style="margin-top:10px"></button>
+      <p id="import-msg" class="muted"></p>
     </div>
 
     <details class="muted" style="margin-top:4px"><summary>Diagnostic</summary><pre id="diag" style="white-space:pre-wrap;font-size:.8rem">…</pre></details>
@@ -196,8 +206,10 @@
     plus: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
     x: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
     branch: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>',
+    download: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
   };
   $('qadd').innerHTML = ICONS.plus + '<span>Ajouter une question</span>';
+  $('qimport').innerHTML = ICONS.download + '<span>Importer les champs du formulaire natif</span>';
 
   // ───────────────────────── Liens, adresses, format des options ─────────────────────────
 
@@ -615,6 +627,7 @@
     if (toggleEl) { toggleCard(toggleEl.dataset.toggle); }
   });
   $('qadd').addEventListener('click', () => { expandedId = '__new__'; renderQuestionList(); $('qlist').lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); });
+  $('qimport').addEventListener('click', importNativeFields);
 
   function toggleCard(id) {
     expandedId = (expandedId === id) ? null : id;
@@ -634,14 +647,62 @@
     return cfgQuestions.filter(q => q.kind === 'choice' && q.id !== excludeId);
   }
 
-  // Construit le contenu dépliable d'une carte : formulaire de réglages, options avancées
-  // révélées au clic seulement (destination d'écriture, condition), jamais affichées d'emblée.
+  // Combobox de recherche, remplace un <select> pour les listes de tables/colonnes qui peuvent
+  // être longues. Filtre en tapant, ferme au clic extérieur, aucune dépendance externe.
+  function mountCombo(host, placeholder) {
+    host.innerHTML = `<div class="combo"><input type="text" class="combo-input" placeholder="${esc(placeholder || 'Rechercher…')}" autocomplete="off"><div class="combo-list hidden"></div></div>`;
+    const input = host.querySelector('.combo-input');
+    const listEl = host.querySelector('.combo-list');
+    let items = [];
+    let value = '';
+    let onChangeCb = null;
+    function renderOptions(filter) {
+      const f = (filter || '').toLowerCase();
+      const filtered = items.filter(it => it.label.toLowerCase().includes(f));
+      listEl.innerHTML = filtered.length
+        ? filtered.map(it => `<div class="combo-opt" data-value="${esc(it.value)}">${esc(it.label)}</div>`).join('')
+        : `<div class="combo-empty">Aucun résultat</div>`;
+    }
+    input.addEventListener('focus', () => { renderOptions(''); listEl.classList.remove('hidden'); });
+    input.addEventListener('input', () => { renderOptions(input.value); listEl.classList.remove('hidden'); });
+    input.addEventListener('blur', () => setTimeout(() => listEl.classList.add('hidden'), 150));
+    listEl.addEventListener('mousedown', (e) => {
+      const opt = e.target.closest('.combo-opt');
+      if (!opt) return;
+      e.preventDefault();
+      value = opt.dataset.value;
+      const found = items.find(it => String(it.value) === value);
+      input.value = found ? found.label : value;
+      listEl.classList.add('hidden');
+      if (onChangeCb) onChangeCb(value);
+    });
+    return {
+      setOptions(newItems, selected) {
+        items = newItems;
+        if (selected != null && items.find(it => String(it.value) === String(selected))) {
+          value = String(selected);
+          input.value = items.find(it => String(it.value) === value).label;
+        } else {
+          value = ''; input.value = '';
+        }
+      },
+      get value() { return value; },
+      onChange(cb) { onChangeCb = cb; },
+    };
+  }
+
+  // Construit le contenu dépliable d'une carte : formulaire de réglages. La colonne de
+  // destination d'une question "texte" est toujours visible (chaque réponse doit bien être
+  // rangée quelque part) ; seul le choix d'une AUTRE table reste derrière un lien. Une question
+  // "choix" n'a jamais de destination à régler : elle est entièrement automatique (colonne
+  // Référence cachée créée et gérée par ensureChoiceField).
   async function renderCardBody(id, body) {
     const isNew = id === '__new__';
     const q = isNew ? null : cfgQuestions.find(x => x.id === id);
     const tables = await grist.docApi.listTables();
+    const tableItems = tables.map(t => ({ value: t, label: t }));
     const condCandidates = choiceQuestionsBefore(isNew ? null : id);
-    const advancedOpen = !!(q && q.writeTable && q.writeTable !== mainTableIdCache);
+    const tableOverrideOpen = !!(q && q.kind === 'text' && q.writeTable && q.writeTable !== mainTableIdCache);
     const conditionOpen = !!q?.condition;
 
     body.innerHTML = `
@@ -654,25 +715,22 @@
       <label for="qf-desc-${id}">Description</label>
       <input id="qf-desc-${id}" class="qf-desc" type="text" placeholder="Facultatif" value="${esc(q?.description || '')}">
       <div class="qf-choice-fields hidden">
-        <div class="row">
-          <div><label>Table source</label><select class="qf-srcTable"></select></div>
-          <div><label>Colonne affichée</label><select class="qf-srcCol"></select></div>
+        <label>Table source</label><div class="combo-host" data-combo="srcTable"></div>
+        <label>Colonne affichée (libellé)</label><div class="combo-host" data-combo="srcCol"></div>
+      </div>
+      <div class="qf-text-fields hidden">
+        <label>Colonne de destination</label><div class="combo-host" data-combo="writeCol"></div>
+        <button type="button" class="qf-link" data-reveal="table">${ICONS.settings}<span>Écrire dans une autre table</span></button>
+        <div class="qf-table-override ${tableOverrideOpen ? '' : 'hidden'}">
+          <label>Table de destination</label><div class="combo-host" data-combo="writeTable"></div>
         </div>
       </div>
       <label class="toggle"><input type="checkbox" class="qf-required" ${q?.required ? 'checked' : ''}><span class="toggle-track"><span class="toggle-thumb"></span></span><span>Obligatoire</span></label>
-      <button type="button" class="qf-link" data-reveal="advanced">${ICONS.settings}<span>Écrire dans une autre table</span></button>
-      <div class="qf-advanced ${advancedOpen ? '' : 'hidden'}">
-        <div class="row">
-          <div><label>Table de destination</label><select class="qf-writeTable"></select></div>
-          <div><label>Colonne</label><select class="qf-writeCol"></select></div>
-        </div>
-      </div>
       <button type="button" class="qf-link" data-reveal="condition">${ICONS.branch}<span>Condition d'affichage</span></button>
       <div class="qf-condition ${conditionOpen ? '' : 'hidden'}">
-        <div class="row">
-          <div><label>Afficher si</label><select class="qf-condQ"><option value="">— choisir une question —</option>${condCandidates.map(c => `<option value="${c.id}">${esc(c.label)}</option>`).join('')}</select></div>
-          <div><label>égale</label><select class="qf-condValue"></select></div>
-        </div>
+        <label>Afficher si</label>
+        <select class="qf-condQ"><option value="">— choisir une question —</option>${condCandidates.map(c => `<option value="${c.id}">${esc(c.label)}</option>`).join('')}</select>
+        <label>égale</label><div class="combo-host" data-combo="condValue"></div>
       </div>
       <p class="qf-msg muted"></p>
       <div class="qcard-footer">
@@ -685,54 +743,58 @@
         </div>
       </div>`;
 
+    const combos = {};
+    body.querySelectorAll('[data-combo]').forEach(host => { combos[host.dataset.combo] = mountCombo(host); });
+
     const kind = q?.kind || 'choice';
     const setKind = (k) => {
       body.querySelectorAll('.qtype-btn').forEach(b => b.classList.toggle('active', b.dataset.kind === k));
       body.querySelector('.qf-choice-fields').classList.toggle('hidden', k !== 'choice');
+      body.querySelector('.qf-text-fields').classList.toggle('hidden', k !== 'text');
     };
     setKind(kind);
     body.querySelectorAll('.qtype-btn').forEach(b => b.addEventListener('click', () => setKind(b.dataset.kind)));
 
     body.querySelectorAll('[data-reveal]').forEach(b => b.addEventListener('click', () => {
-      const el = body.querySelector(b.dataset.reveal === 'advanced' ? '.qf-advanced' : '.qf-condition');
+      const el = body.querySelector(b.dataset.reveal === 'table' ? '.qf-table-override' : '.qf-condition');
       el.classList.toggle('hidden');
     }));
 
-    const defaultWriteTable = q?.writeTable ?? mainTableIdCache;
-    fillSelect(body.querySelector('.qf-srcTable'), tables, null, q?.sourceTable);
-    fillSelect(body.querySelector('.qf-writeTable'), tables, null, defaultWriteTable);
-
+    combos.srcTable.setOptions(tableItems, q?.sourceTable);
     async function refreshSrcCol() {
-      const t = body.querySelector('.qf-srcTable').value;
-      if (!t) return;
-      const data = await fetchMeta(t);
-      fillSelect(body.querySelector('.qf-srcCol'), columnOptions(data), null, q?.sourceCol);
+      if (!combos.srcTable.value) { combos.srcCol.setOptions([]); return; }
+      const data = await fetchMeta(combos.srcTable.value);
+      combos.srcCol.setOptions(columnOptions(data).map(c => ({ value: c, label: c })), q?.sourceCol);
     }
-    async function refreshWriteCol() {
-      const t = body.querySelector('.qf-writeTable').value;
-      if (!t) return;
-      const data = await fetchMeta(t);
-      fillSelect(body.querySelector('.qf-writeCol'), columnOptions(data), null, q?.writeCol);
-    }
+    combos.srcTable.onChange(refreshSrcCol);
     await refreshSrcCol();
+
+    // La colonne de destination "texte" suit toujours la table active (celle qu'on a choisi
+    // d'écrire ailleurs, sinon la table principale) : jamais besoin d'ouvrir "Écrire dans une
+    // autre table" juste pour voir où la réponse ira, seulement pour CHANGER la table.
+    combos.writeTable.setOptions(tableItems, q?.writeTable ?? mainTableIdCache);
+    async function refreshWriteCol() {
+      if (!combos.writeTable.value) { combos.writeCol.setOptions([]); return; }
+      const data = await fetchMeta(combos.writeTable.value);
+      combos.writeCol.setOptions(columnOptions(data).map(c => ({ value: c, label: c })), q?.writeCol);
+    }
+    combos.writeTable.onChange(refreshWriteCol);
     await refreshWriteCol();
-    body.querySelector('.qf-srcTable').addEventListener('change', refreshSrcCol);
-    body.querySelector('.qf-writeTable').addEventListener('change', refreshWriteCol);
 
     async function refreshCondValues() {
       const srcId = body.querySelector('.qf-condQ').value;
-      if (!srcId) { body.querySelector('.qf-condValue').innerHTML = ''; return; }
+      if (!srcId) { combos.condValue.setOptions([]); return; }
       const src = cfgQuestions.find(x => x.id === srcId);
       if (!src) return;
       const data = await fetchMeta(src.sourceTable);
-      fillSelect(body.querySelector('.qf-condValue'), data[src.sourceCol] || [], null, q?.condition?.value);
+      combos.condValue.setOptions((data[src.sourceCol] || []).map(v => ({ value: v, label: v })), q?.condition?.value);
     }
     if (q?.condition) body.querySelector('.qf-condQ').value = q.condition.questionId;
     body.querySelector('.qf-condQ').addEventListener('change', refreshCondValues);
     await refreshCondValues();
 
     body.querySelector('.qf-cancel').addEventListener('click', () => { expandedId = null; renderQuestionList(); });
-    body.querySelector('.qf-save').addEventListener('click', () => saveQuestionFromCard(id, body, q));
+    body.querySelector('.qf-save').addEventListener('click', () => saveQuestionFromCard(id, body, q, combos));
     body.querySelector('[data-del]')?.addEventListener('click', async () => {
       cfgQuestions = cfgQuestions.filter(x => x.id !== id);
       expandedId = null;
@@ -748,35 +810,114 @@
     });
   }
 
-  async function saveQuestionFromCard(id, body, existing) {
+  async function saveQuestionFromCard(id, body, existing, combos) {
     const msg = body.querySelector('.qf-msg');
     const kind = body.querySelector('.qtype-btn.active')?.dataset.kind || 'choice';
     const label = body.querySelector('.qf-label').value.trim() || (kind === 'choice' ? 'Votre choix' : 'Réponse');
     const description = body.querySelector('.qf-desc').value.trim();
-    const writeTable = body.querySelector('.qf-writeTable').value;
-    const writeCol = body.querySelector('.qf-writeCol').value;
-    if (!writeTable || !writeCol) { msg.innerHTML = '<span class="err">Choisissez une table et une colonne de destination (« Écrire dans une autre table »).</span>'; return; }
     const condQ = body.querySelector('.qf-condQ').value;
-    const condition = condQ ? { questionId: condQ, op: 'equals', value: body.querySelector('.qf-condValue').value } : null;
-    const q = {
-      id: existing?.id || uid(), kind, label, description, writeTable, writeCol,
-      required: body.querySelector('.qf-required').checked, condition,
-    };
-    if (kind === 'choice') { q.sourceTable = body.querySelector('.qf-srcTable').value; q.sourceCol = body.querySelector('.qf-srcCol').value; }
+    const condition = condQ ? { questionId: condQ, op: 'equals', value: combos.condValue.value } : null;
+    const mainTableId = await tableIdOfRef(currentFormSection.tableRef);
 
     try {
       msg.textContent = 'Enregistrement…';
-      const mainTableId = await tableIdOfRef(currentFormSection.tableRef);
+      const q = { id: existing?.id || uid(), kind, label, description, required: body.querySelector('.qf-required').checked, condition };
       if (kind === 'choice') {
-        await ensureChoiceField(mainTableId, currentFormSection.id, q.sourceTable, q.sourceCol);
-      }
-      if (writeTable !== mainTableId) {
-        await ensureTableGate(writeTable, currentFormSection.viewRef);
+        q.sourceTable = combos.srcTable.value;
+        q.sourceCol = combos.srcCol.value;
+        if (!q.sourceTable || !q.sourceCol) { msg.innerHTML = '<span class="err">Choisissez une table source et sa colonne affichée.</span>'; return; }
+        // La colonne de destination est TOUJOURS la référence cachée que crée/retrouve
+        // ensureChoiceField, jamais un choix libre : c'est ce qui garantit que la lecture
+        // fonctionne aussi pour la session anonyme (voir docs/01, "piège visibleCol").
+        q.writeTable = mainTableId;
+        q.writeCol = await ensureChoiceField(mainTableId, currentFormSection.id, q.sourceTable, q.sourceCol);
+      } else {
+        q.writeTable = combos.writeTable.value;
+        q.writeCol = combos.writeCol.value;
+        if (!q.writeTable || !q.writeCol) { msg.innerHTML = '<span class="err">Choisissez la colonne où enregistrer la réponse.</span>'; return; }
+        if (q.writeTable !== mainTableId) await ensureTableGate(q.writeTable, currentFormSection.viewRef);
       }
       cfgQuestions = [...cfgQuestions.filter(x => x.id !== q.id), q];
       await saveConfig(options.publicUrl, options.viewRef);
       expandedId = null;
       renderQuestionList();
+    } catch (e) {
+      msg.innerHTML = `<span class="err">Erreur : ${esc(e.message)}</span>`;
+    }
+  }
+
+  // ───────────────────────── Importer les champs du formulaire natif ─────────────────────────
+  // Bascule un champ natif compatible (Texte ou Référence) vers une question FormPlus éditable
+  // dans la même liste : le masque côté formulaire natif (formIsHidden, même mécanisme que pour
+  // nos propres colonnes techniques) et crée l'entrée correspondante. À sens unique : une fois
+  // importé, le champ se gère depuis FormPlus ; le rendre à nouveau visible côté Grist natif ne
+  // resynchronise pas automatiquement les libellés ou réglages dans l'autre sens.
+  async function importNativeFields() {
+    const msg = $('import-msg');
+    msg.textContent = 'Lecture du formulaire natif…';
+    try {
+      const r = await fetch(`${currentLink.api}/forms/${currentLink.vsId}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const form = await r.json();
+      const mainTableId = await tableIdOfRef(currentFormSection.tableRef);
+      const cols = await fetchMeta('_grist_Tables_column');
+      const tables = await fetchMeta('_grist_Tables');
+      const mainTableRef = tables.id[tables.tableId.indexOf(mainTableId)];
+      const sectionFields = await fetchMeta('_grist_Views_section_field');
+
+      const imported = [];
+      const skipped = {};
+      const fieldUpdates = [];
+
+      for (const [fieldId, fl] of Object.entries(form.formFieldsById)) {
+        const o = fl.options || {};
+        if (o.formIsHidden) continue; // déjà masqué : déjà importé, ou masqué intentionnellement
+        if (fl.type !== 'Text' && fl.type !== 'Any' && fl.type !== 'Ref') {
+          skipped[fl.type] = (skipped[fl.type] || 0) + 1;
+          continue;
+        }
+        const q = { id: uid(), label: fl.question, description: fl.description || '', required: !!o.formRequired, condition: null };
+        if (fl.type === 'Ref') {
+          const colIdx = cols.colId.findIndex((c, i) => c === fl.colId && cols.parentId[i] === mainTableRef);
+          if (colIdx < 0) { skipped['Référence (introuvable)'] = (skipped['Référence (introuvable)'] || 0) + 1; continue; }
+          const m = /^Ref:(.+)$/.exec(cols.type[colIdx] || '');
+          const sourceTable = m ? m[1] : null;
+          const visibleColRef = cols.visibleCol[colIdx];
+          const visIdx = visibleColRef ? cols.id.indexOf(visibleColRef) : -1;
+          const sourceCol = visIdx >= 0 ? cols.colId[visIdx] : 'id';
+          if (!sourceTable) { skipped['Référence (table introuvable)'] = (skipped['Référence (table introuvable)'] || 0) + 1; continue; }
+          q.kind = 'choice';
+          q.sourceTable = sourceTable;
+          q.sourceCol = sourceCol;
+          q.writeTable = mainTableId;
+          q.writeCol = await ensureChoiceField(mainTableId, currentFormSection.id, sourceTable, sourceCol);
+        } else {
+          q.kind = 'text';
+          q.writeTable = mainTableId;
+          q.writeCol = fl.colId; // colonne déjà existante : aucune nouvelle colonne créée
+        }
+        // Masque le champ natif d'origine pour que FormPlus en devienne le seul affichage.
+        const fieldRowIdx = sectionFields.id.findIndex((rowId, i) =>
+          sectionFields.parentId[i] === currentFormSection.id && String(rowId) === String(fieldId));
+        if (fieldRowIdx >= 0) {
+          let existingOpts = {};
+          try { existingOpts = JSON.parse(sectionFields.widgetOptions[fieldRowIdx] || '{}') || {}; } catch (e) { /* ignore */ }
+          fieldUpdates.push(['UpdateRecord', '_grist_Views_section_field', sectionFields.id[fieldRowIdx],
+            { widgetOptions: JSON.stringify({ ...existingOpts, formIsHidden: true }) }]);
+        }
+        imported.push(q);
+      }
+
+      if (fieldUpdates.length) await grist.docApi.applyUserActions(fieldUpdates);
+      if (imported.length) {
+        cfgQuestions = [...cfgQuestions, ...imported];
+        await saveConfig(options.publicUrl, options.viewRef);
+        renderQuestionList();
+      }
+      const skipMsg = Object.keys(skipped).length ? ` Ignorés (type non pris en charge pour l'instant) : ${Object.entries(skipped).map(([t, n]) => `${n} ${t}`).join(', ')}.` : '';
+      msg.innerHTML = imported.length
+        ? `<span class="ok">${imported.length} champ(s) importé(s).${skipMsg}</span>`
+        : `<span class="muted">Rien à importer.${skipMsg || ' Tous les champs sont déjà pris en charge ou déjà importés.'}</span>`;
     } catch (e) {
       msg.innerHTML = `<span class="err">Erreur : ${esc(e.message)}</span>`;
     }
