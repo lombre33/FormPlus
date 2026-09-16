@@ -60,3 +60,7 @@ Toutes les options sont décrites dans `poc/README-poc.md`.
 ## Licence
 
 À définir. Une licence libre (Apache-2.0 ou MIT) est recommandée pour permettre une revue et une inscription dans la galerie de widgets des instances DINUM et ANCT.
+
+## Dépendances tierces
+
+`poc/qrcode.js` — générateur de QR code, [QRCode for JavaScript](https://github.com/davidshimjs/qrcodejs) par Kazuhiko Arase, licence MIT. Hébergé dans le dépôt (servi depuis la même origine que le widget) plutôt que chargé depuis un CDN, pour que le widget reste autonome et sans dépendance réseau au moment de l'exécution.
