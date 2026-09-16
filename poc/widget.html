@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FormPlus</title>
+<style>
+  :root { --bg: #f5f6fa; --card: #fff; --text: #1e1e1e; --muted: #666; --border: #d9d9e0; --accent: #000091; --accent-text: #fff; --ok: #18753c; --error: #ce0500; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #161616; --card: #1f1f1f; --text: #f0f0f0; --muted: #a8a8a8; --border: #3a3a3a; --accent: #8585f6; --accent-text: #0b0b3b; --ok: #6ee7a0; --error: #ff7a70; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 16px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 12px; }
+  h1 { font-size: 1.2rem; margin: 0 0 4px; }
+  h2 { font-size: 1rem; margin: 0 0 8px; }
+  p { margin: 0 0 10px; }
+  .muted { color: var(--muted); font-size: .9rem; }
+  label { display: block; font-weight: 600; margin: 10px 0 6px; }
+  input[type=url], input[type=text] { width: 100%; padding: 10px 12px; font: inherit; color: inherit; background: transparent; border: 1px solid var(--border); border-radius: 6px; }
+  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .row input { flex: 1; min-width: 200px; }
+  button { font: inherit; font-weight: 600; padding: 9px 14px; border-radius: 6px; border: 1px solid var(--border); cursor: pointer; background: var(--card); color: var(--text); }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: transparent; }
+  button:disabled { opacity: .5; cursor: default; }
+  .ok { color: var(--ok); }
+  .err { color: var(--error); }
+  .url { font-family: ui-monospace, Consolas, monospace; font-size: .85rem; overflow-wrap: anywhere; word-break: break-all; background: var(--bg); padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border); }
+  .steps { padding-left: 20px; margin: 0 0 10px; }
+  .steps li { margin-bottom: 6px; }
+  iframe.form { width: 100%; border: 0; min-height: 480px; height: calc(100vh - 32px); background: transparent; }
+  .toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 8px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap" id="app">
+  <div class="card" id="loading"><p class="muted">Connexion à Grist…</p></div>
+
+  <div id="config" class="hidden">
+    <div class="card">
+      <h1>FormPlus · Publier ce formulaire</h1>
+      <p class="muted">Ce widget doit être placé sur la même page que le formulaire natif publié, replié si vous voulez.</p>
+      <ol class="steps">
+        <li>Dans le widget Formulaire natif de cette page, cliquez <strong>Publier</strong> si ce n'est pas fait, puis <strong>Copier le lien</strong>.</li>
+        <li>Collez ce lien ci-dessous.</li>
+      </ol>
+      <label for="link">Lien du formulaire natif publié</label>
+      <div class="row">
+        <input id="link" type="url" placeholder="https://grist.numerique.gouv.fr/o/mon-equipe/forms/CLE/12">
+        <button id="paste" type="button" title="Lire le presse-papiers">Coller</button>
+        <button id="generate" type="button" class="primary">Générer l'adresse</button>
+      </div>
+      <p id="cfg-msg" class="muted"></p>
+    </div>
+
+    <div class="card hidden" id="result">
+      <h2>Adresse à diffuser</h2>
+      <p class="muted">Sur le domaine Grist, sans compte, sans règle d'accès. Le répondant ne peut lire aucune réponse.</p>
+      <div class="url" id="public-url"></div>
+      <div class="row" style="margin-top:10px">
+        <button id="copy" type="button" class="primary">Copier l'adresse</button>
+        <button id="open" type="button">Ouvrir dans un nouvel onglet</button>
+        <button id="done" type="button">Voir le formulaire</button>
+      </div>
+      <p id="page-check" class="muted" style="margin-top:10px"></p>
+    </div>
+  </div>
+
+  <div id="fill" class="hidden">
+    <div class="toolbar" id="fill-toolbar"><button id="edit" type="button">Configuration</button></div>
+    <iframe class="form" id="form-frame" title="Formulaire"></iframe>
+  </div>
+
+  <div id="standalone" class="card hidden">
+    <h1>FormPlus</h1>
+    <p>Cette page est un widget Grist. Ajoutez-la dans un document : Ajouter un widget, Personnalisé, URL personnalisée, puis collez l'adresse de cette page. Niveau d'accès : accès complet, nécessaire au concepteur pour retrouver la page.</p>
+    <p class="muted">Pour répondre à un formulaire hors de Grist, utilisez <a href="public-form.html">public-form.html</a> avec le lien du formulaire après <code>#form=</code>.</p>
+  </div>
+</div>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const show = (id) => ['loading', 'config', 'fill', 'standalone'].forEach(x => $(x).classList.toggle('hidden', x !== id));
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  // Analyse d'un lien de formulaire publié : https://hote[/o/org]/forms/<clé>/<section>
+  function parseFormLink(u) {
+    const m = /^(https?:\/\/[^/]+)(?:\/o\/([^/]+))?\/forms\/([^/?#]+)\/(\d+)/.exec((u || '').trim());
+    if (!m) return null;
+    const [, host, org, key, vsId] = m;
+    return { host, org: org || null, key, vsId: Number(vsId), base: org ? `${host}/o/${org}` : host };
+  }
+  function buildPublicUrl(link, viewRef) {
+    return `${link.base}/s/${link.key}/p/${viewRef}?style=singlePage`;
+  }
+  window.FormPlus = { parseFormLink, buildPublicUrl }; // exposé pour les tests
+
+  let options = null;
+  let connected = false;
+  let canEdit = true;
+
+  // Charge grist-plugin-api.js depuis l'instance Grist qui héberge le widget, sinon depuis docs.getgrist.com.
+  function loadPluginApi() {
+    return new Promise((resolve) => {
+      let origin = 'https://docs.getgrist.com';
+      try { if (document.referrer) origin = new URL(document.referrer).origin; } catch (e) { /* ignore */ }
+      const tryLoad = (src, next) => {
+        const s = document.createElement('script');
+        s.src = src; s.onload = () => resolve(true); s.onerror = next;
+        document.head.appendChild(s);
+      };
+      tryLoad(`${origin}/grist-plugin-api.js`, () =>
+        origin === 'https://docs.getgrist.com' ? resolve(false) : tryLoad('https://docs.getgrist.com/grist-plugin-api.js', () => resolve(false)));
+    });
+  }
+
+  async function findViewRefForSection(vsId) {
+    // La page de l'adresse finale est celle du formulaire natif : parentId de sa section.
+    const sections = await grist.docApi.fetchTable('_grist_Views_section');
+    const idx = sections.id.indexOf(vsId);
+    if (idx < 0) return { viewRef: null, customOnPage: 0 };
+    const viewRef = sections.parentId[idx];
+    let customOnPage = 0;
+    for (let i = 0; i < sections.id.length; i++) {
+      if (sections.parentId[i] === viewRef && sections.parentKey[i] === 'custom') customOnPage++;
+    }
+    return { viewRef, customOnPage };
+  }
+
+  function showFill(publicUrl, formLink) {
+    show('fill');
+    $('fill-toolbar').classList.toggle('hidden', !canEdit);
+    // Le rendu répondant réutilise public-form.html ; la clé passe dans le fragment, jamais au serveur.
+    $('form-frame').src = new URL('public-form.html#form=' + encodeURIComponent(formLink), location.href).href;
+  }
+
+  function showConfig() {
+    show('config');
+    if (options?.formLink) {
+      $('link').value = options.formLink;
+      if (options.publicUrl) { $('public-url').textContent = options.publicUrl; $('result').classList.remove('hidden'); }
+    }
+  }
+
+  async function generate() {
+    const msg = $('cfg-msg');
+    const link = parseFormLink($('link').value);
+    if (!link) { msg.innerHTML = '<span class="err">Lien non reconnu. Il doit contenir <code>/forms/&lt;clé&gt;/&lt;numéro&gt;</code>.</span>'; return; }
+    msg.textContent = 'Recherche de la page du formulaire…';
+    let viewRef = null, customOnPage = 0;
+    try { ({ viewRef, customOnPage } = await findViewRefForSection(link.vsId)); }
+    catch (e) { msg.innerHTML = `<span class="err">Impossible de lire les métadonnées du document (${esc(e.message)}). Le widget a-t-il l'accès complet ?</span>`; return; }
+    if (!viewRef) { msg.innerHTML = '<span class="err">Cette section de formulaire n\'existe pas dans ce document. Le lien vient-il bien d\'ici ?</span>'; return; }
+    const publicUrl = buildPublicUrl(link, viewRef);
+    const saved = { formLink: $('link').value.trim(), shareKey: link.key, vsId: link.vsId, viewRef, publicUrl };
+    try { await grist.setOptions(saved); options = saved; msg.innerHTML = '<span class="ok">Configuration enregistrée dans le widget.</span>'; }
+    catch (e) { msg.innerHTML = `<span class="err">Adresse calculée mais non enregistrée (${esc(e.message)}).</span>`; }
+    $('public-url').textContent = publicUrl;
+    $('result').classList.remove('hidden');
+    $('page-check').innerHTML = customOnPage > 0
+      ? `<span class="ok">Page ${viewRef} : ${customOnPage} widget personnalisé détecté, l'adresse affichera FormPlus.</span>`
+      : `<span class="err">Aucun widget personnalisé sur la page ${viewRef} : déplacez ce widget sur la page du formulaire natif, sinon l'adresse n'affichera que le formulaire natif.</span>`;
+  }
+
+  $('generate').addEventListener('click', generate);
+  $('link').addEventListener('keydown', (e) => { if (e.key === 'Enter') generate(); });
+  $('paste').addEventListener('click', async () => {
+    try { $('link').value = (await navigator.clipboard.readText()).trim(); generate(); }
+    catch (e) { $('cfg-msg').textContent = 'Lecture du presse-papiers refusée : collez le lien dans le champ avec Ctrl+V.'; $('link').focus(); }
+  });
+  $('copy').addEventListener('click', async () => {
+    const url = $('public-url').textContent;
+    try { await navigator.clipboard.writeText(url); $('copy').textContent = 'Copiée'; setTimeout(() => $('copy').textContent = "Copier l'adresse", 1500); }
+    catch (e) { window.prompt('Copiez cette adresse :', url); }
+  });
+  $('open').addEventListener('click', () => window.open($('public-url').textContent, '_blank', 'noopener'));
+  $('done').addEventListener('click', () => options?.formLink && showFill(options.publicUrl, options.formLink));
+  $('edit').addEventListener('click', showConfig);
+
+  (async () => {
+    const inIframe = window.self !== window.top;
+    const ok = inIframe && await loadPluginApi();
+    if (!ok) { show('standalone'); return; }
+    grist.ready({ requiredAccess: 'full', onEditOptions: () => showConfig() });
+    const timeout = setTimeout(() => { if (!connected) show('standalone'); }, 4000);
+    let probed = false;
+    grist.onOptions(async (opts) => {
+      connected = true; clearTimeout(timeout);
+      options = opts || {};
+      if (options.formLink && options.publicUrl) {
+        // Le bouton Configuration n'a de sens que si l'utilisateur peut modifier le widget.
+        // Une réécriture à l'identique des options sert de sonde : refusée en session partage ou en lecture seule.
+        if (!probed) {
+          probed = true;
+          try { await grist.setOptions(options); canEdit = true; } catch (e) { canEdit = false; }
+        }
+        showFill(options.publicUrl, options.formLink);
+      } else {
+        showConfig();
+      }
+    });
+  })();
+})();
+</script>
+</body>
+</html>

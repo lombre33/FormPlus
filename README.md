@@ -34,6 +34,10 @@ Le lien est placé après `#` : cette partie de l'adresse reste dans le navigate
 
 3. Pour la tester comme widget dans Grist : Ajouter un widget, Personnalisé, URL personnalisée, coller la même adresse, niveau d'accès « Aucun accès au document ». La page n'a pas besoin d'accéder au document, elle passe par la clé de partage.
 
+### Adresse sur le domaine Grist, générée par le widget
+
+Sur la page qui porte le formulaire natif publié, ajouter un widget Personnalisé avec l'URL `https://lombre33.github.io/FormPlus/poc/widget.html` et l'accès complet. Coller dans le widget le lien obtenu par « Copier le lien » du formulaire natif : il génère l'adresse à diffuser, `https://<instance>/o/<org>/s/<clé>/p/<page>?style=singlePage`. Elle ouvre le document en session « partage » anonyme : le widget s'affiche, la création est possible, aucune réponse n'est lisible, sans règle d'accès et dans le même document. Détails dans `docs/01-etude-comparative.md`, transport 1 bis.
+
 ## Où passent les données
 
 Aucun intermédiaire. Deux acteurs seulement : le navigateur du répondant et le serveur Grist qui héberge le document.

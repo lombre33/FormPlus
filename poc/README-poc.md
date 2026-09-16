@@ -73,17 +73,15 @@ La page lit la définition, affiche les champs dans un style sobre, envoie les p
 
 Objectif : le répondant ouvre une adresse sur le domaine Grist, sans compte, dans le même document, sans règle d'accès, et ne peut pas lire les réponses.
 
+Méthode simple, avec le widget qui génère l'adresse :
+
 1. Sur la page qui porte le formulaire natif publié de `Reponses`, cliquer **Ajouter un widget à la page**, type **Personnalisé**, table `Reponses`.
-2. Dans le panneau de droite, **URL personnalisée** : coller `https://lombre33.github.io/FormPlus/poc/public-form.html#form=<lien du formulaire Reponses>`. Niveau d'accès : « Aucun accès au document ».
-3. Replier le formulaire natif : menu `⋮` du widget Formulaire, **Réduire** (il reste sur la page, c'est lui qui porte la clé).
-4. Noter le numéro de page dans l'adresse du navigateur, de la forme `/p/7`.
-5. Construire l'adresse à diffuser à partir du lien du formulaire `https://<instance>/o/<org>/forms/<clé>/<section>` :
+2. Dans le panneau de droite, **URL personnalisée** : coller `https://lombre33.github.io/FormPlus/poc/widget.html`. Niveau d'accès : **Accès complet au document**, nécessaire pour retrouver la page dans les métadonnées.
+3. Dans le widget Formulaire natif de la page : **Copier le lien**. Dans le widget FormPlus : **Coller**, ou coller dans le champ puis **Générer l'adresse**. Le widget enregistre la configuration et affiche l'adresse `https://<instance>/o/<org>/s/<clé>/p/<page>?style=singlePage`, avec un contrôle que la page contient bien un widget personnalisé.
+4. Replier le formulaire natif : menu `⋮` du widget Formulaire, **Réduire**. Il reste sur la page, c'est lui qui porte la clé.
+5. **Copier l'adresse**, l'ouvrir dans une fenêtre de navigation privée, remplir, envoyer. Vérifier la ligne dans `Reponses`.
+6. Ouvrir la même adresse sans `?style=singlePage` pour voir ce qu'un curieux verrait : la liste des pages et des tables, jamais les données.
 
-```
-https://<instance>/o/<org>/s/<clé>/p/7?style=singlePage
-```
+Méthode manuelle, si le widget ne parvient pas à lire les métadonnées : utiliser `public-form.html#form=<lien du formulaire>` comme URL personnalisée avec « Aucun accès au document », relever le numéro de page `/p/N` dans la barre d'adresse, et construire l'adresse ci-dessus à la main à partir du lien `.../forms/<clé>/<section>`.
 
-6. L'ouvrir dans une fenêtre de navigation privée, remplir, envoyer. Vérifier la ligne dans `Reponses`.
-7. Ouvrir la même adresse sans `?style=singlePage` pour voir ce qu'un curieux verrait : la liste des pages et des tables, jamais les données.
-
-Si l'étape 6 fonctionne, refaire le test avec le niveau d'accès du widget sur « Accès complet au document » : cela prépare la version du widget qui écrira par l'API plugin plutôt que par la clé dans l'adresse.
+Pour être notés au retour : le widget s'affiche-t-il bien en navigation privée via l'adresse `/s/`, l'envoi crée-t-il la ligne, et le bouton « Configuration » est-il bien absent pour l'anonyme.

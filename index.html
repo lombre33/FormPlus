@@ -47,6 +47,13 @@
   </div>
 
   <div class="card">
+    <h2>Tester comme widget dans Grist</h2>
+    <p>Sur la page qui porte votre formulaire natif publié : Ajouter un widget, Personnalisé, URL personnalisée, accès complet, et collez :</p>
+    <p><code id="widget-url">poc/widget.html</code></p>
+    <p class="muted">Le widget vous demande le lien du formulaire publié (bouton « Copier le lien » du formulaire natif), puis génère l'adresse Grist à diffuser, de la forme <code>/s/&lt;clé&gt;/p/&lt;page&gt;?style=singlePage</code>.</p>
+  </div>
+
+  <div class="card">
     <h2>Documentation</h2>
     <ul>
       <li><a href="https://github.com/lombre33/FormPlus/blob/main/docs/01-etude-comparative.md">Étude comparative et options de lien dédié</a></li>
@@ -57,6 +64,7 @@
   </div>
 </main>
 <script>
+  document.getElementById('widget-url').textContent = new URL('poc/widget.html', location.href).href;
   const input = document.getElementById('u'), out = document.getElementById('out');
   // Le lien du formulaire est placé dans le fragment (#) : il reste dans le navigateur et n'est jamais envoyé à l'hébergeur de la page.
   const build = () => new URL('poc/public-form.html#form=' + encodeURIComponent(input.value.trim()), location.href).href;
