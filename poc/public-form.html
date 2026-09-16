@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Formulaire</title>
+<style>
+  :root {
+    --bg: #f5f6fa; --card: #ffffff; --text: #1e1e1e; --muted: #666; --border: #d9d9e0;
+    --accent: #000091; --accent-text: #fff; --error: #ce0500; --ok: #18753c; --radius: 8px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161616; --card: #1f1f1f; --text: #f0f0f0; --muted: #a8a8a8; --border: #3a3a3a;
+      --accent: #8585f6; --accent-text: #0b0b3b; --error: #ff7a70; --ok: #6ee7a0;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 24px 16px 64px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; }
+  .card + .card { margin-top: 16px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0; font-size: .95rem; }
+  .q { margin: 0 0 22px; }
+  .q:last-child { margin-bottom: 0; }
+  label.title { display: block; font-weight: 600; margin-bottom: 6px; }
+  .req::after { content: " *"; color: var(--error); }
+  .desc { color: var(--muted); font-size: .9rem; margin: -2px 0 8px; }
+  input[type=text], input[type=number], input[type=date], input[type=datetime-local], input[type=email], textarea, select {
+    width: 100%; padding: 10px 12px; font: inherit; color: inherit; background: transparent;
+    border: 1px solid var(--border); border-radius: 6px;
+  }
+  input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+  .opt { display: flex; gap: 10px; align-items: center; padding: 6px 0; }
+  .opt input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .switch { display: flex; gap: 10px; align-items: center; }
+  button { font: inherit; font-weight: 600; padding: 12px 20px; border-radius: 6px; border: 1px solid transparent; cursor: pointer; }
+  .primary { background: var(--accent); color: var(--accent-text); }
+  .primary[disabled] { opacity: .6; cursor: progress; }
+  .err { color: var(--error); font-size: .9rem; margin-top: 6px; display: none; }
+  .q.invalid .err { display: block; }
+  .q.invalid input, .q.invalid select, .q.invalid textarea { border-color: var(--error); }
+  .actions { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+  .hp { position: absolute; left: -9999px; }
+  .ok { color: var(--ok); }
+  .center { text-align: center; }
+  code { font-size: .85em; }
+</style>
+</head>
+<body>
+<main>
+  <div id="app" class="card"><p class="sub">Chargement…</p></div>
+</main>
+<script>
+(function () {
+  const params = new URLSearchParams(location.search);
+  const formUrl = params.get('form');
+  const app = document.getElementById('app');
+
+  function parseFormUrl(u) {
+    const m = /^(https?:\/\/[^/]+)(?:\/o\/([^/]+))?\/forms\/([^/]+)\/(\d+)/.exec(u || '');
+    if (!m) return null;
+    const [, host, org, key, vsId] = m;
+    return { api: org ? `${host}/o/${org}/api/s/${key}` : `${host}/api/s/${key}`, vsId: Number(vsId) };
+  }
+
+  const target = parseFormUrl(formUrl);
+  if (!target) {
+    app.innerHTML = `<h1>Formulaire de test</h1>
+      <p class="sub">Ajoutez <code>?form=&lt;lien du formulaire Grist publié&gt;</code> à l'URL de cette page.</p>
+      <p class="sub">Exemple : <code>public-form.html?form=https://grist.numerique.gouv.fr/o/equipe/forms/CLE/12</code></p>`;
+    return;
+  }
+
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  let form = null;
+
+  fetch(`${target.api}/forms/${target.vsId}`)
+    .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+    .then(f => { form = f; render(f); })
+    .catch(e => { app.innerHTML = `<h1>Formulaire indisponible</h1><p class="sub">${esc(e.message)}</p>`; });
+
+  function layoutOrder(f) {
+    // Ordre des champs d'après le layoutSpec du formulaire natif, sinon ordre des ids.
+    const ids = [];
+    try {
+      const walk = (n) => { if (!n) return; if (n.type === 'Field' && n.leaf != null) ids.push(String(n.leaf)); (n.children || []).forEach(walk); };
+      walk(JSON.parse(f.formLayoutSpec));
+    } catch (e) { /* ignore */ }
+    const all = Object.keys(f.formFieldsById);
+    return ids.filter(i => all.includes(i)).concat(all.filter(i => !ids.includes(i)));
+  }
+
+  function render(f) {
+    const rows = layoutOrder(f).map(id => renderField(id, f.formFieldsById[id])).join('');
+    app.innerHTML = `
+      <h1>${esc(f.formTitle)}</h1>
+      <p class="sub">Les champs marqués * sont obligatoires.</p>
+      <form id="f" novalidate>
+        ${rows}
+        <label class="hp">Ne pas remplir <input type="text" name="_website" tabindex="-1" autocomplete="off"></label>
+        <div class="actions">
+          <span id="status" class="sub"></span>
+          <button type="submit" class="primary">Envoyer</button>
+        </div>
+      </form>`;
+    document.getElementById('f').addEventListener('submit', onSubmit);
+  }
+
+  function renderField(id, fl) {
+    const o = fl.options || {};
+    const name = fl.colId;
+    const req = o.formRequired ? 'req' : '';
+    const hidden = o.formIsHidden;
+    const prefill = o.formAcceptFromUrl ? params.get(name) : null;
+    const head = `<label class="title ${req}" for="i${id}">${esc(fl.question)}</label>` +
+      (fl.description ? `<p class="desc">${esc(fl.description)}</p>` : '');
+    let input = '';
+    const choices = o.choices || [];
+    const refs = fl.refValues || [];
+    switch (fl.type) {
+      case 'Int': case 'Numeric':
+        input = `<input id="i${id}" type="number" step="any" name="${name}" value="${esc(prefill ?? '')}">`; break;
+      case 'Bool':
+        input = `<label class="switch"><input type="checkbox" name="${name}" ${prefill === 'true' ? 'checked' : ''}> Oui</label>`; break;
+      case 'Date':
+        input = `<input id="i${id}" type="date" name="${name}" value="${esc(prefill ?? '')}">`; break;
+      case 'DateTime':
+        input = `<input id="i${id}" type="datetime-local" name="${name}" value="${esc(prefill ?? '')}">`; break;
+      case 'Choice':
+      case 'Ref': {
+        const opts = fl.type === 'Choice' ? choices.map(c => [c, c]) : refs.map(([rid, v]) => [rid, v]);
+        if (o.formSelectFormat === 'radio') {
+          input = opts.map(([v, l]) => `<label class="opt"><input type="radio" name="${name}" value="${esc(v)}" ${String(v) === prefill ? 'checked' : ''}> ${esc(l)}</label>`).join('');
+        } else {
+          input = `<select id="i${id}" name="${name}"><option value="">Choisir…</option>` +
+            opts.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === prefill ? 'selected' : ''}>${esc(l)}</option>`).join('') + `</select>`;
+        }
+        break;
+      }
+      case 'ChoiceList':
+      case 'RefList': {
+        const opts = fl.type === 'ChoiceList' ? choices.map(c => [c, c]) : refs.map(([rid, v]) => [rid, v]);
+        input = opts.map(([v, l]) => `<label class="opt"><input type="checkbox" name="${name}[]" value="${esc(v)}"> ${esc(l)}</label>`).join('');
+        break;
+      }
+      case 'Attachments':
+        input = `<input id="i${id}" type="file" name="${name}" multiple>`; break;
+      default:
+        input = o.formTextFormat === 'multiline'
+          ? `<textarea id="i${id}" name="${name}" rows="${o.formTextLineCount || 3}">${esc(prefill ?? '')}</textarea>`
+          : `<input id="i${id}" type="text" name="${name}" value="${esc(prefill ?? '')}" ${o.formTextMaximumLength ? `maxlength="${o.formTextMaximumLength}"` : ''}>`;
+    }
+    return `<div class="q" data-type="${fl.type}" data-col="${name}" data-required="${o.formRequired ? 1 : 0}" ${hidden ? 'hidden' : ''}>${head}${input}<div class="err">Ce champ est obligatoire.</div></div>`;
+  }
+
+  async function onSubmit(ev) {
+    ev.preventDefault();
+    const formEl = ev.target;
+    if (formEl._website.value) return; // honeypot
+    const fields = {};
+    const uploads = [];
+    let valid = true;
+    for (const q of formEl.querySelectorAll('.q')) {
+      const col = q.dataset.col, type = q.dataset.type, required = q.dataset.required === '1';
+      let value = null;
+      if (type === 'Bool') value = q.querySelector('input').checked;
+      else if (type === 'ChoiceList' || type === 'RefList') {
+        const vals = [...q.querySelectorAll('input:checked')].map(i => type === 'RefList' ? Number(i.value) : i.value);
+        value = vals.length ? ['L', ...vals] : null;
+      } else if (type === 'Attachments') {
+        const files = [...q.querySelector('input').files];
+        if (files.length) uploads.push({ col, files });
+        value = files.length ? 'pending' : null;
+      } else if (q.querySelector('input[type=radio]')) {
+        const c = q.querySelector('input:checked'); value = c ? c.value : null;
+        if (type === 'Ref' && value != null) value = Number(value);
+      } else {
+        const el = q.querySelector('input, select, textarea');
+        value = el.value === '' ? null : (type === 'Ref' ? Number(el.value) : (type === 'Int' || type === 'Numeric') ? Number(el.value) : el.value);
+      }
+      const empty = value === null || value === '' || value === false && type !== 'Bool';
+      q.classList.toggle('invalid', required && empty && !q.hidden);
+      if (required && empty && !q.hidden) valid = false;
+      if (value !== null && type !== 'Attachments') fields[col] = value;
+    }
+    if (!valid) { formEl.querySelector('.invalid')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+
+    const btn = formEl.querySelector('button[type=submit]');
+    const status = document.getElementById('status');
+    btn.disabled = true; status.textContent = 'Envoi…';
+    try {
+      for (const up of uploads) {
+        const fd = new FormData();
+        up.files.forEach(file => fd.append('upload', file));
+        const r = await fetch(`${target.api}/attachments`, { method: 'POST', body: fd });
+        if (!r.ok) throw new Error(`Pièces jointes : HTTP ${r.status}`);
+        fields[up.col] = ['L', ...(await r.json())];
+      }
+      const r = await fetch(`${target.api}/tables/${form.formTableId}/records`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ records: [{ fields }] }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status} ${await r.text()}`);
+      const j = await r.json();
+      app.innerHTML = `<div class="center"><h1 class="ok">Merci, votre réponse a bien été enregistrée.</h1>
+        <p class="sub">Identifiant : ${esc(j.records?.[0]?.id)}</p>
+        <p><button class="primary" onclick="location.reload()">Envoyer une autre réponse</button></p></div>`;
+    } catch (e) {
+      btn.disabled = false; status.textContent = 'Erreur : ' + e.message; status.style.color = 'var(--error)';
+    }
+  }
+})();
+</script>
+</body>
+</html>

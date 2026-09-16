@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FormPlus</title>
+<style>
+  :root { --bg: #f5f6fa; --card: #fff; --text: #1e1e1e; --muted: #666; --border: #d9d9e0; --accent: #000091; --accent-text: #fff; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #161616; --card: #1f1f1f; --text: #f0f0f0; --muted: #a8a8a8; --border: #3a3a3a; --accent: #8585f6; --accent-text: #0b0b3b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 24px 16px 64px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 24px; margin-bottom: 16px; }
+  h1 { margin: 0 0 4px; font-size: 1.6rem; }
+  h2 { margin: 0 0 12px; font-size: 1.1rem; }
+  p { margin: 0 0 12px; }
+  .muted { color: var(--muted); }
+  label { display: block; font-weight: 600; margin-bottom: 6px; }
+  input[type=url] { width: 100%; padding: 10px 12px; font: inherit; color: inherit; background: transparent; border: 1px solid var(--border); border-radius: 6px; }
+  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+  button { font: inherit; font-weight: 600; padding: 10px 18px; border-radius: 6px; border: 1px solid transparent; cursor: pointer; background: var(--accent); color: var(--accent-text); margin-top: 10px; }
+  a { color: var(--accent); }
+  ul { padding-left: 20px; margin: 0; }
+  li { margin-bottom: 6px; }
+  code { font-size: .9em; background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>FormPlus</h1>
+    <p class="muted">Form builder pour Grist. Statut : preuve de concept, septembre 2026.</p>
+    <p>Un formulaire natif publié dans Grist fournit une clé de partage. FormPlus réutilise cette clé pour lire la définition du formulaire et créer des réponses depuis une page indépendante, sans compte, sans règles d'accès, sans clé API.</p>
+  </div>
+
+  <div class="card">
+    <h2>Tester avec un formulaire publié</h2>
+    <form id="go">
+      <label for="u">Lien du formulaire Grist publié</label>
+      <input id="u" type="url" required placeholder="https://grist.numerique.gouv.fr/o/mon-equipe/forms/CLE/12">
+      <button type="submit">Ouvrir la page de test</button>
+    </form>
+    <p class="muted" style="margin-top:12px">Adresse obtenue : <code id="out">poc/public-form.html?form=…</code></p>
+    <p class="muted">Dans Grist : Ajouter un widget, Personnalisé, URL personnalisée, coller cette adresse complète, niveau d'accès « Aucun accès au document ».</p>
+  </div>
+
+  <div class="card">
+    <h2>Documentation</h2>
+    <ul>
+      <li><a href="https://github.com/lombre33/FormPlus/blob/main/docs/01-etude-comparative.md">Étude comparative et options de lien dédié</a></li>
+      <li><a href="https://github.com/lombre33/FormPlus/blob/main/docs/02-poc-transport1-resultats.md">Résultats de la preuve de concept</a></li>
+      <li><a href="https://github.com/lombre33/FormPlus/blob/main/docs/03-roadmap-priorites.md">Feuille de route et priorités</a></li>
+      <li><a href="https://github.com/lombre33/FormPlus/blob/main/poc/README-poc.md">Mode d'emploi du kit de test</a></li>
+    </ul>
+  </div>
+</main>
+<script>
+  const input = document.getElementById('u'), out = document.getElementById('out');
+  const build = () => new URL('poc/public-form.html?form=' + encodeURIComponent(input.value.trim()), location.href).href;
+  input.addEventListener('input', () => { out.textContent = input.value ? build() : 'poc/public-form.html?form=…'; });
+  document.getElementById('go').addEventListener('submit', (e) => { e.preventDefault(); if (input.value) location.href = build(); });
+</script>
+</body>
+</html>

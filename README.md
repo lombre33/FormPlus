@@ -1,0 +1,46 @@
+# FormPlus
+
+Form builder pour Grist, pensé pour l'instance de la DINUM (grist.numerique.gouv.fr) et compatible avec toute instance Grist.
+
+Objectif : dépasser les limites du formulaire natif de Grist avec une interface aussi simple que Google Forms.
+
+- Questions conditionnelles (afficher si), sections et blocs d'information repliables.
+- Lecture et écriture dans plusieurs tables d'un même document.
+- Interface sobre, responsive, accessible.
+- Lien public sans compte, sans règles d'accès et sans clé API, en réutilisant la clé de partage d'un formulaire natif publié.
+
+**Statut : exploration et preuve de concept (septembre 2026).** Rien n'est encore utilisable en production.
+
+## Contenu du dépôt
+
+| Dossier | Contenu |
+|---|---|
+| `docs/01-etude-comparative.md` | Comparatif Grist natif / widget isaytoo / FormPlus, et les 4 options de lien dédié |
+| `docs/02-poc-transport1-resultats.md` | Résultats de la preuve de concept du lien public |
+| `docs/03-roadmap-priorites.md` | Principes d'interface, architecture, backlog V1 / V2 / V3 |
+| `poc/` | Kit de test : script `poc_transport1.py`, page `public-form.html`, mode d'emploi `README-poc.md` |
+| `index.html` | Page d'accueil GitHub Pages avec accès à la page de test |
+
+## Tester la preuve de concept
+
+1. Dans Grist, publier un formulaire natif et copier son lien, de la forme `https://<instance>/o/<org>/forms/<clé>/<section>`.
+2. Ouvrir la page de test hébergée par GitHub Pages en lui passant ce lien :
+
+```
+https://lombre33.github.io/FormPlus/poc/public-form.html?form=<lien du formulaire publié>
+```
+
+3. Pour la tester comme widget dans Grist : Ajouter un widget, Personnalisé, URL personnalisée, coller la même adresse, niveau d'accès « Aucun accès au document ». La page n'a pas besoin d'accéder au document, elle passe par la clé de partage.
+
+Tests en ligne de commande, lecture seule puis écriture :
+
+```bash
+python poc/poc_transport1.py "<lien du formulaire publié>"
+python poc/poc_transport1.py "<lien du formulaire publié>" --write
+```
+
+Toutes les options sont décrites dans `poc/README-poc.md`.
+
+## Licence
+
+À définir. Une licence libre (Apache-2.0 ou MIT) est recommandée pour permettre une revue et une inscription dans la galerie de widgets des instances DINUM et ANCT.
