@@ -85,3 +85,11 @@ Méthode simple, avec le widget qui génère l'adresse :
 Méthode manuelle, si le widget ne parvient pas à lire les métadonnées : utiliser `public-form.html#form=<lien du formulaire>` comme URL personnalisée avec « Aucun accès au document », relever le numéro de page `/p/N` dans la barre d'adresse, et construire l'adresse ci-dessus à la main à partir du lien `.../forms/<clé>/<section>`.
 
 Pour être notés au retour : le widget s'affiche-t-il bien en navigation privée via l'adresse `/s/`, l'envoi crée-t-il la ligne, et le bouton « Configuration » est-il bien absent pour l'anonyme.
+
+### Dépannage : « JSON.parse: unexpected character at line 1 column 2 »
+
+Une version du widget du 16 septembre 2026 a écrit la clé `customView` des options de section en objet au lieu d'une chaîne JSON, ce qui fait planter la page qui porte le widget. Trois remèdes, du plus simple au plus technique :
+
+1. Si l'onglet du concepteur est encore ouvert sans rechargement : **Annuler** (Ctrl+Z ou la flèche en haut du document).
+2. Sur une autre page du document qui s'ouvre normalement : ajouter un widget Personnalisé avec l'URL `https://lombre33.github.io/FormPlus/poc/widget.html#repair`, accès complet. Il répare les sections corrompues et affiche un compte-rendu. Recharger, puis supprimer ce widget.
+3. Si aucune page ne s'ouvre : `python poc/repair_section_options.py "<adresse du document>" --api-key <clé API Grist>`, la clé API se crée dans Profil, Paramètres du compte. Option `--dry-run` pour prévisualiser.

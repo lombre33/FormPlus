@@ -76,6 +76,12 @@
     <iframe class="form" id="form-frame" title="Formulaire"></iframe>
   </div>
 
+  <div id="repair" class="card hidden">
+    <h1>FormPlus · Réparation</h1>
+    <p class="muted">Rétablit le format des options des widgets personnalisés du document.</p>
+    <pre id="repair-log" style="white-space:pre-wrap;font-size:.85rem">Analyse…</pre>
+  </div>
+
   <div id="standalone" class="card hidden">
     <h1>FormPlus</h1>
     <p>Cette page est un widget Grist. Ajoutez-la dans un document : Ajouter un widget, Personnalisé, URL personnalisée, puis collez l'adresse de cette page. Niveau d'accès : accès complet, nécessaire au concepteur pour retrouver la page.</p>
@@ -87,7 +93,7 @@
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
-  const show = (id) => ['loading', 'config', 'fill', 'standalone'].forEach(x => $(x).classList.toggle('hidden', x !== id));
+  const show = (id) => ['loading', 'config', 'fill', 'standalone', 'repair'].forEach(x => $(x).classList.toggle('hidden', x !== id));
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
   // Analyse d'un lien de formulaire publié : https://hote[/o/org]/forms/<clé>/<section>
@@ -100,7 +106,7 @@
   function buildPublicUrl(link, viewRef) {
     return `${link.base}/s/${link.key}/p/${viewRef}?style=singlePage`;
   }
-  window.FormPlus = { parseFormLink, buildPublicUrl }; // exposé pour les tests
+  window.FormPlus = { parseFormLink, buildPublicUrl, parseCustomView: (o) => parseCustomView(o) }; // exposé pour les tests
 
   let options = null;
   let connected = false;
@@ -122,6 +128,28 @@
     });
   }
 
+  // Dans _grist_Views_section.options, la clé customView est une CHAÎNE JSON imbriquée
+  // (Grist la relit avec JSON.parse). Cette fonction la décode, et récupère aussi une valeur
+  // corrompue en objet (table de caractères {0:'{',1:'"',…} ou objet brut).
+  function parseCustomView(o) {
+    const cv = o && o.customView;
+    if (typeof cv === 'string') { try { return JSON.parse(cv) || {}; } catch (e) { return {}; } }
+    if (cv && typeof cv === 'object') {
+      const charKeys = Object.keys(cv).filter(k => /^\d+$/.test(k)).sort((a, b) => a - b);
+      if (charKeys.length) {
+        try {
+          const rebuilt = JSON.parse(charKeys.map(k => cv[k]).join('')) || {};
+          if (cv.widgetOptions) rebuilt.widgetOptions = cv.widgetOptions;
+          return rebuilt;
+        } catch (e) { /* ignore */ }
+      }
+      const rest = { ...cv };
+      charKeys.forEach(k => delete rest[k]);
+      return rest;
+    }
+    return {};
+  }
+
   async function findViewRefForSection(vsId) {
     // La page de l'adresse finale est celle du formulaire natif : parentId de sa section.
     const sections = await grist.docApi.fetchTable('_grist_Views_section');
@@ -133,7 +161,8 @@
       if (sections.parentId[i] !== viewRef || sections.parentKey[i] !== 'custom') continue;
       let o = {};
       try { o = JSON.parse(sections.options[i] || '{}') || {}; } catch (e) { /* ignore */ }
-      mine.push({ id: sections.id[i], url: (o.customView && o.customView.url) || '', options: o });
+      const cv = parseCustomView(o);
+      mine.push({ id: sections.id[i], url: cv.url || '', options: o, customView: cv });
     }
     const myFile = location.pathname.split('/').pop();
     const self = mine.find(s => s.url.includes(myFile)) || (mine.length === 1 ? mine[0] : null);
@@ -143,12 +172,41 @@
   // grist.setOptions ne modifie que la session du concepteur : Grist attend ensuite un clic sur
   // « Enregistrer » dans la barre du widget. On écrit donc directement la configuration dans les
   // métadonnées de la section, ce qui la rend visible à toutes les sessions, anonymes comprises.
+  // customView doit rester une chaîne JSON dans options.
   async function persistOptions(self, saved) {
     const current = self.options || {};
-    const next = { ...current, customView: { ...(current.customView || {}), widgetOptions: saved } };
+    const nextCustomView = { ...(self.customView || {}), widgetOptions: saved };
+    const next = { ...current, customView: JSON.stringify(nextCustomView) };
     await grist.docApi.applyUserActions([
       ['UpdateRecord', '_grist_Views_section', self.id, { options: JSON.stringify(next) }],
     ]);
+  }
+
+  // Mode réparation (URL du widget terminée par #repair) : rétablit customView en chaîne JSON
+  // pour toutes les sections personnalisées du document dont la valeur a été corrompue.
+  async function runRepair() {
+    show('repair');
+    const out = $('repair-log');
+    const lines = [];
+    try {
+      const sections = await grist.docApi.fetchTable('_grist_Views_section');
+      const fixes = [];
+      for (let i = 0; i < sections.id.length; i++) {
+        if (sections.parentKey[i] !== 'custom') continue;
+        let o;
+        try { o = JSON.parse(sections.options[i] || '{}') || {}; }
+        catch (e) { lines.push(`Section ${sections.id[i]} : options illisibles, ignorée.`); continue; }
+        if (o.customView == null || typeof o.customView === 'string') continue;
+        const cv = parseCustomView(o);
+        fixes.push(['UpdateRecord', '_grist_Views_section', sections.id[i], { options: JSON.stringify({ ...o, customView: JSON.stringify(cv) }) }]);
+        lines.push(`Section ${sections.id[i]} (page ${sections.parentId[i]}) : customView rétabli, widget ${cv.url || 'sans URL'}.`);
+      }
+      if (fixes.length) { await grist.docApi.applyUserActions(fixes); lines.push('', `${fixes.length} section(s) réparée(s). Rechargez le document, puis retirez #repair de l'URL de ce widget ou supprimez-le.`); }
+      else lines.push('Aucune section corrompue trouvée.');
+    } catch (e) {
+      lines.push(`Erreur : ${e.message}. Le widget a-t-il l'accès complet ?`);
+    }
+    out.textContent = lines.join('\n');
   }
 
   function showFill(publicUrl, formLink) {
@@ -238,6 +296,7 @@
       connected = true; clearTimeout(timeout);
       options = opts || {};
       diag({ event: 'onOptions', optionKeys: Object.keys(options), hasFormLink: !!options.formLink, settings });
+      if (hashParams.has('repair')) { if (!stayOnConfig) { stayOnConfig = true; runRepair(); } return; }
       // Le mode répondant n'a besoin que du lien du formulaire : options du widget, sinon fragment de l'URL du widget.
       const formLink = options.formLink || fragmentFormLink;
       if (formLink && !stayOnConfig) {
