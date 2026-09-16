@@ -240,24 +240,42 @@
     out.textContent = lines.join('\n');
   }
 
-  // Le paramètre "readonly" transmis par Grist à l'iframe reflète le mode readonly du DOCUMENT,
-  // pas les droits réels de la session (une session de partage anonyme reçoit access=full et
-  // readonly=false comme le concepteur). Une sonde d'écriture n'est pas fiable non plus : la
-  // table _grist_Views_section (config des widgets) n'est PAS couverte par le refus par défaut
-  // d'un partage — celui-ci ne bloque explicitement que les tables du document (préfixe "_grist_"
-  // exclu de la boucle dans ACLRulesReader._addDefaultShareRules) — donc une session anonyme peut
-  // aussi y écrire. Constaté en pratique : le bouton restait visible même en navigation privée.
+  // Deux pistes écartées, chacune pour une raison précise et vérifiée :
+  // - le paramètre "readonly" transmis à l'iframe reflète le mode du DOCUMENT, pas les droits
+  //   réels de la session (une session de partage reçoit access=full, readonly=false, comme le
+  //   concepteur) ;
+  // - un jeton d'accès (getAccessToken) ne couvre QUE le contenu d'un document, tables et
+  //   cellules, jamais ses métadonnées (qui a accès, propriétaires...) — documenté explicitement
+  //   dans GristAPI.ts. Un appel à un point d'API réservé aux propriétaires (usersForViewAs) y
+  //   échoue donc systématiquement par 403, même pour le vrai propriétaire : ce n'est pas un
+  //   test de rôle, c'est un test de portée du jeton, sans rapport avec la question posée.
   //
-  // Seul un vrai contrôle de rôle est fiable : on demande un jeton d'accès (grist.docApi.
-  // getAccessToken) et on interroge un point d'API RÉSERVÉ AUX PROPRIÉTAIRES du document
-  // (GET .../usersForViewAs, gardé par isOwnerRead côté serveur, lecture seule, sans effet).
-  // 200 = le compte connecté est Propriétaire, 403 = Éditeur, Lecteur ou session anonyme de partage.
-  async function probeIsOwner() {
+  // Piste retenue : grist.docApi.applyUserActions() passe par la session complète du widget, pas
+  // par un jeton à portée réduite. On y teste une action de SCHÉMA (ajouter puis aussitôt retirer
+  // une colonne technique jetable, en un seul lot, un unique geste annulable) sur la table du
+  // formulaire. La modification du schéma est explicitement et sans exception interdite à toute
+  // session de partage par ACLRulesReader._addDefaultShareRules ("-S" générique sur "*"), à la
+  // différence de l'écriture dans une table _grist_* qui n'est, elle, pas couverte. Réussite =
+  // droits d'édition réels sur le document (concepteur) ; échec = session de partage anonyme.
+  async function getFormTableId(vsId) {
+    const sections = await grist.docApi.fetchTable('_grist_Views_section');
+    const idx = sections.id.indexOf(vsId);
+    if (idx < 0) return null;
+    const tables = await grist.docApi.fetchTable('_grist_Tables');
+    const i = tables.id.indexOf(sections.tableRef[idx]);
+    return i >= 0 ? tables.tableId[i] : null;
+  }
+  async function probeCanEdit(vsId) {
     try {
-      const { token, baseUrl } = await grist.docApi.getAccessToken({ readOnly: true });
-      const res = await fetch(`${baseUrl}/usersForViewAs?auth=${encodeURIComponent(token)}`);
-      return res.status === 200;
-    } catch (e) { console.warn('[FormPlus] probeIsOwner', e); return false; }
+      const tableId = await getFormTableId(vsId);
+      if (!tableId) return false;
+      const probeCol = '_FormPlus_probe_' + Date.now();
+      await grist.docApi.applyUserActions([
+        ['AddColumn', tableId, probeCol, { type: 'Text' }],
+        ['RemoveColumn', tableId, probeCol],
+      ]);
+      return true;
+    } catch (e) { console.warn('[FormPlus] probeCanEdit', e); return false; }
   }
 
   function showFill(publicUrl, formLink) {
@@ -359,8 +377,9 @@
       // Le mode répondant n'a besoin que du lien du formulaire : options du widget, sinon fragment de l'URL du widget.
       const formLink = options.formLink || fragmentFormLink;
       if (formLink && !stayOnConfig) {
-        canEdit = await probeIsOwner();
-        diag({ event: 'canEdit', canEdit });
+        const probeVsId = options.vsId || parseFormLink(formLink)?.vsId;
+        canEdit = await probeCanEdit(probeVsId);
+        diag({ event: 'canEdit', canEdit, probeVsId });
         showFill(options.publicUrl || '', formLink);
       } else if (!stayOnConfig) {
         showConfig();
