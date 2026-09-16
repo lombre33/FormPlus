@@ -521,7 +521,8 @@
     const log = $('step2-log'); log.classList.remove('hidden');
     log.textContent = `Actions prévues (additives, sans risque pour les données existantes) :\n`
       + `1. AddColumn sur la table du formulaire : ${hiddenColId} (type Ref:${src})\n`
-      + `2. AddRecord _grist_Views_section_field : attache ${hiddenColId} au formulaire publié, formIsHidden=true\n\n`
+      + `2. Fixe sa colonne affichée sur « ${$('srcCol').value} », pour que les répondants lisent le vrai libellé et non l'identifiant de ligne\n`
+      + `3. AddRecord _grist_Views_section_field : attache ${hiddenColId} au formulaire publié, formIsHidden=true\n\n`
       + `Aucune donnée existante n'est modifiée. Cliquez « Ajouter ce champ » pour appliquer.`;
     $('q2-apply').disabled = false;
   });
@@ -538,6 +539,17 @@
         log.textContent = `La colonne ${hiddenColId} existe déjà, réutilisée.`;
       }
       const colRef = await getColRef(mainTableId, hiddenColId);
+      // Sans "colonne affichée" (visibleCol) explicite sur la colonne Référence, la règle d'accès
+      // du partage se rabat sur l'identifiant numérique de la ligne, pas sur le libellé choisi
+      // (ACLRulesReader._shareTableReferencesForForm) : une session anonyme ne lirait alors que
+      // des id ("#1", "#2") au lieu des vraies valeurs. On le fixe explicitement, y compris si le
+      // champ existait déjà d'un essai précédent à cette étape.
+      const srcColRef = await getColRef(src, srcCol);
+      if (srcColRef) {
+        await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Tables_column', colRef, { visibleCol: srcColRef }]]);
+      } else {
+        log.textContent += `\n⚠️ Colonne « ${srcCol} » introuvable dans « ${src} », l'affichage n'a pas pu être précisé.`;
+      }
       const fields = await fetchMeta('_grist_Views_section_field');
       let already = false;
       for (let i = 0; i < fields.id.length; i++) if (fields.parentId[i] === currentFormSection.id && fields.colRef[i] === colRef) already = true;
