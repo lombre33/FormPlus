@@ -55,6 +55,7 @@
         <button id="generate" type="button" class="primary">Générer l'adresse</button>
       </div>
       <p id="cfg-msg" class="muted"></p>
+      <details class="muted" style="margin-top:8px"><summary>Diagnostic</summary><pre id="diag" style="white-space:pre-wrap;font-size:.8rem">…</pre></details>
     </div>
 
     <div class="card hidden" id="result">
@@ -79,6 +80,7 @@
     <h1>FormPlus</h1>
     <p>Cette page est un widget Grist. Ajoutez-la dans un document : Ajouter un widget, Personnalisé, URL personnalisée, puis collez l'adresse de cette page. Niveau d'accès : accès complet, nécessaire au concepteur pour retrouver la page.</p>
     <p class="muted">Pour répondre à un formulaire hors de Grist, utilisez <a href="public-form.html">public-form.html</a> avec le lien du formulaire après <code>#form=</code>.</p>
+    <p class="muted">Secours : l'URL du widget peut elle-même contenir le lien du formulaire, <code>widget.html#form=&lt;lien&gt;</code>. Le mode répondant fonctionne alors même sans options enregistrées.</p>
   </div>
 </div>
 
@@ -182,24 +184,37 @@
   $('done').addEventListener('click', () => options?.formLink && showFill(options.publicUrl, options.formLink));
   $('edit').addEventListener('click', showConfig);
 
+  // Paramètres ajoutés par Grist à l'URL du widget (access, readonly) et secours dans le fragment (#form=).
+  const urlParams = new URLSearchParams(location.search);
+  const hashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
+  const gristAccess = urlParams.get('access');
+  const gristReadonly = urlParams.get('readonly');
+  const fragmentFormLink = hashParams.get('form');
+
+  function diag(extra) {
+    let referrerOrigin = null;
+    try { referrerOrigin = document.referrer ? new URL(document.referrer).origin : null; } catch (e) { /* ignore */ }
+    const d = { referrerOrigin, access: gristAccess, readonly: gristReadonly, fragmentFormLink: !!fragmentFormLink, ...extra };
+    console.log('[FormPlus]', JSON.stringify(d));
+    const el = $('diag'); if (el) el.textContent = JSON.stringify(d, null, 2);
+    return d;
+  }
+
   (async () => {
     const inIframe = window.self !== window.top;
     const ok = inIframe && await loadPluginApi();
-    if (!ok) { show('standalone'); return; }
+    if (!ok) { diag({ event: 'standalone', inIframe }); show('standalone'); return; }
     grist.ready({ requiredAccess: 'full', onEditOptions: () => showConfig() });
-    const timeout = setTimeout(() => { if (!connected) show('standalone'); }, 4000);
-    let probed = false;
-    grist.onOptions(async (opts) => {
+    const timeout = setTimeout(() => { if (!connected) { diag({ event: 'timeout' }); show('standalone'); } }, 4000);
+    grist.onOptions((opts, settings) => {
       connected = true; clearTimeout(timeout);
       options = opts || {};
-      if (options.formLink && options.publicUrl) {
-        // Le bouton Configuration n'a de sens que si l'utilisateur peut modifier le widget.
-        // Une réécriture à l'identique des options sert de sonde : refusée en session partage ou en lecture seule.
-        if (!probed) {
-          probed = true;
-          try { await grist.setOptions(options); canEdit = true; } catch (e) { canEdit = false; }
-        }
-        showFill(options.publicUrl, options.formLink);
+      diag({ event: 'onOptions', optionKeys: Object.keys(options), hasFormLink: !!options.formLink, settings });
+      // Le mode répondant n'a besoin que du lien du formulaire : options du widget, sinon fragment de l'URL du widget.
+      const formLink = options.formLink || fragmentFormLink;
+      if (formLink) {
+        canEdit = gristReadonly !== 'true';
+        showFill(options.publicUrl || '', formLink);
       } else {
         showConfig();
       }
