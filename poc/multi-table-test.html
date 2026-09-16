@@ -198,15 +198,36 @@
     current.customView = JSON.stringify(cv);
     await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section', selfSection.id, { options: JSON.stringify(current) }]]);
   }
+  // Le référent (adresse de la page Grist qui charge ce widget) contient le numéro de page,
+  // ex. ".../p/7?style=singlePage" : plus fiable qu'une recherche par nom de fichier, qui échoue
+  // dès que plusieurs pages réutilisent la même URL de widget (fréquent en cours de test).
+  function myPageFromReferrer() {
+    try {
+      const u = new URL(document.referrer);
+      const m = /\/p\/(\d+)(?:[/?]|$)/.exec(u.pathname + u.search);
+      return m ? Number(m[1]) : null;
+    } catch (e) { return null; }
+  }
   async function findSelfSection(myFile) {
     const s = await fetchMeta('_grist_Views_section');
+    const candidates = [];
     for (let i = 0; i < s.id.length; i++) {
       if (s.parentKey[i] !== 'custom') continue;
       let opt = {}; try { opt = JSON.parse(s.options[i] || '{}') || {}; } catch (e) { continue; }
       const cv = parseCustomView(opt);
-      if ((cv.url || '').includes(myFile)) return { id: s.id[i], parentId: s.parentId[i], options: s.options[i] };
+      candidates.push({ id: s.id[i], parentId: s.parentId[i], options: s.options[i], url: cv.url || '' });
     }
-    return null;
+    const myPage = myPageFromReferrer();
+    if (myPage != null) {
+      const onMyPage = candidates.filter(c => c.parentId === myPage);
+      const named = onMyPage.filter(c => c.url.includes(myFile));
+      if (named.length === 1) return named[0];
+      if (onMyPage.length === 1) return onMyPage[0];
+      if (onMyPage.length > 1) return null; // ambigu : plusieurs widgets sur cette page précise
+    }
+    const named = candidates.filter(c => c.url.includes(myFile));
+    if (named.length === 1) return named[0];
+    return candidates.length === 1 ? candidates[0] : null;
   }
 
   // ---- État ----
@@ -319,15 +340,18 @@
       writeTable: $('destTable').value, writeCol: $('destCol').value,
     };
     const self = await findSelfSection(myFile);
+    const myPage = myPageFromReferrer();
     // La clé porte sur les TABLES (user.ShareRef == <partage>), pas sur une page : ce widget peut
     // être seul sur sa propre page pour une adresse sans l'habillage des formulaires natifs.
-    const widgetPage = self ? self.parentId : formSection.viewRef;
+    const widgetPage = myPage ?? (self ? self.parentId : formSection.viewRef);
     const saved = { formLink: $('link').value.trim(), shareKey: link.key, vsId: link.vsId, viewRef: widgetPage,
       publicUrl: buildPublicUrl(link, widgetPage), fields: cfg.fields };
     try {
       if (self) await persistOptions(self, saved); else await grist.setOptions(saved);
       options = saved;
-      msg.innerHTML = '<span class="ok">Configuration enregistrée.</span>';
+      msg.innerHTML = self
+        ? '<span class="ok">Configuration enregistrée.</span>'
+        : '<span class="err">Widget ambigu (plusieurs widgets FormPlus sur cette page) : configuration posée pour cette session seulement. Supprimez les widgets superflus laissés par d\'anciens essais, ne gardez que celui-ci, puis recommencez.</span>';
       $('step3').classList.add('done'); $('step3-badge').textContent = 'fait'; $('step3-badge').className = 'badge ok';
       $('public-url').textContent = saved.publicUrl;
       $('result').classList.remove('hidden');

@@ -150,6 +150,18 @@
     return {};
   }
 
+  // Le référent (adresse de la page Grist qui charge ce widget dans son iframe) contient le
+  // numéro de page, ex. ".../p/7?style=singlePage". Bien plus fiable que de chercher "ce widget"
+  // par nom de fichier dans les métadonnées, qui échoue dès que plusieurs pages réutilisent la
+  // même URL de widget (ce qui arrive vite en testant).
+  function myPageFromReferrer() {
+    try {
+      const u = new URL(document.referrer);
+      const m = /\/p\/(\d+)(?:[/?]|$)/.exec(u.pathname + u.search);
+      return m ? Number(m[1]) : null;
+    } catch (e) { return null; }
+  }
+
   async function findViewRefForSection(vsId) {
     // La clé accordée par le formulaire natif porte sur sa TABLE, pas sur sa page : elle vaut
     // pour tout le document (voir ACLRulesReader._shareTableForForm, aclFormula ne référence que
@@ -171,10 +183,20 @@
       candidates.push(rec);
       if (rec.parentId === formPage) onFormPage++;
     }
-    const matches = candidates.filter(s => s.url.includes(myFile));
-    const self = matches.length === 1 ? matches[0] : (candidates.length === 1 ? candidates[0] : null);
-    const widgetPage = self ? self.parentId : formPage;
-    return { formPage, widgetPage, self, samePage: widgetPage === formPage, onFormPage };
+    const myPage = myPageFromReferrer();
+    let self = null;
+    if (myPage != null) {
+      const onMyPage = candidates.filter(s => s.parentId === myPage);
+      const named = onMyPage.filter(s => s.url.includes(myFile));
+      self = named.length === 1 ? named[0] : (onMyPage.length === 1 ? onMyPage[0] : null);
+    }
+    if (!self) {
+      // Repli si le référent est absent ou ne contient pas de numéro de page (ex. embed=true).
+      const matches = candidates.filter(s => s.url.includes(myFile));
+      self = matches.length === 1 ? matches[0] : (candidates.length === 1 ? candidates[0] : null);
+    }
+    const widgetPage = myPage ?? (self ? self.parentId : formPage);
+    return { formPage, widgetPage, self, samePage: widgetPage === formPage, onFormPage, ambiguous: myPage != null && !self };
   }
 
   // grist.setOptions ne modifie que la session du concepteur : Grist attend ensuite un clic sur
@@ -237,8 +259,8 @@
     const link = parseFormLink($('link').value);
     if (!link) { msg.innerHTML = '<span class="err">Lien non reconnu. Il doit contenir <code>/forms/&lt;clé&gt;/&lt;numéro&gt;</code>.</span>'; return; }
     msg.textContent = 'Recherche de la page du widget…';
-    let formPage = null, widgetPage = null, self = null, samePage = null, onFormPage = 0;
-    try { ({ formPage, widgetPage, self, samePage, onFormPage } = await findViewRefForSection(link.vsId)); }
+    let formPage = null, widgetPage = null, self = null, samePage = null, onFormPage = 0, ambiguous = false;
+    try { ({ formPage, widgetPage, self, samePage, onFormPage, ambiguous } = await findViewRefForSection(link.vsId)); }
     catch (e) { msg.innerHTML = `<span class="err">Impossible de lire les métadonnées du document (${esc(e.message)}). Le widget a-t-il l'accès complet ?</span>`; return; }
     if (!formPage) { msg.innerHTML = '<span class="err">Cette section de formulaire n\'existe pas dans ce document. Le lien vient-il bien d\'ici ?</span>'; return; }
     const publicUrl = buildPublicUrl(link, widgetPage);
@@ -258,8 +280,10 @@
     }
     $('public-url').textContent = publicUrl;
     $('result').classList.remove('hidden');
-    if (!self) {
-      $('page-check').innerHTML = `<span class="err">Ce widget est introuvable dans les métadonnées (plusieurs widgets personnalisés existent sans que l'un ne corresponde clairement à celui-ci). L'adresse pointe vers la page du formulaire natif (page ${formPage}), qui affichera aussi son propre habillage.</span>`;
+    if (!self && ambiguous) {
+      $('page-check').innerHTML = `<span class="err">Plusieurs widgets personnalisés utilisant ce même fichier existent sur la page ${widgetPage} : impossible de savoir lequel enregistrer. Supprimez les widgets FormPlus superflus laissés par d'anciens essais sur cette page, ne gardez que celui-ci, puis cliquez de nouveau sur Générer l'adresse.</span>`;
+    } else if (!self) {
+      $('page-check').innerHTML = `<span class="err">Impossible de déterminer la page de ce widget (adresse de la page Grist illisible). L'adresse pointe vers la page du formulaire natif (page ${formPage}), qui affichera aussi son propre habillage.</span>`;
     } else if (samePage) {
       $('page-check').innerHTML = `<span class="ok">Le widget est sur la même page (${formPage}) que le formulaire natif${onFormPage > 1 ? `, avec ${onFormPage} widgets personnalisés dessus` : ''}. L'adresse fonctionnera, mais affichera aussi l'habillage du formulaire natif au-dessus ou à côté. Pour un rendu plus propre, déplacez ce widget seul sur une autre page : la clé reste valable, elle porte sur la table, pas sur la page.</span>`;
     } else {
@@ -292,7 +316,7 @@
   function diag(extra) {
     let referrerOrigin = null;
     try { referrerOrigin = document.referrer ? new URL(document.referrer).origin : null; } catch (e) { /* ignore */ }
-    const d = { referrerOrigin, access: gristAccess, readonly: gristReadonly, fragmentFormLink: !!fragmentFormLink, ...extra };
+    const d = { referrerOrigin, myPageFromReferrer: myPageFromReferrer(), access: gristAccess, readonly: gristReadonly, fragmentFormLink: !!fragmentFormLink, ...extra };
     console.log('[FormPlus]', JSON.stringify(d));
     const el = $('diag'); if (el) el.textContent = JSON.stringify(d, null, 2);
     return d;
