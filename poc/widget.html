@@ -74,6 +74,7 @@
   <div id="fill" class="hidden">
     <div class="toolbar" id="fill-toolbar"><button id="edit" type="button">Configuration</button></div>
     <iframe class="form" id="form-frame" title="Formulaire"></iframe>
+    <details class="muted" style="margin:8px 12px 0;font-size:.8rem"><summary>Diagnostic</summary><pre id="diag-fill" style="white-space:pre-wrap;font-size:.75rem">…</pre></details>
   </div>
 
   <div id="repair" class="card hidden">
@@ -239,33 +240,25 @@
     out.textContent = lines.join('\n');
   }
 
-  // Repère la section de CE widget par sa page (référent), sans dépendre d'un lien de formulaire.
-  async function findSelfSectionId() {
-    const myPage = myPageFromReferrer();
-    if (myPage == null) return null;
-    const sections = await grist.docApi.fetchTable('_grist_Views_section');
-    let found = null, count = 0;
-    for (let i = 0; i < sections.id.length; i++) {
-      if (sections.parentId[i] === myPage && sections.parentKey[i] === 'custom') { found = sections.id[i]; count++; }
-    }
-    return count === 1 ? found : null;
-  }
-
   // Le paramètre "readonly" transmis par Grist à l'iframe reflète le mode readonly du DOCUMENT,
   // pas les droits réels d'une session de partage anonyme (qui reçoit access=full comme le
   // concepteur). Seule une tentative d'écriture réelle distingue fiablement les deux : la session
   // anonyme n'a pas le droit d'écriture sur les métadonnées (_grist_Views_section), le concepteur
   // si. On réécrit la valeur À L'IDENTIQUE, donc sans risque même en cas de succès inattendu.
-  async function probeCanEdit() {
+  // Réutilise findViewRefForSection (référent + repli par nom de fichier), déjà éprouvée pour la
+  // génération d'adresse : une fonction de détection séparée et plus simple s'était montrée moins
+  // fiable ici (répondait "non" par excès de prudence, y compris pour le concepteur).
+  async function probeCanEdit(vsId) {
     try {
-      const selfId = await findSelfSectionId();
-      if (!selfId) return false;
+      if (!vsId) return false;
+      const { self } = await findViewRefForSection(vsId);
+      if (!self) return false;
       const sections = await grist.docApi.fetchTable('_grist_Views_section');
-      const idx = sections.id.indexOf(selfId);
+      const idx = sections.id.indexOf(self.id);
       if (idx < 0) return false;
-      await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section', selfId, { options: sections.options[idx] }]]);
+      await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section', self.id, { options: sections.options[idx] }]]);
       return true;
-    } catch (e) { return false; }
+    } catch (e) { console.warn('[FormPlus] probeCanEdit', e); return false; }
   }
 
   function showFill(publicUrl, formLink) {
@@ -347,7 +340,9 @@
     try { referrerOrigin = document.referrer ? new URL(document.referrer).origin : null; } catch (e) { /* ignore */ }
     const d = { referrerOrigin, myPageFromReferrer: myPageFromReferrer(), access: gristAccess, readonly: gristReadonly, fragmentFormLink: !!fragmentFormLink, ...extra };
     console.log('[FormPlus]', JSON.stringify(d));
-    const el = $('diag'); if (el) el.textContent = JSON.stringify(d, null, 2);
+    const text = JSON.stringify(d, null, 2);
+    const el = $('diag'); if (el) el.textContent = text;
+    const elFill = $('diag-fill'); if (elFill) elFill.textContent = text;
     return d;
   }
 
@@ -365,8 +360,9 @@
       // Le mode répondant n'a besoin que du lien du formulaire : options du widget, sinon fragment de l'URL du widget.
       const formLink = options.formLink || fragmentFormLink;
       if (formLink && !stayOnConfig) {
-        canEdit = await probeCanEdit();
-        diag({ event: 'canEdit', canEdit });
+        const probeVsId = options.vsId || parseFormLink(formLink)?.vsId;
+        canEdit = await probeCanEdit(probeVsId);
+        diag({ event: 'canEdit', canEdit, probeVsId });
         showFill(options.publicUrl || '', formLink);
       } else if (!stayOnConfig) {
         showConfig();
