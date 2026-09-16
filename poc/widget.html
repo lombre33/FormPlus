@@ -13,15 +13,15 @@
   html, body { height: 100%; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   .wrap { max-width: 640px; margin: 0 auto; padding: 16px; }
-  .banner { background: #fef3cd; color: #664500; border: 1px solid #f5d76e; border-radius: 6px; padding: 8px 12px; font-size: .85rem; margin-bottom: 12px; }
-  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .banner { background: #3a2f0f; color: #f5d76e; border-color: #5c4a12; } }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 12px; }
   h1 { font-size: 1.2rem; margin: 0 0 4px; }
   h2 { font-size: 1rem; margin: 0 0 8px; }
+  h3 { font-size: .95rem; margin: 0 0 8px; }
   p { margin: 0 0 10px; }
   .muted { color: var(--muted); font-size: .85rem; }
   label { display: block; font-weight: 600; margin: 10px 0 6px; }
   label.title { font-weight: 600; margin-bottom: 6px; }
+  label:first-child { margin-top: 0; }
   .req::after { content: " *"; color: var(--error); }
   .desc { color: var(--muted); font-size: .85rem; margin: -4px 0 8px; font-weight: 400; }
   input[type=url], input[type=text], input[type=number], input[type=date], input[type=datetime-local], input[type=email], textarea, select {
@@ -32,22 +32,21 @@
      couleur de fond de la page ; sans ceci le texte clair du mode sombre devient illisible. */
   select { background-color: var(--card); }
   select option { color: #1e1e1e; background-color: #fff; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+  .row > div { flex: 1; min-width: 160px; }
   .row input, .row select { flex: 1; min-width: 160px; }
+  .checkbox-row { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
+  .checkbox-row input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
+  .checkbox-row label { margin: 0; font-weight: 400; }
   button { font: inherit; font-weight: 600; padding: 9px 14px; border-radius: 6px; border: 1px solid var(--border); cursor: pointer; background: var(--card); color: var(--text); }
   button.primary { background: var(--accent); color: var(--accent-text); border-color: transparent; }
+  button.link { border: none; background: none; padding: 4px 6px; color: var(--accent); font-weight: 600; }
+  button.icon { padding: 4px 8px; font-size: .9rem; }
   button:disabled { opacity: .5; cursor: default; }
   .ok { color: var(--ok); }
   .err { color: var(--error); }
   .url { font-family: ui-monospace, Consolas, monospace; font-size: .85rem; overflow-wrap: anywhere; word-break: break-all; background: var(--bg); padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border); }
-  .steps { padding-left: 20px; margin: 0 0 10px; }
-  .steps li { margin-bottom: 6px; }
-  .step { border-left: 3px solid var(--border); padding-left: 14px; }
-  .step.done { border-left-color: var(--ok); }
-  .step.disabled { opacity: .55; pointer-events: none; }
-  .badge { display: inline-block; font-size: .72rem; padding: 1px 8px; border-radius: 10px; background: var(--bg); border: 1px solid var(--border); margin-left: 6px; font-weight: 600; }
-  .badge.ok { color: var(--ok); border-color: var(--ok); }
-  .badge.pending { color: var(--muted); }
+  .badge { display: inline-block; font-size: .72rem; padding: 1px 8px; border-radius: 10px; background: var(--bg); border: 1px solid var(--border); font-weight: 600; }
   .log { white-space: pre-wrap; font-family: ui-monospace, Consolas, monospace; font-size: .78rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin-top: 8px; max-height: 220px; overflow: auto; }
   .toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 8px; }
   .hidden { display: none; }
@@ -66,6 +65,17 @@
   .divider { border: 0; border-top: 1px solid var(--border); margin: 22px 0; }
   code { font-size: .85em; background: var(--bg); padding: 1px 5px; border-radius: 4px; }
   details summary { cursor: pointer; }
+  /* Liste des questions ajoutées */
+  .qlist-item { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .qlist-item:last-child { border-bottom: none; }
+  .qlist-order { display: flex; flex-direction: column; gap: 2px; }
+  .qlist-order button { padding: 0 6px; line-height: 1.4; font-size: .75rem; }
+  .qlist-main { flex: 1; min-width: 0; }
+  .qlist-label { font-weight: 600; }
+  .qlist-meta { color: var(--muted); font-size: .8rem; margin-top: 2px; }
+  .qlist-actions { display: flex; gap: 4px; }
+  .qeditor { border: 1px dashed var(--border); border-radius: var(--radius); padding: 16px; margin-top: 12px; }
+  .empty-hint { color: var(--muted); font-size: .9rem; padding: 8px 0; }
 </style>
 </head>
 <body>
@@ -73,14 +83,10 @@
   <div class="card" id="loading"><p class="muted">Connexion à Grist…</p></div>
 
   <div id="config" class="hidden">
-    <div class="card step done" id="step1">
-      <h2>1. Formulaire principal</h2>
-      <p class="muted">Le formulaire natif publié qui porte la clé. Ce widget doit être sur la même page que lui (le plus propre : sur une page à lui seul, la clé porte sur la table, pas sur la page — voir le message plus bas).</p>
-      <ol class="steps">
-        <li>Dans le widget Formulaire natif, cliquez <strong>Publier</strong> si ce n'est pas fait, puis <strong>Copier le lien</strong>.</li>
-        <li>Collez ce lien ci-dessous.</li>
-      </ol>
-      <label for="link">Lien du formulaire natif publié</label>
+    <div class="card" id="step1">
+      <h2>Formulaire principal</h2>
+      <p class="muted">Le formulaire natif publié qui porte la clé de partage. Placez ce widget sur une page à lui seul pour un lien propre — la clé porte sur la table, pas sur la page.</p>
+      <label for="link">Lien du formulaire natif publié (bouton « Copier le lien » du formulaire)</label>
       <div class="row">
         <input id="link" type="url" placeholder="https://grist.numerique.gouv.fr/o/mon-equipe/forms/CLE/12">
         <button id="paste" type="button" title="Lire le presse-papiers">Coller</button>
@@ -101,37 +107,13 @@
       <p id="page-check" class="muted" style="margin-top:10px"></p>
     </div>
 
-    <div class="card step disabled" id="step2">
-      <h2>2. Question à choix, lue depuis une autre table <span id="step2-badge" class="badge pending">optionnel</span></h2>
-      <p class="muted">Ajoute une colonne Référence cachée dans la table du formulaire, attachée au formulaire publié, pour exposer les libellés de la table choisie.</p>
-      <div class="row">
-        <div><label for="srcTable">Table source</label><select id="srcTable"></select></div>
-        <div><label for="srcCol">Colonne affichée (libellé)</label><select id="srcCol"></select></div>
-      </div>
-      <label for="q1Label">Intitulé de la question</label>
-      <input id="q1Label" type="text" value="Votre choix">
-      <div class="row" style="margin-top:10px">
-        <button id="q2-preview" type="button">Aperçu de l'action</button>
-        <button id="q2-apply" type="button" class="primary" disabled>Ajouter ce champ</button>
-      </div>
-      <div id="step2-log" class="log hidden"></div>
-    </div>
-
-    <div class="card step disabled" id="step3">
-      <h2>3. Question conditionnelle, écrite dans une autre table <span id="step3-badge" class="badge pending">optionnel</span></h2>
-      <p class="muted">Visible seulement si la question 2 vaut une valeur précise. La réponse est écrite dans une table différente (table B).</p>
-      <label for="q2Label">Intitulé de la question</label>
-      <input id="q2Label" type="text" value="Précisez">
-      <div class="row">
-        <div><label for="condValue">Afficher si la question 2 =</label><select id="condValue"></select></div>
-      </div>
-      <div class="row">
-        <div><label for="destTable">Table B (destination)</label><select id="destTable"></select></div>
-        <div><label for="destCol">Colonne de destination</label><select id="destCol"></select></div>
-      </div>
-      <p id="step3-check" class="muted"></p>
-      <button id="save" type="button" class="primary" disabled>Enregistrer cette question</button>
-      <p id="step3-msg" class="muted"></p>
+    <div class="card hidden" id="questions-card">
+      <h2>Questions supplémentaires</h2>
+      <p class="muted">En plus des champs du formulaire natif : une question à choix lue depuis une autre table, ou une question texte, chacune éventuellement conditionnelle et écrite dans la table de votre choix.</p>
+      <div id="qlist"></div>
+      <p id="qlist-empty" class="empty-hint">Aucune question supplémentaire pour l'instant.</p>
+      <button id="qadd" type="button">+ Ajouter une question</button>
+      <div id="qeditor" class="qeditor hidden"></div>
     </div>
 
     <details class="muted" style="margin-top:4px"><summary>Diagnostic</summary><pre id="diag" style="white-space:pre-wrap;font-size:.8rem">…</pre></details>
@@ -151,8 +133,8 @@
 
   <div id="standalone" class="card hidden">
     <h1>FormPlus</h1>
-    <p>Cette page est un widget Grist. Ajoutez-la dans un document : Ajouter un widget, Personnalisé, URL personnalisée, puis collez l'adresse de cette page. Niveau d'accès : accès complet, nécessaire au concepteur pour retrouver la page et pour les questions des étapes 2 et 3.</p>
-    <p class="muted">Pour répondre à un formulaire hors de Grist (sans passer par une page Grist), utilisez <a href="public-form.html">public-form.html</a> avec le lien du formulaire après <code>#form=</code> — ne rend que les champs natifs, pas les questions des étapes 2 et 3.</p>
+    <p>Cette page est un widget Grist. Ajoutez-la dans un document : Ajouter un widget, Personnalisé, URL personnalisée, puis collez l'adresse de cette page. Niveau d'accès : accès complet, nécessaire au concepteur pour retrouver la page et gérer les questions.</p>
+    <p class="muted">Pour répondre à un formulaire hors de Grist (sans passer par une page Grist), utilisez <a href="public-form.html">public-form.html</a> avec le lien du formulaire après <code>#form=</code> — ne rend que les champs natifs, pas les questions supplémentaires.</p>
     <p class="muted">Secours : l'URL du widget peut elle-même contenir le lien du formulaire, <code>widget.html#form=&lt;lien&gt;</code>. Le mode répondant fonctionne alors même sans options enregistrées.</p>
   </div>
 </div>
@@ -162,6 +144,7 @@
   const $ = (id) => document.getElementById(id);
   const show = (id) => ['loading', 'config', 'fill', 'standalone', 'repair'].forEach(x => $(x).classList.toggle('hidden', x !== id));
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const uid = () => 'q_' + Math.random().toString(36).slice(2, 9);
 
   // ───────────────────────── Liens, adresses, format des options ─────────────────────────
 
@@ -200,6 +183,22 @@
     return {};
   }
 
+  // Convertit l'ancien format {fields:[q1,q2]} (une seule question à choix, une seule
+  // conditionnelle, câblées en dur) vers le nouveau modèle {questions:[...]} à N entrées, pour ne
+  // pas perdre la configuration déjà faite avant cette généralisation.
+  function migrateLegacy(opts) {
+    if (Array.isArray(opts?.questions)) return opts.questions;
+    if (!Array.isArray(opts?.fields)) return [];
+    return opts.fields.map(f => {
+      if (f.type === 'choice-table' || f.id === 'q1') {
+        return { id: f.id || uid(), kind: 'choice', label: f.label, sourceTable: f.sourceTable, sourceCol: f.sourceCol,
+          writeTable: f.writeTable, writeCol: f.writeCol, required: false, condition: null };
+      }
+      return { id: f.id || uid(), kind: 'text', label: f.label, writeTable: f.writeTable, writeCol: f.writeCol, required: false,
+        condition: f.condition ? { questionId: f.condition.field, op: f.condition.op, value: f.condition.value } : null };
+    });
+  }
+
   // Le référent (adresse de la page Grist qui charge ce widget dans son iframe) contient le
   // numéro de page, ex. ".../p/7?style=singlePage". Bien plus fiable que de chercher "ce widget"
   // par nom de fichier dans les métadonnées, qui échoue dès que plusieurs pages réutilisent la
@@ -235,8 +234,8 @@
   function columnOptions(tableData) {
     return Object.keys(tableData).filter(k => k !== 'id' && !k.startsWith('gristHelper') && k !== 'manualSort');
   }
-  function fillSelect(sel, values, labels) {
-    sel.innerHTML = values.map((v, i) => `<option value="${esc(v)}">${esc(labels ? labels[i] : v)}</option>`).join('');
+  function fillSelect(sel, values, labels, selected) {
+    sel.innerHTML = values.map((v, i) => `<option value="${esc(v)}" ${selected != null && String(v) === String(selected) ? 'selected' : ''}>${esc(labels ? labels[i] : v)}</option>`).join('');
   }
   async function getFormTableId(vsId) {
     const sections = await fetchMeta('_grist_Views_section');
@@ -259,19 +258,15 @@
 
   // Ouvre l'écriture sur une table pour la clé de partage, sans intervention manuelle : crée une
   // section Formulaire VIDE (jamais destinée à être affichée ni remplie) sur la page du formulaire
-  // de l'étape 1, et la publie. C'est la même chose que "Ajouter un widget Formulaire, Publier"
-  // fait à la main, seule la présence + shareOptions.publish/form comptent pour la règle d'accès
-  // (ACLRulesReader._addRulesForShare) — le contenu du formulaire n'a aucune importance. Reprend
-  // la même clé et le même partage que celui de l'étape 1 : aucun nouveau partage n'est créé,
-  // seulement une section supplémentaire qui qualifie pour la règle déjà en place sur cette page.
+  // principal, et la publie. Seule la présence + shareOptions.publish/form comptent pour la règle
+  // d'accès (ACLRulesReader._addRulesForShare) — le contenu du formulaire n'a aucune importance.
+  // Réutilise le partage déjà en place sur cette page, n'en crée jamais un nouveau.
   async function ensureTableGate(tableId, viewRef) {
     const already = (await formTablesOnPage(viewRef)).includes(tableId);
     if (already) return { created: false };
     const tref = await getTableRef(tableId);
     if (!tref) throw new Error(`Table « ${tableId} » introuvable.`);
     await grist.docApi.applyUserActions([['CreateViewSection', tref, viewRef, 'form', null, tableId]]);
-    // Retrouve la section fraîchement créée (Formulaire, cette table, cette page, la plus récente)
-    // plutôt que d'interpréter la valeur de retour, dont la forme exacte côté plugin API est incertaine.
     const sections = await fetchMeta('_grist_Views_section');
     let newest = null;
     for (let i = 0; i < sections.id.length; i++) {
@@ -282,6 +277,33 @@
     if (newest == null) throw new Error('Section créée introuvable après CreateViewSection.');
     await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section', newest, { shareOptions: JSON.stringify({ publish: true, form: true }) }]]);
     return { created: true, sectionId: newest };
+  }
+
+  // Ouvre la lecture d'une table pour une question à choix : colonne Référence cachée sur la
+  // table du formulaire, attachée au formulaire publié, avec sa "colonne affichée" (visibleCol)
+  // fixée explicitement — sans elle, ACLRulesReader._shareTableReferencesForForm retombe sur
+  // l'identifiant numérique de la ligne (colId="id") au lieu du libellé choisi, pour une session
+  // de partage. Un nom déterministe par (table, colonne) permet de réutiliser le même champ si
+  // deux questions lisent la même source. Idempotent : peut être rappelé sans risque.
+  async function ensureChoiceField(mainTableId, formSectionId, sourceTable, sourceCol) {
+    const hiddenColId = `FormPlus_src_${sourceTable}_${sourceCol}`.replace(/[^A-Za-z0-9_]/g, '_');
+    if (!(await colExists(mainTableId, hiddenColId))) {
+      await grist.docApi.applyUserActions([['AddColumn', mainTableId, hiddenColId, { type: `Ref:${sourceTable}` }]]);
+    }
+    const colRef = await getColRef(mainTableId, hiddenColId);
+    const srcColRef = await getColRef(sourceTable, sourceCol);
+    if (srcColRef) {
+      await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Tables_column', colRef, { visibleCol: srcColRef }]]);
+    }
+    const fields = await fetchMeta('_grist_Views_section_field');
+    let already = false;
+    for (let i = 0; i < fields.id.length; i++) if (fields.parentId[i] === formSectionId && fields.colRef[i] === colRef) already = true;
+    if (!already) {
+      await grist.docApi.applyUserActions([['AddRecord', '_grist_Views_section_field', null, {
+        parentId: formSectionId, colRef, widgetOptions: JSON.stringify({ formIsHidden: true }),
+      }]]);
+    }
+    return hiddenColId;
   }
 
   async function findViewRefForSection(vsId) {
@@ -406,28 +428,11 @@
   let connected = false;
   let canEdit = true;
   let stayOnConfig = false; // après une génération, rester sur l'écran de configuration pour copier l'adresse
-  let currentLink = null;   // lien du formulaire natif, analysé (étape 1)
-  let currentFormSection = null; // { id (vsId), viewRef, tableRef }, table du formulaire (étape 1)
-  let cfgFields = [];       // questions ajoutées aux étapes 2 et 3, [q1?, q2?]
+  let currentLink = null;   // lien du formulaire natif, analysé
+  let currentFormSection = null; // { id (vsId), viewRef, tableRef }, table du formulaire
+  let cfgQuestions = [];    // questions supplémentaires, N entrées {id, kind, label, ...}
+  let editingId = null;     // id de la question en cours d'édition dans le panneau, ou null si "ajout"
 
-  function setStepEnabled(id, enabled) { $(id).classList.toggle('disabled', !enabled); }
-
-  async function loadTablePickers() {
-    const tables = await grist.docApi.listTables();
-    fillSelect($('srcTable'), tables);
-    fillSelect($('destTable'), tables);
-    await loadColumnsFor($('srcTable').value, $('srcCol'));
-    await loadColumnsFor($('destTable').value, $('destCol'));
-  }
-  async function loadColumnsFor(tableId, sel) {
-    if (!tableId) return;
-    const data = await fetchMeta(tableId);
-    fillSelect(sel, columnOptions(data));
-  }
-  $('srcTable')?.addEventListener('change', () => loadColumnsFor($('srcTable').value, $('srcCol')));
-  $('destTable')?.addEventListener('change', () => { loadColumnsFor($('destTable').value, $('destCol')); checkStep3(); });
-
-  // Enregistre {formLink, shareKey, vsId, viewRef, publicUrl, fields} dans le document.
   async function saveConfig(publicUrl, widgetPage) {
     const saved = {
       formLink: currentLink ? $('link').value.trim() : options?.formLink,
@@ -435,7 +440,7 @@
       vsId: currentLink?.vsId ?? options?.vsId,
       viewRef: widgetPage,
       publicUrl,
-      fields: cfgFields,
+      questions: cfgQuestions,
     };
     const { self } = await findViewRefForSection(saved.vsId);
     let persisted = false;
@@ -458,8 +463,9 @@
     const sections = await fetchMeta('_grist_Views_section');
     const idx = sections.id.indexOf(link.vsId);
     currentFormSection = { id: link.vsId, viewRef: formPage, tableRef: sections.tableRef[idx] };
-    // On garde les questions déjà enregistrées (étapes 2/3) si ce lien était déjà configuré ainsi.
-    cfgFields = (options?.vsId === link.vsId && Array.isArray(options?.fields)) ? options.fields.slice() : [];
+    mainTableIdCache = await tableIdOfRef(currentFormSection.tableRef);
+    // On garde les questions déjà enregistrées si ce lien était déjà configuré.
+    cfgQuestions = (options?.vsId === link.vsId) ? migrateLegacy(options) : [];
     stayOnConfig = true;
     const publicUrl = buildPublicUrl(link, widgetPage);
     const persisted = await saveConfig(publicUrl, widgetPage);
@@ -477,25 +483,8 @@
     } else {
       $('page-check').innerHTML = `<span class="ok">Le widget est seul sur la page ${widgetPage}, distincte de la page ${formPage} qui porte le formulaire natif. L'adresse n'affichera que ce widget : c'est la configuration la plus propre.</span>`;
     }
-    setStepEnabled('step2', true);
-    setStepEnabled('step3', true);
-    await loadTablePickers();
-    prefillSteps23();
-  }
-
-  function prefillSteps23() {
-    const q1 = cfgFields.find(f => f.id === 'q1');
-    const q2 = cfgFields.find(f => f.id === 'q2');
-    if (q1) {
-      $('srcTable').value = q1.sourceTable; loadColumnsFor(q1.sourceTable, $('srcCol')).then(() => { $('srcCol').value = q1.sourceCol; });
-      $('q1Label').value = q1.label;
-      $('step2').classList.add('done'); $('step2-badge').textContent = 'fait'; $('step2-badge').className = 'badge ok';
-    }
-    if (q2) {
-      $('q2Label').value = q2.label;
-      $('destTable').value = q2.writeTable; loadColumnsFor(q2.writeTable, $('destCol')).then(() => { $('destCol').value = q2.writeCol; checkStep3(); });
-      $('step3').classList.add('done'); $('step3-badge').textContent = 'fait'; $('step3-badge').className = 'badge ok';
-    }
+    $('questions-card').classList.remove('hidden');
+    renderQuestionList();
   }
 
   $('generate').addEventListener('click', generate);
@@ -513,118 +502,195 @@
   $('done').addEventListener('click', () => { stayOnConfig = false; if (options?.formLink) renderFill(); });
   $('edit').addEventListener('click', showConfig);
 
-  // ---- Étape 2 : colonne Référence cachée, question à choix depuis une autre table ----
-  $('q2-preview')?.addEventListener('click', () => {
-    if (!currentFormSection) { $('cfg-msg').innerHTML = '<span class="err">Validez d\'abord l\'étape 1.</span>'; return; }
-    const src = $('srcTable').value;
-    const hiddenColId = `FormPlus_src_${src}`;
-    const log = $('step2-log'); log.classList.remove('hidden');
-    log.textContent = `Actions prévues (additives, sans risque pour les données existantes) :\n`
-      + `1. AddColumn sur la table du formulaire : ${hiddenColId} (type Ref:${src})\n`
-      + `2. Fixe sa colonne affichée sur « ${$('srcCol').value} », pour que les répondants lisent le vrai libellé et non l'identifiant de ligne\n`
-      + `3. AddRecord _grist_Views_section_field : attache ${hiddenColId} au formulaire publié, formIsHidden=true\n\n`
-      + `Aucune donnée existante n'est modifiée. Cliquez « Ajouter ce champ » pour appliquer.`;
-    $('q2-apply').disabled = false;
-  });
-  $('q2-apply')?.addEventListener('click', async () => {
-    const log = $('step2-log'); log.classList.remove('hidden');
-    const mainTableId = await tableIdOfRef(currentFormSection.tableRef);
-    const src = $('srcTable').value, srcCol = $('srcCol').value, q1Label = $('q1Label').value || 'Votre choix';
-    const hiddenColId = `FormPlus_src_${src}`;
-    try {
-      if (!(await colExists(mainTableId, hiddenColId))) {
-        log.textContent = `Ajout de la colonne ${hiddenColId}…`;
-        await grist.docApi.applyUserActions([['AddColumn', mainTableId, hiddenColId, { type: `Ref:${src}`, label: q1Label }]]);
-      } else {
-        log.textContent = `La colonne ${hiddenColId} existe déjà, réutilisée.`;
-      }
-      const colRef = await getColRef(mainTableId, hiddenColId);
-      // Sans "colonne affichée" (visibleCol) explicite sur la colonne Référence, la règle d'accès
-      // du partage se rabat sur l'identifiant numérique de la ligne, pas sur le libellé choisi
-      // (ACLRulesReader._shareTableReferencesForForm) : une session anonyme ne lirait alors que
-      // des id ("#1", "#2") au lieu des vraies valeurs. On le fixe explicitement, y compris si le
-      // champ existait déjà d'un essai précédent à cette étape.
-      const srcColRef = await getColRef(src, srcCol);
-      if (srcColRef) {
-        await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Tables_column', colRef, { visibleCol: srcColRef }]]);
-      } else {
-        log.textContent += `\n⚠️ Colonne « ${srcCol} » introuvable dans « ${src} », l'affichage n'a pas pu être précisé.`;
-      }
-      const fields = await fetchMeta('_grist_Views_section_field');
-      let already = false;
-      for (let i = 0; i < fields.id.length; i++) if (fields.parentId[i] === currentFormSection.id && fields.colRef[i] === colRef) already = true;
-      if (!already) {
-        await grist.docApi.applyUserActions([['AddRecord', '_grist_Views_section_field', null, {
-          parentId: currentFormSection.id, colRef, widgetOptions: JSON.stringify({ formIsHidden: true }),
-        }]]);
-      }
-      const q1 = { id: 'q1', type: 'choice-table', label: q1Label, sourceTable: src, sourceCol: srcCol, writeTable: mainTableId, writeCol: hiddenColId };
-      cfgFields = [q1, ...cfgFields.filter(f => f.id !== 'q1')];
-      await saveConfig($('public-url').textContent, options.viewRef);
-      log.textContent += `\n✅ Champ prêt et enregistré. La table « ${src} » deviendra lisible pour les répondants via ce formulaire.`;
-      $('step2').classList.add('done'); $('step2-badge').textContent = 'fait'; $('step2-badge').className = 'badge ok';
-      const srcData = await fetchMeta(src);
-      fillSelect($('condValue'), srcData[srcCol] || []);
-      await checkStep3();
-    } catch (e) {
-      log.textContent += `\n❌ Erreur : ${e.message}`;
-    }
-  });
+  // ───────────────────────── Liste des questions supplémentaires ─────────────────────────
 
-  // ---- Étape 3 : question conditionnelle écrite dans une table B ----
-  // L'accès en écriture à la table choisie est ouvert automatiquement au clic sur "Enregistrer"
-  // (ensureTableGate) : pas de geste manuel sur une autre page, quelle que soit la table choisie.
-  async function checkStep3() {
-    if (!currentFormSection) return;
-    const destTable = $('destTable').value;
-    if (!destTable) return;
-    const tables = await formTablesOnPage(currentFormSection.viewRef);
-    const ok = tables.includes(destTable);
-    $('step3-check').innerHTML = ok
-      ? `<span class="ok">L'écriture dans « ${esc(destTable)} » est déjà ouverte pour cette clé.</span>`
-      : `<span class="muted">L'écriture dans « ${esc(destTable)} » sera ouverte automatiquement à l'enregistrement (aucune action manuelle nécessaire).</span>`;
-    $('save').disabled = !cfgFields.find(f => f.id === 'q1');
+  function questionSummary(q) {
+    const parts = [q.kind === 'choice' ? `Choix depuis « ${q.sourceTable} »` : 'Texte'];
+    if (q.writeTable && q.writeTable !== tableIdOfMain()) parts.push(`écrit dans « ${q.writeTable} »`);
+    if (q.condition) {
+      const src = cfgQuestions.find(x => x.id === q.condition.questionId);
+      parts.push(`visible si « ${src ? src.label : '?'} » = « ${q.condition.value} »`);
+    }
+    if (q.required) parts.push('obligatoire');
+    return parts.join(' · ');
   }
-  $('save')?.addEventListener('click', async () => {
-    const msg = $('step3-msg');
-    const destTable = $('destTable').value;
-    const q2 = {
-      id: 'q2', type: 'text', label: $('q2Label').value || 'Précisez',
-      condition: { field: 'q1', op: 'equals', value: $('condValue').value },
-      writeTable: destTable, writeCol: $('destCol').value,
+  function tableIdOfMain() { return currentFormSection ? mainTableIdCache : null; }
+  let mainTableIdCache = null;
+
+  function renderQuestionList() {
+    const list = $('qlist');
+    $('qlist-empty').classList.toggle('hidden', cfgQuestions.length > 0);
+    list.innerHTML = cfgQuestions.map((q, i) => `
+      <div class="qlist-item" data-id="${q.id}">
+        <div class="qlist-order">
+          <button type="button" class="icon" data-move="up" ${i === 0 ? 'disabled' : ''} title="Monter">▲</button>
+          <button type="button" class="icon" data-move="down" ${i === cfgQuestions.length - 1 ? 'disabled' : ''} title="Descendre">▼</button>
+        </div>
+        <div class="qlist-main">
+          <div class="qlist-label">${esc(q.label)}</div>
+          <div class="qlist-meta">${esc(questionSummary(q))}</div>
+        </div>
+        <div class="qlist-actions">
+          <button type="button" class="link" data-edit="${q.id}">Modifier</button>
+          <button type="button" class="link" data-del="${q.id}">Supprimer</button>
+        </div>
+      </div>`).join('');
+    list.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => openQuestionEditor(b.dataset.edit)));
+    list.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
+      cfgQuestions = cfgQuestions.filter(q => q.id !== b.dataset.del);
+      await saveConfig(options.publicUrl, options.viewRef);
+      renderQuestionList();
+    }));
+    list.querySelectorAll('[data-move]').forEach(b => b.addEventListener('click', async () => {
+      const id = b.closest('.qlist-item').dataset.id;
+      const i = cfgQuestions.findIndex(q => q.id === id);
+      const j = b.dataset.move === 'up' ? i - 1 : i + 1;
+      if (j < 0 || j >= cfgQuestions.length) return;
+      [cfgQuestions[i], cfgQuestions[j]] = [cfgQuestions[j], cfgQuestions[i]];
+      await saveConfig(options.publicUrl, options.viewRef);
+      renderQuestionList();
+    }));
+  }
+
+  $('qadd').addEventListener('click', () => openQuestionEditor(null));
+
+  function choiceQuestionsBefore(excludeId) {
+    return cfgQuestions.filter(q => q.kind === 'choice' && q.id !== excludeId);
+  }
+
+  async function openQuestionEditor(id) {
+    editingId = id;
+    const q = id ? cfgQuestions.find(x => x.id === id) : null;
+    const panel = $('qeditor');
+    panel.classList.remove('hidden');
+    const tables = await grist.docApi.listTables();
+    const condCandidates = choiceQuestionsBefore(id);
+    panel.innerHTML = `
+      <h3>${q ? 'Modifier la question' : 'Nouvelle question'}</h3>
+      <label for="qf-kind">Type de question</label>
+      <select id="qf-kind">
+        <option value="choice">Choix, options lues depuis une autre table</option>
+        <option value="text">Texte simple</option>
+      </select>
+      <label for="qf-label">Intitulé</label>
+      <input id="qf-label" type="text" placeholder="Votre choix">
+      <div id="qf-choice-fields" class="hidden">
+        <div class="row">
+          <div><label for="qf-srcTable">Table source</label><select id="qf-srcTable"></select></div>
+          <div><label for="qf-srcCol">Colonne affichée (libellé)</label><select id="qf-srcCol"></select></div>
+        </div>
+      </div>
+      <div class="row">
+        <div><label for="qf-writeTable">Écrire la réponse dans la table</label><select id="qf-writeTable"></select></div>
+        <div><label for="qf-writeCol">Colonne de destination</label><select id="qf-writeCol"></select></div>
+      </div>
+      <div class="checkbox-row"><input id="qf-required" type="checkbox"><label for="qf-required">Obligatoire</label></div>
+      <label for="qf-condQ">Condition d'affichage</label>
+      <select id="qf-condQ"><option value="">Toujours visible</option>${condCandidates.map(c => `<option value="${c.id}">Si « ${esc(c.label)} » égale…</option>`).join('')}</select>
+      <div id="qf-cond-value-wrap" class="hidden"><label for="qf-condValue">Valeur déclenchante</label><select id="qf-condValue"></select></div>
+      <p id="qf-msg" class="muted"></p>
+      <div class="row" style="margin-top:6px">
+        <button id="qf-save" type="button" class="primary">Enregistrer cette question</button>
+        <button id="qf-cancel" type="button">Annuler</button>
+      </div>`;
+
+    const defaultWriteTable = q?.writeTable ?? mainTableIdCache;
+    fillSelect($('qf-srcTable'), tables, null, q?.sourceTable);
+    fillSelect($('qf-writeTable'), tables, null, defaultWriteTable);
+    $('qf-kind').value = q?.kind || 'choice';
+    $('qf-label').value = q?.label || '';
+    $('qf-required').checked = !!q?.required;
+    $('qf-condQ').value = q?.condition?.questionId || '';
+
+    const toggleKind = () => $('qf-choice-fields').classList.toggle('hidden', $('qf-kind').value !== 'choice');
+    toggleKind();
+    $('qf-kind').addEventListener('change', toggleKind);
+
+    async function refreshSrcCol() {
+      const t = $('qf-srcTable').value;
+      if (!t) return;
+      const data = await fetchMeta(t);
+      fillSelect($('qf-srcCol'), columnOptions(data), null, q?.sourceCol);
+    }
+    async function refreshWriteCol() {
+      const t = $('qf-writeTable').value;
+      if (!t) return;
+      const data = await fetchMeta(t);
+      fillSelect($('qf-writeCol'), columnOptions(data), null, q?.writeCol);
+    }
+    await refreshSrcCol();
+    await refreshWriteCol();
+    $('qf-srcTable').addEventListener('change', refreshSrcCol);
+    $('qf-writeTable').addEventListener('change', refreshWriteCol);
+
+    async function refreshCondValues() {
+      const srcId = $('qf-condQ').value;
+      $('qf-cond-value-wrap').classList.toggle('hidden', !srcId);
+      if (!srcId) return;
+      const src = cfgQuestions.find(x => x.id === srcId);
+      if (!src) return;
+      const data = await fetchMeta(src.sourceTable);
+      fillSelect($('qf-condValue'), data[src.sourceCol] || [], null, q?.condition?.value);
+    }
+    $('qf-condQ').addEventListener('change', refreshCondValues);
+    await refreshCondValues();
+
+    $('qf-cancel').addEventListener('click', () => { panel.classList.add('hidden'); panel.innerHTML = ''; });
+    $('qf-save').addEventListener('click', () => saveQuestionFromEditor(q));
+
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  async function saveQuestionFromEditor(existing) {
+    const msg = $('qf-msg');
+    const kind = $('qf-kind').value;
+    const label = $('qf-label').value.trim() || (kind === 'choice' ? 'Votre choix' : 'Réponse');
+    const writeTable = $('qf-writeTable').value;
+    const writeCol = $('qf-writeCol').value;
+    if (!writeTable || !writeCol) { msg.innerHTML = '<span class="err">Choisissez une table et une colonne de destination.</span>'; return; }
+    const condQ = $('qf-condQ').value;
+    const condition = condQ ? { questionId: condQ, op: 'equals', value: $('qf-condValue').value } : null;
+    const q = {
+      id: existing?.id || uid(), kind, label, writeTable, writeCol,
+      required: $('qf-required').checked, condition,
     };
+    if (kind === 'choice') { q.sourceTable = $('qf-srcTable').value; q.sourceCol = $('qf-srcCol').value; }
+
     try {
-      msg.textContent = `Ouverture de l'écriture dans « ${destTable} »…`;
-      const { created } = await ensureTableGate(destTable, currentFormSection.viewRef);
-      cfgFields = [...cfgFields.filter(f => f.id !== 'q2'), q2];
-      const persisted = await saveConfig($('public-url').textContent, options.viewRef);
-      const gateMsg = created ? ` Un formulaire technique vide a été créé et publié pour « ${esc(destTable)} » sur la page du formulaire de l'étape 1, pour ouvrir ce droit.` : '';
-      msg.innerHTML = (persisted ? '<span class="ok">Question enregistrée.' : '<span class="err">Enregistrée pour cette session seulement : cliquez sur Enregistrer dans la barre du widget.') + gateMsg + '</span>';
-      $('step3').classList.add('done'); $('step3-badge').textContent = 'fait'; $('step3-badge').className = 'badge ok';
-      await checkStep3();
+      msg.textContent = 'Enregistrement…';
+      const mainTableId = await tableIdOfRef(currentFormSection.tableRef);
+      if (kind === 'choice') {
+        await ensureChoiceField(mainTableId, currentFormSection.id, q.sourceTable, q.sourceCol);
+      }
+      if (writeTable !== mainTableId) {
+        await ensureTableGate(writeTable, currentFormSection.viewRef);
+      }
+      cfgQuestions = [...cfgQuestions.filter(x => x.id !== q.id), q];
+      await saveConfig(options.publicUrl, options.viewRef);
+      $('qeditor').classList.add('hidden');
+      $('qeditor').innerHTML = '';
+      renderQuestionList();
     } catch (e) {
       msg.innerHTML = `<span class="err">Erreur : ${esc(e.message)}</span>`;
     }
-  });
+  }
 
-  function showConfig() {
+  async function showConfig() {
     show('config');
-    setStepEnabled('step2', !!currentFormSection);
-    setStepEnabled('step3', !!currentFormSection);
     if (options?.formLink) {
       $('link').value = options.formLink;
       currentLink = parseFormLink(options.formLink);
-      cfgFields = Array.isArray(options.fields) ? options.fields.slice() : [];
+      cfgQuestions = migrateLegacy(options);
       if (options.publicUrl) { $('public-url').textContent = options.publicUrl; $('result').classList.remove('hidden'); }
       if (currentLink) {
-        fetchMeta('_grist_Views_section').then(sections => {
-          const idx = sections.id.indexOf(currentLink.vsId);
-          if (idx >= 0) {
-            currentFormSection = { id: currentLink.vsId, viewRef: sections.parentId[idx], tableRef: sections.tableRef[idx] };
-            setStepEnabled('step2', true); setStepEnabled('step3', true);
-            loadTablePickers().then(prefillSteps23);
-          }
-        });
+        const sections = await fetchMeta('_grist_Views_section');
+        const idx = sections.id.indexOf(currentLink.vsId);
+        if (idx >= 0) {
+          currentFormSection = { id: currentLink.vsId, viewRef: sections.parentId[idx], tableRef: sections.tableRef[idx] };
+          mainTableIdCache = await tableIdOfRef(currentFormSection.tableRef);
+          $('questions-card').classList.remove('hidden');
+          renderQuestionList();
+        }
       }
     }
   }
@@ -646,7 +712,7 @@
     return d;
   }
 
-  // ───────────────────────── Rendu répondant (formulaire natif + questions enrichies) ─────────────────────────
+  // ───────────────────────── Rendu répondant (formulaire natif + questions supplémentaires) ─────────────────────────
 
   function layoutOrder(f) {
     const ids = [];
@@ -705,6 +771,14 @@
     return `<div class="q" data-native="1" data-type="${fl.type}" data-col="${name}" data-required="${o.formRequired ? 1 : 0}" ${hidden ? 'hidden' : ''}>${head}${input}<div class="err-msg">Ce champ est obligatoire.</div></div>`;
   }
 
+  function renderExtraQuestion(q) {
+    const req = q.required ? 'req' : '';
+    const input = q.kind === 'choice'
+      ? `<select id="eq-${q.id}"><option value="">Chargement…</option></select>`
+      : `<input id="eq-${q.id}" type="text">`;
+    return `<div class="q" data-extra="${q.id}" data-required="${q.required ? 1 : 0}"><label class="title ${req}" for="eq-${q.id}">${esc(q.label)}</label>${input}<div class="err-msg">Ce champ est obligatoire.</div></div>`;
+  }
+
   async function renderFill() {
     show('fill');
     const card = $('fill-card');
@@ -728,23 +802,18 @@
       return;
     }
 
-    const enhanced = (options?.formLink === formLink && Array.isArray(options?.fields)) ? options.fields : [];
-    const q1 = enhanced.find(f => f.id === 'q1');
-    const q2 = enhanced.find(f => f.id === 'q2');
+    const extraQuestions = (options?.formLink === formLink) ? migrateLegacy(options) : [];
 
     const prefillParams = new URLSearchParams(location.search);
     const nativeRows = layoutOrder(form).map(id => renderNativeField(id, form.formFieldsById[id], prefillParams)).join('');
-    const enhancedRows = [
-      q1 ? `<div class="q" data-enhanced="q1"><label class="title" for="q1-input">${esc(q1.label)}</label><select id="q1-input"><option value="">Chargement…</option></select></div>` : '',
-      q2 ? `<div class="q cond-hidden" data-enhanced="q2"><label class="title" for="q2-input">${esc(q2.label)}</label><input id="q2-input" type="text"></div>` : '',
-    ].join('');
+    const extraRows = extraQuestions.map(renderExtraQuestion).join('');
 
     card.innerHTML = `
       <h1>${esc(form.formTitle)}</h1>
       <p class="muted">Les champs marqués * sont obligatoires.</p>
       <form id="f" novalidate>
         ${nativeRows}
-        ${enhancedRows ? `<hr class="divider">${enhancedRows}` : ''}
+        ${extraRows ? `<hr class="divider">${extraRows}` : ''}
         <label class="hp">Ne pas remplir <input type="text" name="_website" tabindex="-1" autocomplete="off"></label>
         <div class="actions">
           <span id="fill-status" class="muted"></span>
@@ -752,44 +821,52 @@
         </div>
       </form>`;
 
-    if (q1) {
+    // Charge les options de chaque question à choix, et relie chaque condition à sa question
+    // source (qui doit être elle-même de type "choice" pour fournir des valeurs à comparer).
+    for (const q of extraQuestions) {
+      if (q.kind !== 'choice') continue;
+      const sel = $(`eq-${q.id}`);
       try {
-        const data = await grist.docApi.fetchTable(q1.sourceTable);
+        const data = await grist.docApi.fetchTable(q.sourceTable);
         const ids = data.id || [];
         const availableCols = Object.keys(data);
-        const hasCol = availableCols.includes(q1.sourceCol);
-        const rawLabels = hasCol ? (data[q1.sourceCol] || []) : [];
-        // Repli visible si la colonne configurée est introuvable ou si une valeur est vide : mieux
-        // vaut afficher l'identifiant que rien du tout, et ça rend le problème visible d'un coup d'œil.
+        const hasCol = availableCols.includes(q.sourceCol);
+        const rawLabels = hasCol ? (data[q.sourceCol] || []) : [];
         const labels = ids.map((id, i) => {
           const v = rawLabels[i];
           return (v !== undefined && v !== null && v !== '') ? String(v) : `#${id}`;
         });
-        $('q1-input').innerHTML = '<option value="">Choisir…</option>' + ids.map((id, i) => `<option value="${id}" data-label="${esc(labels[i])}">${esc(labels[i])}</option>`).join('');
-        diag({ event: 'q1-loaded', sourceTable: q1.sourceTable, sourceCol: q1.sourceCol, hasCol, availableCols, rowCount: ids.length, sampleLabels: labels.slice(0, 3) });
+        sel.innerHTML = '<option value="">Choisir…</option>' + ids.map((id, i) => `<option value="${id}" data-label="${esc(labels[i])}">${esc(labels[i])}</option>`).join('');
+        diag({ event: 'choice-loaded', questionId: q.id, sourceTable: q.sourceTable, sourceCol: q.sourceCol, hasCol, rowCount: ids.length });
       } catch (e) {
-        $('q1-input').innerHTML = '<option value="">(indisponible)</option>';
-        diag({ event: 'q1-error', message: e.message, sourceTable: q1.sourceTable, sourceCol: q1.sourceCol });
-      }
-      if (q2) {
-        const check = () => {
-          const label = $('q1-input').selectedOptions[0]?.dataset.label || '';
-          card.querySelector('[data-enhanced="q2"]').classList.toggle('cond-hidden', label !== q2.condition.value);
-        };
-        $('q1-input').addEventListener('change', check);
+        sel.innerHTML = '<option value="">(indisponible)</option>';
+        diag({ event: 'choice-error', questionId: q.id, message: e.message });
       }
     }
+    for (const q of extraQuestions) {
+      if (!q.condition) continue;
+      const src = $(`eq-${q.condition.questionId}`);
+      if (!src) continue;
+      const target = card.querySelector(`[data-extra="${q.id}"]`);
+      const check = () => {
+        const label = src.tagName === 'SELECT' ? (src.selectedOptions[0]?.dataset.label || '') : src.value;
+        target.classList.toggle('cond-hidden', label !== q.condition.value);
+      };
+      src.addEventListener('change', check);
+      check();
+    }
 
-    $('f').addEventListener('submit', (ev) => onSubmit(ev, form, link, q1, q2));
+    $('f').addEventListener('submit', (ev) => onSubmit(ev, form, link, extraQuestions));
   }
 
-  async function onSubmit(ev, form, link, q1, q2) {
+  async function onSubmit(ev, form, link, extraQuestions) {
     ev.preventDefault();
     const formEl = ev.target;
     if (formEl._website.value) return; // honeypot
-    const fields = {};
+    const fieldsByTable = { [form.formTableId]: {} };
     const uploads = [];
     let valid = true;
+
     for (const q of formEl.querySelectorAll('.q[data-native="1"]')) {
       const col = q.dataset.col, type = q.dataset.type, required = q.dataset.required === '1';
       let value = null;
@@ -811,13 +888,26 @@
       const empty = value === null || value === '' || (value === false && type !== 'Bool');
       q.classList.toggle('invalid', required && empty && !q.hidden);
       if (required && empty && !q.hidden) valid = false;
-      if (value !== null && type !== 'Attachments') fields[col] = value;
+      if (value !== null && type !== 'Attachments') fieldsByTable[form.formTableId][col] = value;
     }
-    // Question 1 (choix depuis une autre table) : écrite dans la même table, même enregistrement.
-    if (q1) {
-      const val = $('q1-input')?.value;
-      if (val) fields[q1.writeCol] = Number(val);
+
+    // Questions supplémentaires : regroupées par table de destination, pour n'envoyer qu'une
+    // requête par table (la principale ET chacune des tables choisies, quel que soit leur nombre).
+    for (const q of extraQuestions) {
+      const el = formEl.querySelector(`[data-extra="${q.id}"]`);
+      if (!el) continue;
+      const visible = !el.classList.contains('cond-hidden');
+      const input = $(`eq-${q.id}`);
+      const raw = input.value;
+      const empty = raw === '' || raw == null;
+      el.classList.toggle('invalid', q.required && empty && visible);
+      if (q.required && empty && visible) valid = false;
+      if (!visible || empty) continue;
+      const value = q.kind === 'choice' ? Number(raw) : raw;
+      fieldsByTable[q.writeTable] = fieldsByTable[q.writeTable] || {};
+      fieldsByTable[q.writeTable][q.writeCol] = value;
     }
+
     if (!valid) { formEl.querySelector('.invalid')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
 
     const btn = formEl.querySelector('button[type=submit]');
@@ -829,24 +919,23 @@
         up.files.forEach(file => fd.append('upload', file));
         const r = await fetch(`${link.api}/attachments`, { method: 'POST', body: fd });
         if (!r.ok) throw new Error(`Pièces jointes : HTTP ${r.status}`);
-        fields[up.col] = ['L', ...(await r.json())];
+        fieldsByTable[form.formTableId][up.col] = ['L', ...(await r.json())];
       }
+      // Table principale, via l'API REST (déjà utilisée pour les pièces jointes, cohérent).
       const r = await fetch(`${link.api}/tables/${form.formTableId}/records`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ records: [{ fields }] }),
+        body: JSON.stringify({ records: [{ fields: fieldsByTable[form.formTableId] }] }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status} ${await r.text()}`);
       const j = await r.json();
 
-      // Question 2 (conditionnelle) : table différente, même clé (son formulaire natif doit être
-      // publié sur la même page — vérifié à l'étape 3 de la configuration).
-      if (q2) {
-        const cond = !formEl.querySelector('[data-enhanced="q2"]')?.classList.contains('cond-hidden');
-        const val = $('q2-input')?.value;
-        if (cond && val) {
-          try { await grist.docApi.applyUserActions([['AddRecord', q2.writeTable, null, { [q2.writeCol]: val }]]); }
-          catch (e) { diag({ event: 'q2-write-failed', message: e.message }); }
-        }
+      // Chaque autre table, via l'API plugin (même clé, droit ouvert par ensureTableGate à la
+      // configuration). Une table dont le formulaire-relais aurait été retiré échoue ici sans
+      // bloquer le reste : chaque échec est journalisé, jamais silencieux.
+      for (const [tableId, fields] of Object.entries(fieldsByTable)) {
+        if (tableId === form.formTableId || Object.keys(fields).length === 0) continue;
+        try { await grist.docApi.applyUserActions([['AddRecord', tableId, null, fields]]); }
+        catch (e) { diag({ event: 'extra-table-write-failed', tableId, message: e.message }); }
       }
 
       $('fill-card').innerHTML = `<div class="center"><h1 class="ok">Merci, votre réponse a bien été enregistrée.</h1>
@@ -888,7 +977,7 @@
       if (formLink && !stayOnConfig) {
         await renderFill();
       } else if (!stayOnConfig) {
-        showConfig();
+        await showConfig();
       }
     });
   })();

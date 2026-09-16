@@ -88,22 +88,22 @@ Pour être notés au retour : le widget s'affiche-t-il bien en navigation privé
 
 ## 6. Test du périmètre fonctionnel : lecture multi-tables, condition, écriture multi-tables
 
-Ces étapes sont désormais intégrées à `widget.html` (étapes 2 et 3 de l'écran de configuration, sous l'étape 1 et l'adresse générée). Objectif : prouver, avec le transport `/s/<clé>`, que le widget peut lire une liste de choix depuis une table quelconque du document, afficher une question conditionnelle, et écrire la réponse dans une table différente de celle du formulaire natif.
+**16 septembre 2026 — généralisé.** `widget.html` propose désormais un éditeur de questions à nombre libre (« Questions supplémentaires », sous l'étape 1 et l'adresse générée), plus les deux questions fixes d'origine. Objectif de ce test : prouver, avec le transport `/s/<clé>`, que le widget peut lire une liste de choix depuis une table quelconque du document, afficher une question conditionnelle, et écrire la réponse dans une table différente de celle du formulaire natif.
 
-**À faire d'abord sur un document de test**, cet outil modifie la structure du document (ajout d'une colonne). Prévoir 5 tables :
+**À faire d'abord sur un document de test**, cet outil modifie la structure du document (ajout d'une colonne, ajout d'un formulaire technique). Prévoir 3 tables :
 
 | Table | Rôle | Colonnes minimales |
 |---|---|---|
-| `Departements` | Source des choix (table X) | `nom` Texte |
-| `Reponses` | Table A, porte le formulaire natif publié | n'importe quelle colonne de départ |
-| `Commentaires` | Table B, destination de la question conditionnelle | `Texte` Texte |
+| `Departements` | Source des choix | `nom` Texte |
+| `Reponses` | Porte le formulaire natif publié | n'importe quelle colonne de départ |
+| `Commentaires` | Destination de la question conditionnelle | `Texte` Texte |
 
 1. Sur une page, ajouter un widget **Formulaire** sur `Reponses`, le publier, copier le lien.
-2. Sur la **même page**, ajouter un widget **Formulaire** sur `Commentaires`, et le publier aussi. Il n'a pas besoin d'être configuré ni rempli : son seul rôle est d'ouvrir l'accès en écriture à `Commentaires` pour la même clé.
-3. Sur la même page, ajouter un widget **Personnalisé**, URL `https://lombre33.github.io/FormPlus/poc/widget.html`, accès complet.
-4. Étape 1 : coller le lien du formulaire `Reponses`, **Générer l'adresse**. Les étapes 2 et 3 se débloquent.
-5. Étape 2 : Table source `Departements`, colonne `nom`, **Aperçu de l'action** puis **Ajouter ce champ**. Ceci ajoute une colonne cachée `FormPlus_src_Departements` (Référence vers `Departements`) à `Reponses`, l'attache masquée au formulaire natif publié, et enregistre.
-6. Étape 3 : condition sur une valeur de `Departements`, table B `Commentaires`, colonne `Texte`. **Aucune préparation manuelle de `Commentaires` n'est nécessaire** : cliquer **Enregistrer cette question** crée et publie tout seul un formulaire technique vide pour `Commentaires`, sur la page du formulaire de l'étape 1, qui ouvre le droit d'écriture pour la même clé (`ensureTableGate`, décrit dans `docs/01-etude-comparative.md`).
+2. Sur la même page, ajouter un widget **Personnalisé**, URL `https://lombre33.github.io/FormPlus/poc/widget.html`, accès complet.
+3. Coller le lien du formulaire `Reponses`, **Générer l'adresse**. Le bloc « Questions supplémentaires » apparaît.
+4. **+ Ajouter une question** : type « Choix, options lues depuis une autre table », table source `Departements`, colonne affichée `nom`, intitulé libre, table de destination laissée sur `Reponses` (par défaut), colonne de destination laissée au choix. **Enregistrer cette question.** Ceci ajoute une colonne cachée `FormPlus_src_Departements_nom` (Référence vers `Departements`, colonne affichée fixée) à `Reponses`, l'attache masquée au formulaire natif publié.
+5. **+ Ajouter une question** à nouveau : type « Texte simple », intitulé libre, table de destination `Commentaires`, colonne `Texte`, condition « Si « (la première question) » égale… » puis une valeur de `Departements`. **Enregistrer cette question.** Aucune préparation manuelle de `Commentaires` n'est nécessaire : l'enregistrement crée et publie tout seul un formulaire technique vide pour `Commentaires` sur la page du formulaire, qui ouvre le droit d'écriture pour la même clé (`ensureTableGate`, décrit dans `docs/01-etude-comparative.md`).
+6. Une troisième question, un quatrième champ à choix depuis une autre table encore, une condition combinant plusieurs questions : tout ça fonctionne de la même façon, sans limite du nombre de questions.
 7. Copier l'adresse générée (bouton **Copier l'adresse** dans le bloc « Adresse à diffuser », inchangée depuis l'étape 1), l'ouvrir en navigation privée. Le formulaire affiche les champs natifs de `Reponses` puis, après un filet de séparation, la question à choix et la question conditionnelle. Le journal Diagnostic en bas confirme la lecture de `Departements` ; après avoir choisi une valeur déclenchant la condition, rempli le second champ et cliqué Envoyer, la réponse apparaît dans `Reponses` (choix compris) et dans `Commentaires`.
 
 Si une étape échoue, le journal affiche le message d'erreur exact de Grist, à coller ici pour diagnostic.

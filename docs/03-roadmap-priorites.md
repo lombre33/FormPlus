@@ -13,7 +13,7 @@ Le POC (jalon J1) est allé plus loin que prévu : il a aussi validé une bonne 
 - **Champs natifs complets** : tous les types de colonnes Grist (texte, nombre, date, booléen, choix, référence, listes, pièces jointes), validation, requis, pré-remplissage par URL, hérités du rendu natif.
 - **Robustesse** : détection de page fiable même avec plusieurs widgets, diagnostic visible sans outils de développeur, réparation en cas de configuration corrompue.
 
-Ce qui n'est **pas encore fait**, et qui redevient la priorité : l'interface elle-même. `widget.html` est aujourd'hui un outil de test technique — bandeau d'avertissement, étapes numérotées, journaux, exactement deux questions enrichies possibles (une à choix, une conditionnelle) câblées en dur. Ce n'est pas l'éditeur simple visé en priorité 2. La section 3 ci-dessous reflète ce point de départ.
+**Mise à jour du même jour : le constructeur à N questions est fait.** `widget.html` propose désormais une liste de questions extensible (« Questions supplémentaires »), chaque question de type « Choix depuis une table » ou « Texte », avec obligatoire, condition référençant n'importe quelle question à choix précédente, et destination d'écriture au choix (table du formulaire ou une autre, ouverte automatiquement). Réordonnancement par flèches, modification, suppression. Migration automatique de l'ancien format à deux questions fixes. Reste non fait : fusionner visuellement les champs natifs et les questions supplémentaires en une seule liste homogène (ils restent deux blocs distincts aujourd'hui), le glisser-déposer pour réordonner, et surtout l'habillage visuel épuré visé en priorité 2 — l'éditeur fonctionne mais garde une présentation utilitaire (étiquettes, encarts), pas encore la sobriété de type Google Forms.
 
 ## 1. Principes d'interface
 
@@ -41,16 +41,17 @@ Le différenciateur n'est pas technique, c'est la simplicité. Référence : Goo
 ### V1, le socle : indispensable et à forte valeur
 
 **L'éditeur, la vraie priorité maintenant.**
-- Remplacer les étapes numérotées et le bandeau technique par l'interface visée section 1 : liste de questions en cartes, une sélectionnée à la fois, ajout par un bouton simple, réordonner par glisser-déposer ou flèches, dupliquer, supprimer.
-- Généraliser au-delà des deux questions enrichies câblées en dur (`q1`/`q2`) : un constructeur à **N questions**, chacune d'un type au choix, chacune pouvant lire depuis une autre table ou écrire ailleurs si besoin — pas seulement la première et la deuxième.
-- Fusionner la question native (colonne du formulaire natif) et la question enrichie (lecture ou écriture croisée) en un seul concept côté interface : le concepteur ajoute « une question », le type de source (colonne locale ou table externe) est un simple réglage, pas deux mécanismes visiblement différents.
-- Titre et description du formulaire, réordonnancement indépendant de l'ordre des champs natifs.
+- ~~Constructeur à N questions~~ fait le 16 septembre 2026 (voir bilan ci-dessus).
+- Fusionner la question native (colonne du formulaire natif) et la question supplémentaire (lecture ou écriture croisée) en une seule liste homogène côté interface, au lieu de deux blocs visuellement distincts aujourd'hui.
+- Glisser-déposer pour réordonner (des flèches suffisent aujourd'hui, à remplacer par plus fluide).
+- Titre et description du formulaire, éditables depuis l'interface (repris du formulaire natif pour l'instant).
+- Passer du style « panneau de configuration technique » (étiquettes, badges, encarts) à des cartes sobres, une question visible à la fois en édition.
 
 **Fonctionnel, déjà prouvé au niveau technique, à exposer dans l'éditeur :**
-- Types de questions : tous ceux déjà rendus (texte court, texte long, nombre, date, oui/non, choix, référence, listes, pièces jointes) plus email et téléphone validés.
-- Obligatoire, texte d'aide, sections avec titre, blocs d'information repliables — ces derniers pas encore développés du tout.
-- Questions conditionnelles avec ET/OU sur plusieurs conditions, pas seulement une égalité (déjà validé pour un cas simple, à généraliser).
-- Ouverture automatique des accès multi-tables déjà faite (`ensureTableGate`), à relier à l'éditeur généralisé plutôt qu'aux étapes fixes actuelles.
+- Types de questions : tous ceux déjà rendus pour les champs natifs (texte court, texte long, nombre, date, oui/non, choix, référence, listes, pièces jointes) ; les questions supplémentaires se limitent pour l'instant à « choix » et « texte », à étendre aux mêmes types que les champs natifs.
+- Obligatoire ✅ et condition ✅ faits pour les questions supplémentaires. Texte d'aide, sections avec titre, blocs d'information repliables — pas encore développés.
+- Conditions avec ET/OU sur plusieurs critères combinés, pas seulement un seul critère d'égalité (fait) — à généraliser.
+- ~~Ouverture automatique des accès multi-tables~~ faite et généralisée à toute question (`ensureTableGate`, `ensureChoiceField`), plus liée aux étapes fixes.
 
 **Présentation :**
 - Thème sobre, DSFR, responsive complet, mode sombre propre sur l'ensemble de l'interface (les listes déroulantes sont corrigées, le reste de l'éditeur pas encore vérifié).
