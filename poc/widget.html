@@ -528,6 +528,17 @@
     }
   });
 
+  // Nom de la page (view) qui porte le formulaire natif de l'étape 1 — pas forcément la page où
+  // se trouve ce widget, si elles ont été séparées pour un rendu plus propre (section 7 du guide).
+  async function formPageLabel(viewRef) {
+    try {
+      const views = await fetchMeta('_grist_Views');
+      const idx = views.id.indexOf(viewRef);
+      const name = idx >= 0 ? views.name[idx] : '';
+      return name ? `« ${name} » (page ${viewRef})` : `la page ${viewRef}`;
+    } catch (e) { return `la page ${viewRef}`; }
+  }
+
   // ---- Étape 3 : question conditionnelle écrite dans une table B ----
   async function checkStep3() {
     if (!currentFormSection) return;
@@ -535,9 +546,11 @@
     if (!destTable) return;
     const tables = await formTablesOnPage(currentFormSection.viewRef);
     const ok = tables.includes(destTable);
+    const pageLabel = await formPageLabel(currentFormSection.viewRef);
+    const sameAsWidget = currentFormSection.viewRef === options?.viewRef;
     $('step3-check').innerHTML = ok
-      ? `<span class="ok">Un formulaire publié existe pour « ${esc(destTable)} » sur cette page : l'écriture devrait être acceptée.</span>`
-      : `<span class="err">Aucun formulaire publié pour « ${esc(destTable)} » sur cette page. Ajoutez un widget Formulaire pour cette table ici, publiez-le, puis revenez.</span>`;
+      ? `<span class="ok">Un formulaire publié existe pour « ${esc(destTable)} » sur la page ${pageLabel} : l'écriture devrait être acceptée.</span>`
+      : `<span class="err">Aucun formulaire publié pour « ${esc(destTable)} » sur la page ${pageLabel} — la page du formulaire natif de l'étape 1${sameAsWidget ? '' : ', pas la page de ce widget'}. Ajoutez-y un widget Formulaire pour la table « ${esc(destTable)} » et publiez-le (pas besoin de le configurer ni de le remplir, il sert uniquement à ouvrir le droit d'écriture), puis revenez ici.</span>`;
     $('save').disabled = !(ok && cfgFields.find(f => f.id === 'q1'));
   }
   $('save')?.addEventListener('click', async () => {
