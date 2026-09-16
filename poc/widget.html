@@ -239,6 +239,35 @@
     out.textContent = lines.join('\n');
   }
 
+  // Repère la section de CE widget par sa page (référent), sans dépendre d'un lien de formulaire.
+  async function findSelfSectionId() {
+    const myPage = myPageFromReferrer();
+    if (myPage == null) return null;
+    const sections = await grist.docApi.fetchTable('_grist_Views_section');
+    let found = null, count = 0;
+    for (let i = 0; i < sections.id.length; i++) {
+      if (sections.parentId[i] === myPage && sections.parentKey[i] === 'custom') { found = sections.id[i]; count++; }
+    }
+    return count === 1 ? found : null;
+  }
+
+  // Le paramètre "readonly" transmis par Grist à l'iframe reflète le mode readonly du DOCUMENT,
+  // pas les droits réels d'une session de partage anonyme (qui reçoit access=full comme le
+  // concepteur). Seule une tentative d'écriture réelle distingue fiablement les deux : la session
+  // anonyme n'a pas le droit d'écriture sur les métadonnées (_grist_Views_section), le concepteur
+  // si. On réécrit la valeur À L'IDENTIQUE, donc sans risque même en cas de succès inattendu.
+  async function probeCanEdit() {
+    try {
+      const selfId = await findSelfSectionId();
+      if (!selfId) return false;
+      const sections = await grist.docApi.fetchTable('_grist_Views_section');
+      const idx = sections.id.indexOf(selfId);
+      if (idx < 0) return false;
+      await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section', selfId, { options: sections.options[idx] }]]);
+      return true;
+    } catch (e) { return false; }
+  }
+
   function showFill(publicUrl, formLink) {
     show('fill');
     $('fill-toolbar').classList.toggle('hidden', !canEdit);
@@ -328,7 +357,7 @@
     if (!ok) { diag({ event: 'standalone', inIframe }); show('standalone'); return; }
     grist.ready({ requiredAccess: 'full', onEditOptions: () => showConfig() });
     const timeout = setTimeout(() => { if (!connected) { diag({ event: 'timeout' }); show('standalone'); } }, 4000);
-    grist.onOptions((opts, settings) => {
+    grist.onOptions(async (opts, settings) => {
       connected = true; clearTimeout(timeout);
       options = opts || {};
       diag({ event: 'onOptions', optionKeys: Object.keys(options), hasFormLink: !!options.formLink, settings });
@@ -336,7 +365,8 @@
       // Le mode répondant n'a besoin que du lien du formulaire : options du widget, sinon fragment de l'URL du widget.
       const formLink = options.formLink || fragmentFormLink;
       if (formLink && !stayOnConfig) {
-        canEdit = gristReadonly !== 'true';
+        canEdit = await probeCanEdit();
+        diag({ event: 'canEdit', canEdit });
         showFill(options.publicUrl || '', formLink);
       } else if (!stayOnConfig) {
         showConfig();
