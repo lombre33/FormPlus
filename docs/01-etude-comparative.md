@@ -198,6 +198,16 @@ L'utilisateur est anonymisé côté serveur. Le serveur renvoie `Access-Control-
 - Endpoints non documentés publiquement, mais utilisés par le client officiel, donc stables de fait. Dépublier le formulaire natif coupe le lien.
 - Où stocker la définition étendue (conditions, layout) pour que la page publique la lise ? Trois pistes : (a) l'exposer via une colonne affichée d'une table `Formulaires` référencée par une colonne Ref masquée du formulaire natif, ce qui la rend lisible par la clé ; à valider par test ; (b) l'embarquer compressée dans l'URL, définition seule sans données, quelques Ko ; (c) la publier en JSON statique sur votre VPS. Piste (a) à tester en premier, (b) en secours.
 
+### Transport 1 bis : la même clé, mais avec une URL sur le domaine Grist (`/s/<clé>`)
+
+Le client web Grist accepte l'adresse `https://<instance>/o/<org>/s/<clé>` (fichier `gristUrls.ts`, indicateur `viaShare`). Le document s'ouvre alors en session « partage », sans connexion, avec les mêmes règles virtuelles que le formulaire publié. C'est le mécanisme qui servait à soumettre des enregistrements depuis le client web avant l'existence des formulaires natifs.
+
+Vérifié le 16 septembre 2026 sur `public.getgrist.com/s/<clé>` (document de Grist Labs) : le document s'ouvre sans compte, la grille de la table cible s'affiche vide car la lecture est censurée, la page du formulaire est visible, et `?style=singlePage` masque menus et panneaux. Le code de censure (`CensorshipInfo` dans `GranularAccess.ts`) ne masque une section que si la lecture de sa table est totalement interdite. La table d'un formulaire publié est en lecture « mixte » (schéma lisible, lignes interdites), donc toutes les sections posées sur cette table restent visibles, y compris un widget personnalisé.
+
+Conséquence : une page qui contient le formulaire natif publié, replié, et un widget FormPlus sur la même table est accessible par une **URL Grist**, sans compte, sans règle d'accès, dans un **seul document**, et le répondant ne peut pas lire les réponses. Le widget écrit soit par l'API plugin (`applyUserActions`, filtré par les règles du partage), soit par l'API REST avec la clé. Adresse à diffuser : `https://<instance>/o/<org>/s/<clé>/p/<page>?style=singlePage`.
+
+Limites : les mêmes que le transport 1, création seule et lecture limitée aux colonnes affichées des références. Sans `style=singlePage`, un curieux voit la liste des pages et les noms des tables et colonnes, jamais les données. Points à valider sur DINUM : rendu d'un widget personnalisé en session partage, écriture via l'API plugin, chemin `/o/<org>/s/<clé>`, comportement avec ProConnect. Risque : ce chemin est qualifié de « half-baked » dans les commentaires du code et Grist Labs pourrait le restreindre un jour. La page externe du transport 1 reste le plan B, avec le même code de widget.
+
 ### Transport 2 : document public et règles d'accès, widget dans le document
 
 Le document est partagé « Tout le monde avec le lien » en Éditeur, avec des règles d'accès qui interdisent tout sauf la création dans les tables de réponses, et la lecture des tables d'options. Le widget est ouvert par l'URL de sa page avec `?style=singlePage`. C'est l'approche de `grist-form-submit`.
@@ -228,7 +238,8 @@ Un seul moteur de formulaire, plusieurs transports interchangeables selon le con
 
 | Contexte | Transport |
 |---|---|
-| Public, création seule, zéro infra | 1, clé de partage native |
+| Public, création seule, zéro infra, URL sur le domaine Grist | 1 bis, `/s/<clé>/p/<page>?style=singlePage` |
+| Public, création seule, zéro infra, URL personnalisée | 1, page hébergée et clé de partage native |
 | Public avec modification de sa réponse, ou parcours multi-sessions | 2, ou 3 si l'équipe cliente ne veut pas de règles d'accès |
 | Workflows, emails, anti-spam fort, gros volumes | 3, relais sur votre VPS |
 | Agents connectés | 4, plugin API direct |

@@ -68,3 +68,22 @@ Ou directement depuis GitHub Pages, sans rien installer :
 `https://lombre33.github.io/FormPlus/poc/public-form.html#form=<lien formulaire Reponses>`
 
 La page lit la définition, affiche les champs dans un style sobre, envoie les pièces jointes puis l'enregistrement. Vérifier l'apparition de la ligne dans `Reponses`.
+
+## 5. Test de l'URL Grist (transport 1 bis)
+
+Objectif : le répondant ouvre une adresse sur le domaine Grist, sans compte, dans le même document, sans règle d'accès, et ne peut pas lire les réponses.
+
+1. Sur la page qui porte le formulaire natif publié de `Reponses`, cliquer **Ajouter un widget à la page**, type **Personnalisé**, table `Reponses`.
+2. Dans le panneau de droite, **URL personnalisée** : coller `https://lombre33.github.io/FormPlus/poc/public-form.html#form=<lien du formulaire Reponses>`. Niveau d'accès : « Aucun accès au document ».
+3. Replier le formulaire natif : menu `⋮` du widget Formulaire, **Réduire** (il reste sur la page, c'est lui qui porte la clé).
+4. Noter le numéro de page dans l'adresse du navigateur, de la forme `/p/7`.
+5. Construire l'adresse à diffuser à partir du lien du formulaire `https://<instance>/o/<org>/forms/<clé>/<section>` :
+
+```
+https://<instance>/o/<org>/s/<clé>/p/7?style=singlePage
+```
+
+6. L'ouvrir dans une fenêtre de navigation privée, remplir, envoyer. Vérifier la ligne dans `Reponses`.
+7. Ouvrir la même adresse sans `?style=singlePage` pour voir ce qu'un curieux verrait : la liste des pages et des tables, jamais les données.
+
+Si l'étape 6 fonctionne, refaire le test avec le niveau d'accès du widget sur « Accès complet au document » : cela prépare la version du widget qui écrira par l'API plugin plutôt que par la clé dans l'adresse.

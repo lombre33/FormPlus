@@ -20,6 +20,18 @@ Cibles : deux formulaires publiés par Grist Labs eux-mêmes, celui de l'aide en
 
 Le script `poc_transport1.py` en mode lecture rapporte « aucun échec » sur ces cibles.
 
+## Transport 1 bis : la clé dans le client web Grist (`/s/<clé>`), observé le 16 septembre 2026
+
+| Test | Résultat | Interprétation |
+|---|---|---|
+| `https://public.getgrist.com/s/<clé>` sans connexion | Le document s'ouvre dans le client Grist complet, boutons Sign in / Sign up visibles | Session « partage » anonyme acceptée par le client web |
+| Grille de la table cible | Affichée, vide, une ligne d'ajout | Lecture des lignes censurée, schéma visible |
+| Pages listées | Les deux pages du document, toutes sur la table du formulaire | Une page n'est masquée que si sa table est totalement interdite en lecture |
+| `?style=singlePage` | Panneau gauche et barre du haut masqués, seuls les widgets de la page restent | Rendu utilisable pour un répondant |
+| Widgets personnalisés | Aucun dans ce document (0 iframe) | Le rendu d'un widget FormPlus en session partage reste à vérifier sur votre document |
+
+Conclusion provisoire : une URL sur le domaine Grist, un seul document, aucune règle d'accès, réponses illisibles par le répondant. À confirmer sur DINUM avec un widget sur la page (procédure en section 5 de `../poc/README-poc.md`).
+
 ## Ce qui reste à valider sur votre document DINUM
 
 Ces tests écrivent des données, ils ne peuvent être faits que sur un document que vous contrôlez. Le mode `--write` du script les enchaîne.
