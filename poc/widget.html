@@ -241,24 +241,23 @@
   }
 
   // Le paramètre "readonly" transmis par Grist à l'iframe reflète le mode readonly du DOCUMENT,
-  // pas les droits réels d'une session de partage anonyme (qui reçoit access=full comme le
-  // concepteur). Seule une tentative d'écriture réelle distingue fiablement les deux : la session
-  // anonyme n'a pas le droit d'écriture sur les métadonnées (_grist_Views_section), le concepteur
-  // si. On réécrit la valeur À L'IDENTIQUE, donc sans risque même en cas de succès inattendu.
-  // Réutilise findViewRefForSection (référent + repli par nom de fichier), déjà éprouvée pour la
-  // génération d'adresse : une fonction de détection séparée et plus simple s'était montrée moins
-  // fiable ici (répondait "non" par excès de prudence, y compris pour le concepteur).
-  async function probeCanEdit(vsId) {
+  // pas les droits réels de la session (une session de partage anonyme reçoit access=full et
+  // readonly=false comme le concepteur). Une sonde d'écriture n'est pas fiable non plus : la
+  // table _grist_Views_section (config des widgets) n'est PAS couverte par le refus par défaut
+  // d'un partage — celui-ci ne bloque explicitement que les tables du document (préfixe "_grist_"
+  // exclu de la boucle dans ACLRulesReader._addDefaultShareRules) — donc une session anonyme peut
+  // aussi y écrire. Constaté en pratique : le bouton restait visible même en navigation privée.
+  //
+  // Seul un vrai contrôle de rôle est fiable : on demande un jeton d'accès (grist.docApi.
+  // getAccessToken) et on interroge un point d'API RÉSERVÉ AUX PROPRIÉTAIRES du document
+  // (GET .../usersForViewAs, gardé par isOwnerRead côté serveur, lecture seule, sans effet).
+  // 200 = le compte connecté est Propriétaire, 403 = Éditeur, Lecteur ou session anonyme de partage.
+  async function probeIsOwner() {
     try {
-      if (!vsId) return false;
-      const { self } = await findViewRefForSection(vsId);
-      if (!self) return false;
-      const sections = await grist.docApi.fetchTable('_grist_Views_section');
-      const idx = sections.id.indexOf(self.id);
-      if (idx < 0) return false;
-      await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section', self.id, { options: sections.options[idx] }]]);
-      return true;
-    } catch (e) { console.warn('[FormPlus] probeCanEdit', e); return false; }
+      const { token, baseUrl } = await grist.docApi.getAccessToken({ readOnly: true });
+      const res = await fetch(`${baseUrl}/usersForViewAs?auth=${encodeURIComponent(token)}`);
+      return res.status === 200;
+    } catch (e) { console.warn('[FormPlus] probeIsOwner', e); return false; }
   }
 
   function showFill(publicUrl, formLink) {
@@ -360,9 +359,8 @@
       // Le mode répondant n'a besoin que du lien du formulaire : options du widget, sinon fragment de l'URL du widget.
       const formLink = options.formLink || fragmentFormLink;
       if (formLink && !stayOnConfig) {
-        const probeVsId = options.vsId || parseFormLink(formLink)?.vsId;
-        canEdit = await probeCanEdit(probeVsId);
-        diag({ event: 'canEdit', canEdit, probeVsId });
+        canEdit = await probeIsOwner();
+        diag({ event: 'canEdit', canEdit });
         showFill(options.publicUrl || '', formLink);
       } else if (!stayOnConfig) {
         showConfig();
