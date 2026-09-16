@@ -105,6 +105,7 @@
   let options = null;
   let connected = false;
   let canEdit = true;
+  let stayOnConfig = false; // après une génération, rester sur l'écran de configuration pour copier l'adresse
 
   // Charge grist-plugin-api.js depuis l'instance Grist qui héberge le widget, sinon depuis docs.getgrist.com.
   function loadPluginApi() {
@@ -125,13 +126,29 @@
     // La page de l'adresse finale est celle du formulaire natif : parentId de sa section.
     const sections = await grist.docApi.fetchTable('_grist_Views_section');
     const idx = sections.id.indexOf(vsId);
-    if (idx < 0) return { viewRef: null, customOnPage: 0 };
+    if (idx < 0) return { viewRef: null, customOnPage: 0, self: null };
     const viewRef = sections.parentId[idx];
-    let customOnPage = 0;
+    const mine = [];
     for (let i = 0; i < sections.id.length; i++) {
-      if (sections.parentId[i] === viewRef && sections.parentKey[i] === 'custom') customOnPage++;
+      if (sections.parentId[i] !== viewRef || sections.parentKey[i] !== 'custom') continue;
+      let o = {};
+      try { o = JSON.parse(sections.options[i] || '{}') || {}; } catch (e) { /* ignore */ }
+      mine.push({ id: sections.id[i], url: (o.customView && o.customView.url) || '', options: o });
     }
-    return { viewRef, customOnPage };
+    const myFile = location.pathname.split('/').pop();
+    const self = mine.find(s => s.url.includes(myFile)) || (mine.length === 1 ? mine[0] : null);
+    return { viewRef, customOnPage: mine.length, self };
+  }
+
+  // grist.setOptions ne modifie que la session du concepteur : Grist attend ensuite un clic sur
+  // « Enregistrer » dans la barre du widget. On écrit donc directement la configuration dans les
+  // métadonnées de la section, ce qui la rend visible à toutes les sessions, anonymes comprises.
+  async function persistOptions(self, saved) {
+    const current = self.options || {};
+    const next = { ...current, customView: { ...(current.customView || {}), widgetOptions: saved } };
+    await grist.docApi.applyUserActions([
+      ['UpdateRecord', '_grist_Views_section', self.id, { options: JSON.stringify(next) }],
+    ]);
   }
 
   function showFill(publicUrl, formLink) {
@@ -154,14 +171,25 @@
     const link = parseFormLink($('link').value);
     if (!link) { msg.innerHTML = '<span class="err">Lien non reconnu. Il doit contenir <code>/forms/&lt;clé&gt;/&lt;numéro&gt;</code>.</span>'; return; }
     msg.textContent = 'Recherche de la page du formulaire…';
-    let viewRef = null, customOnPage = 0;
-    try { ({ viewRef, customOnPage } = await findViewRefForSection(link.vsId)); }
+    let viewRef = null, customOnPage = 0, self = null;
+    try { ({ viewRef, customOnPage, self } = await findViewRefForSection(link.vsId)); }
     catch (e) { msg.innerHTML = `<span class="err">Impossible de lire les métadonnées du document (${esc(e.message)}). Le widget a-t-il l'accès complet ?</span>`; return; }
     if (!viewRef) { msg.innerHTML = '<span class="err">Cette section de formulaire n\'existe pas dans ce document. Le lien vient-il bien d\'ici ?</span>'; return; }
     const publicUrl = buildPublicUrl(link, viewRef);
     const saved = { formLink: $('link').value.trim(), shareKey: link.key, vsId: link.vsId, viewRef, publicUrl };
-    try { await grist.setOptions(saved); options = saved; msg.innerHTML = '<span class="ok">Configuration enregistrée dans le widget.</span>'; }
-    catch (e) { msg.innerHTML = `<span class="err">Adresse calculée mais non enregistrée (${esc(e.message)}).</span>`; }
+    stayOnConfig = true;
+    let persisted = false;
+    if (self) {
+      try { await persistOptions(self, saved); persisted = true; }
+      catch (e) { console.warn('[FormPlus] écriture directe refusée', e); }
+    }
+    if (persisted) {
+      options = saved;
+      msg.innerHTML = '<span class="ok">Configuration enregistrée dans le document.</span>';
+    } else {
+      try { await grist.setOptions(saved); options = saved; } catch (e) { /* ignore */ }
+      msg.innerHTML = '<span class="err">Configuration posée dans cette session seulement : cliquez sur <strong>Enregistrer</strong> dans la barre du widget pour la conserver.</span>';
+    }
     $('public-url').textContent = publicUrl;
     $('result').classList.remove('hidden');
     $('page-check').innerHTML = customOnPage > 0
@@ -181,7 +209,7 @@
     catch (e) { window.prompt('Copiez cette adresse :', url); }
   });
   $('open').addEventListener('click', () => window.open($('public-url').textContent, '_blank', 'noopener'));
-  $('done').addEventListener('click', () => options?.formLink && showFill(options.publicUrl, options.formLink));
+  $('done').addEventListener('click', () => { stayOnConfig = false; if (options?.formLink) showFill(options.publicUrl, options.formLink); });
   $('edit').addEventListener('click', showConfig);
 
   // Paramètres ajoutés par Grist à l'URL du widget (access, readonly) et secours dans le fragment (#form=).
@@ -212,10 +240,10 @@
       diag({ event: 'onOptions', optionKeys: Object.keys(options), hasFormLink: !!options.formLink, settings });
       // Le mode répondant n'a besoin que du lien du formulaire : options du widget, sinon fragment de l'URL du widget.
       const formLink = options.formLink || fragmentFormLink;
-      if (formLink) {
+      if (formLink && !stayOnConfig) {
         canEdit = gristReadonly !== 'true';
         showFill(options.publicUrl || '', formLink);
-      } else {
+      } else if (!stayOnConfig) {
         showConfig();
       }
     });
