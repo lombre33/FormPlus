@@ -54,7 +54,10 @@
 </main>
 <script>
 (function () {
+  // Paramètres lus dans la requête (?...) et dans le fragment (#...). Le fragment est préféré :
+  // il n'est jamais transmis au serveur qui héberge cette page, seul le navigateur le voit.
   const params = new URLSearchParams(location.search);
+  new URLSearchParams(location.hash.replace(/^#/, '')).forEach((v, k) => params.set(k, v));
   const formUrl = params.get('form');
   const app = document.getElementById('app');
 
@@ -68,8 +71,8 @@
   const target = parseFormUrl(formUrl);
   if (!target) {
     app.innerHTML = `<h1>Formulaire de test</h1>
-      <p class="sub">Ajoutez <code>?form=&lt;lien du formulaire Grist publié&gt;</code> à l'URL de cette page.</p>
-      <p class="sub">Exemple : <code>public-form.html?form=https://grist.numerique.gouv.fr/o/equipe/forms/CLE/12</code></p>`;
+      <p class="sub">Ajoutez <code>#form=&lt;lien du formulaire Grist publié&gt;</code> à l'URL de cette page.</p>
+      <p class="sub">Exemple : <code>public-form.html#form=https://grist.numerique.gouv.fr/o/equipe/forms/CLE/12</code></p>`;
     return;
   }
 

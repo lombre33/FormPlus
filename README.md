@@ -27,10 +27,22 @@ Objectif : dépasser les limites du formulaire natif de Grist avec une interface
 2. Ouvrir la page de test hébergée par GitHub Pages en lui passant ce lien :
 
 ```
-https://lombre33.github.io/FormPlus/poc/public-form.html?form=<lien du formulaire publié>
+https://lombre33.github.io/FormPlus/poc/public-form.html#form=<lien du formulaire publié>
 ```
 
+Le lien est placé après `#` : cette partie de l'adresse reste dans le navigateur et n'est jamais transmise au serveur qui héberge la page. La forme `?form=` reste acceptée.
+
 3. Pour la tester comme widget dans Grist : Ajouter un widget, Personnalisé, URL personnalisée, coller la même adresse, niveau d'accès « Aucun accès au document ». La page n'a pas besoin d'accéder au document, elle passe par la clé de partage.
+
+## Où passent les données
+
+Aucun intermédiaire. Deux acteurs seulement : le navigateur du répondant et le serveur Grist qui héberge le document.
+
+1. Le navigateur télécharge la page (HTML, CSS, JS) depuis l'hébergeur statique. Aucune donnée de formulaire ne transite à cette étape.
+2. Le navigateur appelle directement Grist : `GET /api/s/<clé>/forms/<section>` pour la définition, `POST /api/s/<clé>/attachments` pour les fichiers, `POST /api/s/<clé>/tables/<table>/records` pour la réponse.
+3. La réponse est stockée dans le document Grist, et nulle part ailleurs.
+
+L'hébergeur de la page ne voit que la demande du fichier statique. Le code est public et auditable.
 
 Tests en ligne de commande, lecture seule puis écriture :
 

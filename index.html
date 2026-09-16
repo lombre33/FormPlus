@@ -42,7 +42,7 @@
       <input id="u" type="url" required placeholder="https://grist.numerique.gouv.fr/o/mon-equipe/forms/CLE/12">
       <button type="submit">Ouvrir la page de test</button>
     </form>
-    <p class="muted" style="margin-top:12px">Adresse obtenue : <code id="out">poc/public-form.html?form=…</code></p>
+    <p class="muted" style="margin-top:12px">Adresse obtenue : <code id="out">poc/public-form.html#form=…</code></p>
     <p class="muted">Dans Grist : Ajouter un widget, Personnalisé, URL personnalisée, coller cette adresse complète, niveau d'accès « Aucun accès au document ».</p>
   </div>
 
@@ -58,8 +58,9 @@
 </main>
 <script>
   const input = document.getElementById('u'), out = document.getElementById('out');
-  const build = () => new URL('poc/public-form.html?form=' + encodeURIComponent(input.value.trim()), location.href).href;
-  input.addEventListener('input', () => { out.textContent = input.value ? build() : 'poc/public-form.html?form=…'; });
+  // Le lien du formulaire est placé dans le fragment (#) : il reste dans le navigateur et n'est jamais envoyé à l'hébergeur de la page.
+  const build = () => new URL('poc/public-form.html#form=' + encodeURIComponent(input.value.trim()), location.href).href;
+  input.addEventListener('input', () => { out.textContent = input.value ? build() : 'poc/public-form.html#form=…'; });
   document.getElementById('go').addEventListener('submit', (e) => { e.preventDefault(); if (input.value) location.href = build(); });
 </script>
 </body>

@@ -61,10 +61,10 @@ Servir la racine du dépôt depuis une autre origine que Grist, puis ouvrir la p
 python -m http.server 8010 --directory "D:\Dev Grist\Grist factory\Widget Form Builder"
 ```
 
-`http://localhost:8010/poc/public-form.html?form=<lien formulaire Reponses>`
+`http://localhost:8010/poc/public-form.html#form=<lien formulaire Reponses>`
 
 Ou directement depuis GitHub Pages, sans rien installer :
 
-`https://lombre33.github.io/FormPlus/poc/public-form.html?form=<lien formulaire Reponses>`
+`https://lombre33.github.io/FormPlus/poc/public-form.html#form=<lien formulaire Reponses>`
 
 La page lit la définition, affiche les champs dans un style sobre, envoie les pièces jointes puis l'enregistrement. Vérifier l'apparition de la ligne dans `Reponses`.
