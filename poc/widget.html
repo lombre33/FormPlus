@@ -253,6 +253,33 @@
     return Promise.all(out.map(tableIdOfRef));
   }
 
+  // Ouvre l'écriture sur une table pour la clé de partage, sans intervention manuelle : crée une
+  // section Formulaire VIDE (jamais destinée à être affichée ni remplie) sur la page du formulaire
+  // de l'étape 1, et la publie. C'est la même chose que "Ajouter un widget Formulaire, Publier"
+  // fait à la main, seule la présence + shareOptions.publish/form comptent pour la règle d'accès
+  // (ACLRulesReader._addRulesForShare) — le contenu du formulaire n'a aucune importance. Reprend
+  // la même clé et le même partage que celui de l'étape 1 : aucun nouveau partage n'est créé,
+  // seulement une section supplémentaire qui qualifie pour la règle déjà en place sur cette page.
+  async function ensureTableGate(tableId, viewRef) {
+    const already = (await formTablesOnPage(viewRef)).includes(tableId);
+    if (already) return { created: false };
+    const tref = await getTableRef(tableId);
+    if (!tref) throw new Error(`Table « ${tableId} » introuvable.`);
+    await grist.docApi.applyUserActions([['CreateViewSection', tref, viewRef, 'form', null, tableId]]);
+    // Retrouve la section fraîchement créée (Formulaire, cette table, cette page, la plus récente)
+    // plutôt que d'interpréter la valeur de retour, dont la forme exacte côté plugin API est incertaine.
+    const sections = await fetchMeta('_grist_Views_section');
+    let newest = null;
+    for (let i = 0; i < sections.id.length; i++) {
+      if (sections.parentId[i] === viewRef && sections.tableRef[i] === tref && sections.parentKey[i] === 'form') {
+        if (newest == null || sections.id[i] > newest) newest = sections.id[i];
+      }
+    }
+    if (newest == null) throw new Error('Section créée introuvable après CreateViewSection.');
+    await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section', newest, { shareOptions: JSON.stringify({ publish: true, form: true }) }]]);
+    return { created: true, sectionId: newest };
+  }
+
   async function findViewRefForSection(vsId) {
     // La clé accordée par le formulaire natif porte sur sa TABLE, pas sur sa page : elle vaut
     // pour tout le document (voir ACLRulesReader._shareTableForForm, aclFormula ne référence que
@@ -528,46 +555,39 @@
     }
   });
 
-  // Nom de la page (view) qui porte le formulaire natif de l'étape 1 — pas forcément la page où
-  // se trouve ce widget, si elles ont été séparées pour un rendu plus propre (section 7 du guide).
-  async function formPageLabel(viewRef) {
-    try {
-      const views = await fetchMeta('_grist_Views');
-      const idx = views.id.indexOf(viewRef);
-      const name = idx >= 0 ? views.name[idx] : '';
-      return name ? `« ${name} » (page ${viewRef})` : `la page ${viewRef}`;
-    } catch (e) { return `la page ${viewRef}`; }
-  }
-
   // ---- Étape 3 : question conditionnelle écrite dans une table B ----
+  // L'accès en écriture à la table choisie est ouvert automatiquement au clic sur "Enregistrer"
+  // (ensureTableGate) : pas de geste manuel sur une autre page, quelle que soit la table choisie.
   async function checkStep3() {
     if (!currentFormSection) return;
     const destTable = $('destTable').value;
     if (!destTable) return;
     const tables = await formTablesOnPage(currentFormSection.viewRef);
     const ok = tables.includes(destTable);
-    const pageLabel = await formPageLabel(currentFormSection.viewRef);
-    const sameAsWidget = currentFormSection.viewRef === options?.viewRef;
     $('step3-check').innerHTML = ok
-      ? `<span class="ok">Un formulaire publié existe pour « ${esc(destTable)} » sur la page ${pageLabel} : l'écriture devrait être acceptée.</span>`
-      : `<span class="err">Aucun formulaire publié pour « ${esc(destTable)} » sur la page ${pageLabel} — la page du formulaire natif de l'étape 1${sameAsWidget ? '' : ', pas la page de ce widget'}. Ajoutez-y un widget Formulaire pour la table « ${esc(destTable)} » et publiez-le (pas besoin de le configurer ni de le remplir, il sert uniquement à ouvrir le droit d'écriture), puis revenez ici.</span>`;
-    $('save').disabled = !(ok && cfgFields.find(f => f.id === 'q1'));
+      ? `<span class="ok">L'écriture dans « ${esc(destTable)} » est déjà ouverte pour cette clé.</span>`
+      : `<span class="muted">L'écriture dans « ${esc(destTable)} » sera ouverte automatiquement à l'enregistrement (aucune action manuelle nécessaire).</span>`;
+    $('save').disabled = !cfgFields.find(f => f.id === 'q1');
   }
   $('save')?.addEventListener('click', async () => {
     const msg = $('step3-msg');
+    const destTable = $('destTable').value;
     const q2 = {
       id: 'q2', type: 'text', label: $('q2Label').value || 'Précisez',
       condition: { field: 'q1', op: 'equals', value: $('condValue').value },
-      writeTable: $('destTable').value, writeCol: $('destCol').value,
+      writeTable: destTable, writeCol: $('destCol').value,
     };
-    cfgFields = [...cfgFields.filter(f => f.id !== 'q2'), q2];
     try {
+      msg.textContent = `Ouverture de l'écriture dans « ${destTable} »…`;
+      const { created } = await ensureTableGate(destTable, currentFormSection.viewRef);
+      cfgFields = [...cfgFields.filter(f => f.id !== 'q2'), q2];
       const persisted = await saveConfig($('public-url').textContent, options.viewRef);
-      msg.innerHTML = persisted ? '<span class="ok">Question enregistrée.</span>'
-        : '<span class="err">Enregistrée pour cette session seulement : cliquez sur Enregistrer dans la barre du widget.</span>';
+      const gateMsg = created ? ` Un formulaire technique vide a été créé et publié pour « ${esc(destTable)} » sur la page du formulaire de l'étape 1, pour ouvrir ce droit.` : '';
+      msg.innerHTML = (persisted ? '<span class="ok">Question enregistrée.' : '<span class="err">Enregistrée pour cette session seulement : cliquez sur Enregistrer dans la barre du widget.') + gateMsg + '</span>';
       $('step3').classList.add('done'); $('step3-badge').textContent = 'fait'; $('step3-badge').className = 'badge ok';
+      await checkStep3();
     } catch (e) {
-      msg.innerHTML = `<span class="err">Erreur d'enregistrement : ${esc(e.message)}</span>`;
+      msg.innerHTML = `<span class="err">Erreur : ${esc(e.message)}</span>`;
     }
   });
 
