@@ -15,6 +15,8 @@ Le POC (jalon J1) est allé plus loin que prévu : il a aussi validé une bonne 
 
 **Mise à jour du même jour : le constructeur à N questions est fait, puis l'interface a été reprise en profondeur.** `widget.html` propose une liste de questions extensible (« Questions supplémentaires »), chaque question de type « Choix depuis une table » ou « Texte », avec description, obligatoire, condition référençant n'importe quelle question à choix précédente, et destination d'écriture (table du formulaire par défaut ou une autre, ouverte automatiquement). L'interface est devenue des cartes repliées avec icône par type, une seule dépliée à la fois, options avancées masquées jusqu'au clic ; listes de tables et colonnes recherchables en tapant ; import à sens unique des champs natifs compatibles (Texte, Référence) vers des questions FormPlus éditables, qui masque le champ côté formulaire natif. Corrigé au passage : la colonne réellement créée pour une question à choix (`ensureChoiceField`) n'était jamais utilisée comme destination, un vrai bug de fond. Reste non fait : fusionner visuellement les champs natifs NON importés et les questions supplémentaires en une seule liste homogène (ils restent deux blocs distincts pour les champs non importés), le glisser-déposer pour réordonner.
 
+**Mise à jour du 16 septembre 2026 (suite) : types de questions étendus, réinitialisation, démarrage à vide.** Les questions supplémentaires et l'import des champs natifs couvrent désormais 7 types : texte, nombre, date, oui/non, choix (liste fixe saisie à la main), choix multiples (liste fixe), choix depuis une table. Le sélecteur de type dans la carte d'édition est passé de 2 boutons à une grille de 7 icônes. L'import gère maintenant Nombre, Date, Oui/non, Choix et Choix multiples (précédemment ignorés faute de type de question équivalent côté FormPlus) ; restent hors périmètre DateTime, Liste de références et Pièces jointes, faute de « kind » dédié. Chaque question importée porte désormais un `importedFrom` (identifiant du champ natif d'origine), ce qui permet un bouton « Réinitialiser les questions » : il vide la liste ET démasque précisément les champs natifs que l'import avait masqués, sans toucher aux champs masqués à la main dans Grist. Nouveau aussi : un bouton « Créer un formulaire natif vide », visible avant même de coller un lien, qui crée (ou réutilise) une table et y ajoute une section Formulaire native vide sur la page du widget (`CreateViewSection`, même mécanisme qu'`ensureTableGate`). Il ne reste alors au concepteur qu'à cliquer Publier puis Copier le lien : aucune méthode de l'API plugin n'expose la clé de partage secrète que « Publier » génère, cette dernière étape reste donc manuelle par nature, pas par paresse.
+
 ## 1. Principes d'interface
 
 Le différenciateur n'est pas technique, c'est la simplicité. Référence : Google Forms.
@@ -48,7 +50,7 @@ Le différenciateur n'est pas technique, c'est la simplicité. Référence : Goo
 - Passer du style « panneau de configuration technique » (étiquettes, badges, encarts) à des cartes sobres, une question visible à la fois en édition.
 
 **Fonctionnel, déjà prouvé au niveau technique, à exposer dans l'éditeur :**
-- Types de questions : tous ceux déjà rendus pour les champs natifs (texte court, texte long, nombre, date, oui/non, choix, référence, listes, pièces jointes) ; les questions supplémentaires se limitent pour l'instant à « choix » et « texte », à étendre aux mêmes types que les champs natifs.
+- ~~Types de questions~~ étendus le 16 septembre 2026 : texte, nombre, date, oui/non, choix (liste fixe), choix multiples (liste fixe), choix depuis une table (référence). Restent à couvrir, moins prioritaires : texte long multi-lignes, date+heure, liste de références, pièces jointes.
 - Obligatoire ✅ et condition ✅ faits pour les questions supplémentaires. Texte d'aide, sections avec titre, blocs d'information repliables — pas encore développés.
 - Conditions avec ET/OU sur plusieurs critères combinés, pas seulement un seul critère d'égalité (fait) — à généraliser.
 - ~~Ouverture automatique des accès multi-tables~~ faite et généralisée à toute question (`ensureTableGate`, `ensureChoiceField`), plus liée aux étapes fixes.
@@ -56,7 +58,7 @@ Le différenciateur n'est pas technique, c'est la simplicité. Référence : Goo
 **Présentation :**
 - Thème sobre, DSFR, responsive complet, mode sombre propre sur l'ensemble de l'interface (les listes déroulantes sont corrigées, le reste de l'éditeur pas encore vérifié).
 - Message de fin personnalisé, redirection après envoi, réinitialisation.
-- Assistant « Publier » qui explique et guide les deux étapes actuellement manuelles : publier le formulaire natif la première fois, copier son lien.
+- ~~Assistant « Publier »~~ partiellement fait le 16 septembre 2026 : bouton « Créer un formulaire natif vide » qui prépare la table et la section Formulaire, ne laissant plus que Publier + Copier le lien à la charge du concepteur (ces deux clics restent hors de portée de l'API plugin, voir V2).
 
 ### V2, forte valeur, plus technique
 

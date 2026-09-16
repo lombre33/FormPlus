@@ -74,8 +74,8 @@
   .toggle input:focus-visible + .toggle-track { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   /* Sélecteur de type de question, deux boutons */
-  .qtype-toggle { display: flex; gap: 8px; margin-bottom: 4px; }
-  .qtype-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--muted); font-size: .85rem; }
+  .qtype-toggle { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+  .qtype-btn { flex: 1 1 calc(33.333% - 6px); min-width: 88px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 10px 6px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--muted); font-size: .78rem; text-align: center; line-height: 1.15; }
   .qtype-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 
   /* Liste et cartes de questions */
@@ -140,6 +140,16 @@
         <button id="generate" type="button" class="primary">Générer l'adresse</button>
       </div>
       <p id="cfg-msg" class="muted"></p>
+      <div style="margin-top:14px">
+        <button type="button" class="qf-link" id="scratchToggle"></button>
+        <div id="scratchPanel" class="hidden" style="margin-top:10px">
+          <label for="scratchTable">Nom de la table qui recevra les réponses</label>
+          <input id="scratchTable" type="text" placeholder="Reponses">
+          <p class="muted" style="margin-top:4px">Une table de ce nom déjà existante sera réutilisée, sinon elle est créée.</p>
+          <button id="scratchCreate" type="button" class="primary" style="margin-top:10px">Créer un formulaire natif vide</button>
+          <p id="scratch-msg" class="muted"></p>
+        </div>
+      </div>
     </div>
 
     <div class="card hidden" id="result">
@@ -167,7 +177,10 @@
       <div id="qlist"></div>
       <p id="qlist-empty" class="empty-hint hidden">Aucune question supplémentaire pour l'instant.</p>
       <button id="qadd" type="button" class="add-question-btn"></button>
-      <button id="qimport" type="button" class="qf-link" style="margin-top:10px"></button>
+      <div class="row" style="margin-top:10px">
+        <button id="qimport" type="button" class="qf-link"></button>
+        <button id="qreset" type="button" class="qf-link"></button>
+      </div>
       <p id="import-msg" class="muted"></p>
     </div>
 
@@ -219,10 +232,28 @@
     branch: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>',
     download: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
     qrcode: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><line x1="14" y1="14" x2="14" y2="14.01"/><line x1="18" y1="14" x2="18" y2="14.01"/><line x1="14" y1="18" x2="14" y2="18.01"/><line x1="18" y1="18" x2="18" y2="18.01"/><line x1="21" y1="16" x2="21" y2="21"/></svg>',
+    table: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>',
+    calendar: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
+    hash: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>',
+    checkSquare: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
+    toggleOn: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="5" width="22" height="14" rx="7"/><circle cx="16" cy="12" r="3" fill="currentColor" stroke="none"/></svg>',
+    refresh: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>',
   };
+  // Types de question disponibles dans l'éditeur (question supplémentaire ou import de champ natif).
+  const KINDS = [
+    { id: 'text', label: 'Texte', icon: ICONS.text },
+    { id: 'number', label: 'Nombre', icon: ICONS.hash },
+    { id: 'date', label: 'Date', icon: ICONS.calendar },
+    { id: 'bool', label: 'Oui / non', icon: ICONS.toggleOn },
+    { id: 'select', label: 'Choix (liste fixe)', icon: ICONS.list },
+    { id: 'multiselect', label: 'Choix multiples (liste fixe)', icon: ICONS.checkSquare },
+    { id: 'choice', label: 'Choix depuis une table', icon: ICONS.table },
+  ];
   $('qadd').innerHTML = ICONS.plus + '<span>Ajouter une question</span>';
   $('qimport').innerHTML = ICONS.download + '<span>Importer les champs du formulaire natif</span>';
+  $('qreset').innerHTML = ICONS.refresh + '<span>Réinitialiser les questions</span>';
   $('qrToggle').innerHTML = ICONS.qrcode;
+  $('scratchToggle').innerHTML = ICONS.plus + '<span>Je n\'ai pas encore de formulaire, en créer un vide</span>';
 
   // ───────────────────────── Liens, adresses, format des options ─────────────────────────
 
@@ -601,6 +632,45 @@
   });
   $('edit').addEventListener('click', showConfig);
 
+  // ───────────────────────── Créer un formulaire natif vide depuis FormPlus ─────────────────────────
+  // Automatise la seule partie sans risque : la table (créée si besoin) et une section Formulaire
+  // native VIDE sur la page de ce widget, avec CreateViewSection (même action que ensureTableGate,
+  // ligne ~365). Ce qui reste manuel, volontairement : cliquer Publier puis Copier le lien. Aucune
+  // méthode de l'API plugin n'expose la clé de partage secrète que "Publier" génère (_grist_Shares) ;
+  // il n'y a donc pas moyen d'automatiser cette dernière étape sans passer par un compte propriétaire
+  // en dehors du widget (voir docs/01-etude-comparative.md).
+  $('scratchToggle').addEventListener('click', () => $('scratchPanel').classList.toggle('hidden'));
+  $('scratchCreate').addEventListener('click', createEmptyForm);
+
+  async function createEmptyForm() {
+    const msg = $('scratch-msg');
+    const name = $('scratchTable').value.trim();
+    if (!name) { msg.innerHTML = '<span class="err">Indiquez un nom de table.</span>'; return; }
+    const widgetPage = myPageFromReferrer();
+    if (!widgetPage) {
+      msg.innerHTML = '<span class="err">Impossible de déterminer la page de ce widget (adresse de la page Grist illisible). Créez le formulaire manuellement depuis Grist : Ajouter une page → Formulaire.</span>';
+      return;
+    }
+    msg.textContent = 'Création en cours…';
+    try {
+      const existingRef = await getTableRef(name);
+      let tableId = existingRef ? name : null;
+      if (!tableId) {
+        const before = await fetchMeta('_grist_Tables');
+        await grist.docApi.applyUserActions([['AddTable', name, [{ id: 'A', type: 'Text' }]]]);
+        const after = await fetchMeta('_grist_Tables');
+        tableId = after.tableId.find(t => !before.tableId.includes(t));
+        if (!tableId) throw new Error("La table n'a pas pu être créée.");
+      }
+      const tref = await getTableRef(tableId);
+      await grist.docApi.applyUserActions([['CreateViewSection', tref, widgetPage, 'form', null, tableId]]);
+      msg.innerHTML = `<span class="ok">Formulaire natif vide créé sur cette page pour la table « ${esc(tableId)} ». Cliquez sur <strong>Publier</strong> dans ce nouveau formulaire (repliez-le une fois publié), puis <strong>Copier le lien</strong>, et collez-le ci-dessus.</span>`;
+      $('scratchTable').value = '';
+    } catch (e) {
+      msg.innerHTML = `<span class="err">Erreur : ${esc(e.message)}</span>`;
+    }
+  }
+
   // ───────────────────────── Liste des questions : cartes repliées, une seule dépliée à la fois ─────────────────────────
 
   function questionSummary(q) {
@@ -617,7 +687,7 @@
   function cardShell(q, i, total, isNew) {
     const id = isNew ? '__new__' : q.id;
     const expanded = expandedId === id;
-    const icon = isNew ? ICONS.plus : (q.kind === 'choice' ? ICONS.list : ICONS.text);
+    const icon = isNew ? ICONS.plus : (KINDS.find(k => k.id === q.kind)?.icon || ICONS.text);
     const label = isNew ? 'Nouvelle question' : (q.label || '(sans titre)');
     const meta = isNew ? '' : questionSummary(q);
     return `<div class="qcard ${expanded ? 'expanded' : ''}" data-id="${id}">
@@ -659,6 +729,7 @@
   });
   $('qadd').addEventListener('click', () => { expandedId = '__new__'; renderQuestionList(); $('qlist').lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); });
   $('qimport').addEventListener('click', importNativeFields);
+  $('qreset').addEventListener('click', resetQuestions);
 
   function toggleCard(id) {
     expandedId = (expandedId === id) ? null : id;
@@ -675,7 +746,7 @@
   }
 
   function choiceQuestionsBefore(excludeId) {
-    return cfgQuestions.filter(q => q.kind === 'choice' && q.id !== excludeId);
+    return cfgQuestions.filter(q => (q.kind === 'choice' || q.kind === 'select') && q.id !== excludeId);
   }
 
   // Combobox de recherche, remplace un <select> pour les listes de tables/colonnes qui peuvent
@@ -733,13 +804,12 @@
     const tables = await grist.docApi.listTables();
     const tableItems = tables.map(t => ({ value: t, label: t }));
     const condCandidates = choiceQuestionsBefore(isNew ? null : id);
-    const tableOverrideOpen = !!(q && q.kind === 'text' && q.writeTable && q.writeTable !== mainTableIdCache);
+    const tableOverrideOpen = !!(q && q.kind !== 'choice' && q.writeTable && q.writeTable !== mainTableIdCache);
     const conditionOpen = !!q?.condition;
 
     body.innerHTML = `
       <div class="qtype-toggle">
-        <button type="button" class="qtype-btn" data-kind="choice">${ICONS.list}<span>Choix depuis une table</span></button>
-        <button type="button" class="qtype-btn" data-kind="text">${ICONS.text}<span>Texte</span></button>
+        ${KINDS.map(k => `<button type="button" class="qtype-btn" data-kind="${k.id}">${k.icon}<span>${k.label}</span></button>`).join('')}
       </div>
       <label for="qf-label-${id}">Intitulé</label>
       <input id="qf-label-${id}" class="qf-label" type="text" placeholder="Votre question" value="${esc(q?.label || '')}">
@@ -748,6 +818,10 @@
       <div class="qf-choice-fields hidden">
         <label>Table source</label><div class="combo-host" data-combo="srcTable"></div>
         <label>Colonne affichée (libellé)</label><div class="combo-host" data-combo="srcCol"></div>
+      </div>
+      <div class="qf-fixed-options hidden">
+        <label for="qf-choices-${id}">Options (une par ligne)</label>
+        <textarea id="qf-choices-${id}" class="qf-choices" rows="4" placeholder="Option 1&#10;Option 2">${esc((q?.choices || []).join('\n'))}</textarea>
       </div>
       <div class="qf-text-fields hidden">
         <label>Colonne de destination</label><div class="combo-host" data-combo="writeCol"></div>
@@ -777,11 +851,12 @@
     const combos = {};
     body.querySelectorAll('[data-combo]').forEach(host => { combos[host.dataset.combo] = mountCombo(host); });
 
-    const kind = q?.kind || 'choice';
+    const kind = q?.kind || 'text';
     const setKind = (k) => {
       body.querySelectorAll('.qtype-btn').forEach(b => b.classList.toggle('active', b.dataset.kind === k));
       body.querySelector('.qf-choice-fields').classList.toggle('hidden', k !== 'choice');
-      body.querySelector('.qf-text-fields').classList.toggle('hidden', k !== 'text');
+      body.querySelector('.qf-fixed-options').classList.toggle('hidden', k !== 'select' && k !== 'multiselect');
+      body.querySelector('.qf-text-fields').classList.toggle('hidden', k === 'choice');
     };
     setKind(kind);
     body.querySelectorAll('.qtype-btn').forEach(b => b.addEventListener('click', () => setKind(b.dataset.kind)));
@@ -817,8 +892,12 @@
       if (!srcId) { combos.condValue.setOptions([]); return; }
       const src = cfgQuestions.find(x => x.id === srcId);
       if (!src) return;
-      const data = await fetchMeta(src.sourceTable);
-      combos.condValue.setOptions((data[src.sourceCol] || []).map(v => ({ value: v, label: v })), q?.condition?.value);
+      if (src.kind === 'select') {
+        combos.condValue.setOptions((src.choices || []).map(v => ({ value: v, label: v })), q?.condition?.value);
+      } else {
+        const data = await fetchMeta(src.sourceTable);
+        combos.condValue.setOptions((data[src.sourceCol] || []).map(v => ({ value: v, label: v })), q?.condition?.value);
+      }
     }
     if (q?.condition) body.querySelector('.qf-condQ').value = q.condition.questionId;
     body.querySelector('.qf-condQ').addEventListener('change', refreshCondValues);
@@ -834,6 +913,7 @@
     });
     body.querySelector('[data-dup]')?.addEventListener('click', async () => {
       const copy = { ...q, id: uid(), label: (q.label || '') + ' (copie)' };
+      delete copy.importedFrom; // la copie n'est plus liée au champ natif d'origine
       cfgQuestions = [...cfgQuestions, copy];
       expandedId = copy.id;
       await saveConfig(options.publicUrl, options.viewRef);
@@ -843,7 +923,7 @@
 
   async function saveQuestionFromCard(id, body, existing, combos) {
     const msg = body.querySelector('.qf-msg');
-    const kind = body.querySelector('.qtype-btn.active')?.dataset.kind || 'choice';
+    const kind = body.querySelector('.qtype-btn.active')?.dataset.kind || 'text';
     const label = body.querySelector('.qf-label').value.trim() || (kind === 'choice' ? 'Votre choix' : 'Réponse');
     const description = body.querySelector('.qf-desc').value.trim();
     const condQ = body.querySelector('.qf-condQ').value;
@@ -853,6 +933,7 @@
     try {
       msg.textContent = 'Enregistrement…';
       const q = { id: existing?.id || uid(), kind, label, description, required: body.querySelector('.qf-required').checked, condition };
+      if (existing?.importedFrom) q.importedFrom = existing.importedFrom;
       if (kind === 'choice') {
         q.sourceTable = combos.srcTable.value;
         q.sourceCol = combos.srcCol.value;
@@ -863,6 +944,10 @@
         q.writeTable = mainTableId;
         q.writeCol = await ensureChoiceField(mainTableId, currentFormSection.id, q.sourceTable, q.sourceCol);
       } else {
+        if (kind === 'select' || kind === 'multiselect') {
+          q.choices = body.querySelector('.qf-choices').value.split('\n').map(s => s.trim()).filter(Boolean);
+          if (!q.choices.length) { msg.innerHTML = '<span class="err">Ajoutez au moins une option (une par ligne).</span>'; return; }
+        }
         q.writeTable = combos.writeTable.value;
         q.writeCol = combos.writeCol.value;
         if (!q.writeTable || !q.writeCol) { msg.innerHTML = '<span class="err">Choisissez la colonne où enregistrer la réponse.</span>'; return; }
@@ -878,11 +963,13 @@
   }
 
   // ───────────────────────── Importer les champs du formulaire natif ─────────────────────────
-  // Bascule un champ natif compatible (Texte ou Référence) vers une question FormPlus éditable
-  // dans la même liste : le masque côté formulaire natif (formIsHidden, même mécanisme que pour
-  // nos propres colonnes techniques) et crée l'entrée correspondante. À sens unique : une fois
-  // importé, le champ se gère depuis FormPlus ; le rendre à nouveau visible côté Grist natif ne
-  // resynchronise pas automatiquement les libellés ou réglages dans l'autre sens.
+  // Bascule un champ natif compatible (Texte, Nombre, Date, Oui/non, Choix, Choix multiples ou
+  // Référence) vers une question FormPlus éditable dans la même liste : le masque côté formulaire
+  // natif (formIsHidden, même mécanisme que pour nos propres colonnes techniques) et crée
+  // l'entrée correspondante. À sens unique : une fois importé, le champ se gère depuis FormPlus ;
+  // le rendre à nouveau visible côté Grist natif ne resynchronise pas automatiquement les
+  // libellés ou réglages dans l'autre sens (seul « Réinitialiser les questions » sait revenir en
+  // arrière, en redémasquant précisément les champs qu'il a lui-même importés).
   async function importNativeFields() {
     const msg = $('import-msg');
     msg.textContent = 'Lecture du formulaire natif…';
@@ -900,15 +987,26 @@
       const skipped = {};
       const fieldUpdates = [];
 
+      // Correspondance type de colonne Grist → type de question FormPlus. Hors périmètre pour
+      // l'instant : DateTime, RefList, Attachments (aucun "kind" équivalent côté éditeur).
+      const SIMPLE_MAP = { Date: 'date', Numeric: 'number', Int: 'number', Bool: 'bool' };
       for (const [fieldId, fl] of Object.entries(form.formFieldsById)) {
         const o = fl.options || {};
         if (o.formIsHidden) continue; // déjà masqué : déjà importé, ou masqué intentionnellement
-        if (fl.type !== 'Text' && fl.type !== 'Any' && fl.type !== 'Ref') {
+        let kind = null;
+        if (fl.type === 'Text' || fl.type === 'Any') kind = 'text';
+        else if (fl.type === 'Ref') kind = 'choice';
+        else if (fl.type === 'Choice') kind = 'select';
+        else if (fl.type === 'ChoiceList') kind = 'multiselect';
+        else if (SIMPLE_MAP[fl.type]) kind = SIMPLE_MAP[fl.type];
+        if (!kind) {
           skipped[fl.type] = (skipped[fl.type] || 0) + 1;
           continue;
         }
-        const q = { id: uid(), label: fl.question, description: fl.description || '', required: !!o.formRequired, condition: null };
-        if (fl.type === 'Ref') {
+        // importedFrom (id du champ natif) permet à « Réinitialiser » de retrouver précisément
+        // et de démasquer le bon champ, sans toucher aux champs masqués manuellement dans Grist.
+        const q = { id: uid(), label: fl.question, description: fl.description || '', required: !!o.formRequired, condition: null, importedFrom: fieldId };
+        if (kind === 'choice') {
           const colIdx = cols.colId.findIndex((c, i) => c === fl.colId && cols.parentId[i] === mainTableRef);
           if (colIdx < 0) { skipped['Référence (introuvable)'] = (skipped['Référence (introuvable)'] || 0) + 1; continue; }
           const m = /^Ref:(.+)$/.exec(cols.type[colIdx] || '');
@@ -922,8 +1020,13 @@
           q.sourceCol = sourceCol;
           q.writeTable = mainTableId;
           q.writeCol = await ensureChoiceField(mainTableId, currentFormSection.id, sourceTable, sourceCol);
+        } else if (kind === 'select' || kind === 'multiselect') {
+          q.kind = kind;
+          q.choices = o.choices || [];
+          q.writeTable = mainTableId;
+          q.writeCol = fl.colId; // colonne déjà existante : aucune nouvelle colonne créée
         } else {
-          q.kind = 'text';
+          q.kind = kind;
           q.writeTable = mainTableId;
           q.writeCol = fl.colId; // colonne déjà existante : aucune nouvelle colonne créée
         }
@@ -949,6 +1052,43 @@
       msg.innerHTML = imported.length
         ? `<span class="ok">${imported.length} champ(s) importé(s).${skipMsg}</span>`
         : `<span class="muted">Rien à importer.${skipMsg || ' Tous les champs sont déjà pris en charge ou déjà importés.'}</span>`;
+    } catch (e) {
+      msg.innerHTML = `<span class="err">Erreur : ${esc(e.message)}</span>`;
+    }
+  }
+
+  // Vide la liste de questions de CE widget. Les champs natifs importés redeviennent visibles
+  // dans le formulaire natif (démasqués via leur importedFrom, jamais un champ masqué à la main
+  // dans Grist). La configuration vit entièrement dans les options de la section widget
+  // (_grist_Views_section.options.customView.widgetOptions, visible uniquement via l'API ou la
+  // "Vue du code" de Grist, jamais dans une colonne d'une table) : aucune donnée déjà répondue
+  // n'est touchée, seule la définition des questions l'est.
+  async function resetQuestions() {
+    if (!cfgQuestions.length) return;
+    const ok = confirm('Retirer toutes les questions supplémentaires de ce widget ? Les champs natifs importés redeviendront visibles dans le formulaire natif. Les réponses déjà enregistrées ne sont pas touchées.');
+    if (!ok) return;
+    const msg = $('import-msg');
+    try {
+      const toUnhide = cfgQuestions.filter(q => q.importedFrom);
+      if (toUnhide.length) {
+        const sectionFields = await fetchMeta('_grist_Views_section_field');
+        const actions = [];
+        for (const q of toUnhide) {
+          const idx = sectionFields.id.findIndex((rowId, i) =>
+            sectionFields.parentId[i] === currentFormSection.id && String(rowId) === String(q.importedFrom));
+          if (idx < 0) continue;
+          let opts = {};
+          try { opts = JSON.parse(sectionFields.widgetOptions[idx] || '{}') || {}; } catch (e) { /* ignore */ }
+          delete opts.formIsHidden;
+          actions.push(['UpdateRecord', '_grist_Views_section_field', sectionFields.id[idx], { widgetOptions: JSON.stringify(opts) }]);
+        }
+        if (actions.length) await grist.docApi.applyUserActions(actions);
+      }
+      cfgQuestions = [];
+      expandedId = null;
+      await saveConfig(options.publicUrl, options.viewRef);
+      renderQuestionList();
+      msg.innerHTML = '<span class="ok">Questions réinitialisées.</span>';
     } catch (e) {
       msg.innerHTML = `<span class="err">Erreur : ${esc(e.message)}</span>`;
     }
@@ -1052,10 +1192,33 @@
 
   function renderExtraQuestion(q) {
     const req = q.required ? 'req' : '';
-    const input = q.kind === 'choice'
-      ? `<select id="eq-${q.id}"><option value="">Chargement…</option></select>`
-      : `<input id="eq-${q.id}" type="text">`;
-    return `<div class="q" data-extra="${q.id}" data-required="${q.required ? 1 : 0}">
+    let input;
+    switch (q.kind) {
+      case 'choice':
+        input = `<select id="eq-${q.id}"><option value="">Chargement…</option></select>`;
+        break;
+      case 'select':
+        input = `<select id="eq-${q.id}"><option value="">Choisir…</option>` +
+          (q.choices || []).map(c => `<option value="${esc(c)}" data-label="${esc(c)}">${esc(c)}</option>`).join('') + `</select>`;
+        break;
+      case 'multiselect':
+        input = `<div id="eq-${q.id}">` +
+          (q.choices || []).map(c => `<label class="opt"><input type="checkbox" name="eqm-${q.id}" value="${esc(c)}"> ${esc(c)}</label>`).join('') +
+          `</div>`;
+        break;
+      case 'number':
+        input = `<input id="eq-${q.id}" type="number" step="any">`;
+        break;
+      case 'date':
+        input = `<input id="eq-${q.id}" type="date">`;
+        break;
+      case 'bool':
+        input = `<label class="switch"><input id="eq-${q.id}" type="checkbox"> Oui</label>`;
+        break;
+      default:
+        input = `<input id="eq-${q.id}" type="text">`;
+    }
+    return `<div class="q" data-extra="${q.id}" data-kind="${q.kind}" data-required="${q.required ? 1 : 0}">
       <label class="title ${req}" for="eq-${q.id}">${esc(q.label)}</label>
       ${q.description ? `<p class="desc">${esc(q.description)}</p>` : ''}
       ${input}<div class="err-msg">Ce champ est obligatoire.</div></div>`;
@@ -1179,13 +1342,27 @@
       const el = formEl.querySelector(`[data-extra="${q.id}"]`);
       if (!el) continue;
       const visible = !el.classList.contains('cond-hidden');
-      const input = $(`eq-${q.id}`);
-      const raw = input.value;
-      const empty = raw === '' || raw == null;
+      let value = null, empty;
+      if (q.kind === 'multiselect') {
+        const checked = [...el.querySelectorAll('input:checked')].map(i => i.value);
+        empty = checked.length === 0;
+        if (!empty) value = ['L', ...checked];
+      } else if (q.kind === 'bool') {
+        // Un bouton oui/non n'est jamais "vide" : obligatoire n'a pas de sens ici, comme pour
+        // les champs natifs Oui/non (voir la boucle des champs natifs juste au-dessus).
+        value = $(`eq-${q.id}`).checked;
+        empty = false;
+      } else {
+        const raw = $(`eq-${q.id}`).value;
+        empty = raw === '' || raw == null;
+        // Même règle que pour les champs natifs : seules les références numériques (ici, la
+        // question "choix depuis une table") et les nombres sont converties, une date reste une
+        // chaîne ISO que l'API REST sait déjà interpréter (voir renderNativeField/onSubmit natif).
+        if (!empty) value = (q.kind === 'choice' || q.kind === 'number') ? Number(raw) : raw;
+      }
       el.classList.toggle('invalid', q.required && empty && visible);
       if (q.required && empty && visible) valid = false;
       if (!visible || empty) continue;
-      const value = q.kind === 'choice' ? Number(raw) : raw;
       fieldsByTable[q.writeTable] = fieldsByTable[q.writeTable] || {};
       fieldsByTable[q.writeTable][q.writeCol] = value;
     }
