@@ -319,8 +319,11 @@
       writeTable: $('destTable').value, writeCol: $('destCol').value,
     };
     const self = await findSelfSection(myFile);
-    const saved = { formLink: $('link').value.trim(), shareKey: link.key, vsId: link.vsId, viewRef: formSection.viewRef,
-      publicUrl: buildPublicUrl(link, formSection.viewRef), fields: cfg.fields };
+    // La clé porte sur les TABLES (user.ShareRef == <partage>), pas sur une page : ce widget peut
+    // être seul sur sa propre page pour une adresse sans l'habillage des formulaires natifs.
+    const widgetPage = self ? self.parentId : formSection.viewRef;
+    const saved = { formLink: $('link').value.trim(), shareKey: link.key, vsId: link.vsId, viewRef: widgetPage,
+      publicUrl: buildPublicUrl(link, widgetPage), fields: cfg.fields };
     try {
       if (self) await persistOptions(self, saved); else await grist.setOptions(saved);
       options = saved;

@@ -108,6 +108,15 @@ Outil : `multi-table-test.html`. Objectif : prouver, avec le transport `/s/<clé
 
 Si une étape échoue, le journal affiche le message d'erreur exact de Grist, à coller ici pour diagnostic.
 
+## 7. Page dédiée au widget, sans l'habillage des formulaires natifs
+
+La clé accordée par « Publier » porte sur la table, pas sur la page : une fois le formulaire natif publié, la table reste accessible depuis n'importe quelle autre page du même document, avec la même clé. On peut donc séparer :
+
+1. Une page technique, jamais montrée aux répondants, qui porte le ou les formulaires natifs publiés (`Reponses`, et `Commentaires` si le test de la section 6 est utilisé).
+2. Une seconde page, qui ne contient QUE le widget FormPlus (`widget.html` ou `multi-table-test.html`).
+
+Sur cette seconde page, ouvrez la configuration du widget et cliquez de nouveau sur **Générer l'adresse** (le lien du formulaire natif collé précédemment suffit, pas besoin de le recopier). Le message sous l'adresse indique désormais si le widget est isolé sur sa propre page (adresse propre) ou encore sur la même page que le formulaire natif (adresse fonctionnelle, mais avec l'habillage du formulaire natif visible en plus). Déplacez le widget vers la seconde page avec un simple glisser-déposer si besoin, puis régénérez l'adresse.
+
 ### Dépannage : « JSON.parse: unexpected character at line 1 column 2 »
 
 Une version du widget du 16 septembre 2026 a écrit la clé `customView` des options de section en objet au lieu d'une chaîne JSON, ce qui fait planter la page qui porte le widget. Trois remèdes, du plus simple au plus technique :

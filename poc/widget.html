@@ -151,22 +151,30 @@
   }
 
   async function findViewRefForSection(vsId) {
-    // La page de l'adresse finale est celle du formulaire natif : parentId de sa section.
+    // La clé accordée par le formulaire natif porte sur sa TABLE, pas sur sa page : elle vaut
+    // pour tout le document (voir ACLRulesReader._shareTableForForm, aclFormula ne référence que
+    // user.ShareRef). Le widget peut donc être sur une page distincte du formulaire natif — page
+    // que l'on préfère pour l'adresse finale, puisqu'elle n'affiche pas le formulaire natif.
     const sections = await grist.docApi.fetchTable('_grist_Views_section');
     const idx = sections.id.indexOf(vsId);
-    if (idx < 0) return { viewRef: null, customOnPage: 0, self: null };
-    const viewRef = sections.parentId[idx];
-    const mine = [];
+    if (idx < 0) return { formPage: null, widgetPage: null, self: null, samePage: null };
+    const formPage = sections.parentId[idx];
+    const myFile = location.pathname.split('/').pop();
+    const candidates = [];
+    let onFormPage = 0;
     for (let i = 0; i < sections.id.length; i++) {
-      if (sections.parentId[i] !== viewRef || sections.parentKey[i] !== 'custom') continue;
+      if (sections.parentKey[i] !== 'custom') continue;
       let o = {};
       try { o = JSON.parse(sections.options[i] || '{}') || {}; } catch (e) { /* ignore */ }
       const cv = parseCustomView(o);
-      mine.push({ id: sections.id[i], url: cv.url || '', options: o, customView: cv });
+      const rec = { id: sections.id[i], parentId: sections.parentId[i], url: cv.url || '', options: o, customView: cv };
+      candidates.push(rec);
+      if (rec.parentId === formPage) onFormPage++;
     }
-    const myFile = location.pathname.split('/').pop();
-    const self = mine.find(s => s.url.includes(myFile)) || (mine.length === 1 ? mine[0] : null);
-    return { viewRef, customOnPage: mine.length, self };
+    const matches = candidates.filter(s => s.url.includes(myFile));
+    const self = matches.length === 1 ? matches[0] : (candidates.length === 1 ? candidates[0] : null);
+    const widgetPage = self ? self.parentId : formPage;
+    return { formPage, widgetPage, self, samePage: widgetPage === formPage, onFormPage };
   }
 
   // grist.setOptions ne modifie que la session du concepteur : Grist attend ensuite un clic sur
@@ -228,13 +236,13 @@
     const msg = $('cfg-msg');
     const link = parseFormLink($('link').value);
     if (!link) { msg.innerHTML = '<span class="err">Lien non reconnu. Il doit contenir <code>/forms/&lt;clé&gt;/&lt;numéro&gt;</code>.</span>'; return; }
-    msg.textContent = 'Recherche de la page du formulaire…';
-    let viewRef = null, customOnPage = 0, self = null;
-    try { ({ viewRef, customOnPage, self } = await findViewRefForSection(link.vsId)); }
+    msg.textContent = 'Recherche de la page du widget…';
+    let formPage = null, widgetPage = null, self = null, samePage = null, onFormPage = 0;
+    try { ({ formPage, widgetPage, self, samePage, onFormPage } = await findViewRefForSection(link.vsId)); }
     catch (e) { msg.innerHTML = `<span class="err">Impossible de lire les métadonnées du document (${esc(e.message)}). Le widget a-t-il l'accès complet ?</span>`; return; }
-    if (!viewRef) { msg.innerHTML = '<span class="err">Cette section de formulaire n\'existe pas dans ce document. Le lien vient-il bien d\'ici ?</span>'; return; }
-    const publicUrl = buildPublicUrl(link, viewRef);
-    const saved = { formLink: $('link').value.trim(), shareKey: link.key, vsId: link.vsId, viewRef, publicUrl };
+    if (!formPage) { msg.innerHTML = '<span class="err">Cette section de formulaire n\'existe pas dans ce document. Le lien vient-il bien d\'ici ?</span>'; return; }
+    const publicUrl = buildPublicUrl(link, widgetPage);
+    const saved = { formLink: $('link').value.trim(), shareKey: link.key, vsId: link.vsId, viewRef: widgetPage, publicUrl };
     stayOnConfig = true;
     let persisted = false;
     if (self) {
@@ -250,9 +258,13 @@
     }
     $('public-url').textContent = publicUrl;
     $('result').classList.remove('hidden');
-    $('page-check').innerHTML = customOnPage > 0
-      ? `<span class="ok">Page ${viewRef} : ${customOnPage} widget personnalisé détecté, l'adresse affichera FormPlus.</span>`
-      : `<span class="err">Aucun widget personnalisé sur la page ${viewRef} : déplacez ce widget sur la page du formulaire natif, sinon l'adresse n'affichera que le formulaire natif.</span>`;
+    if (!self) {
+      $('page-check').innerHTML = `<span class="err">Ce widget est introuvable dans les métadonnées (plusieurs widgets personnalisés existent sans que l'un ne corresponde clairement à celui-ci). L'adresse pointe vers la page du formulaire natif (page ${formPage}), qui affichera aussi son propre habillage.</span>`;
+    } else if (samePage) {
+      $('page-check').innerHTML = `<span class="ok">Le widget est sur la même page (${formPage}) que le formulaire natif${onFormPage > 1 ? `, avec ${onFormPage} widgets personnalisés dessus` : ''}. L'adresse fonctionnera, mais affichera aussi l'habillage du formulaire natif au-dessus ou à côté. Pour un rendu plus propre, déplacez ce widget seul sur une autre page : la clé reste valable, elle porte sur la table, pas sur la page.</span>`;
+    } else {
+      $('page-check').innerHTML = `<span class="ok">Le widget est seul sur la page ${widgetPage}, distincte de la page ${formPage} qui porte le formulaire natif. L'adresse n'affichera que ce widget : c'est la configuration la plus propre.</span>`;
+    }
   }
 
   $('generate').addEventListener('click', generate);
