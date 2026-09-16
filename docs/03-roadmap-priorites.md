@@ -17,6 +17,8 @@ Le POC (jalon J1) est allé plus loin que prévu : il a aussi validé une bonne 
 
 **Mise à jour du 16 septembre 2026 (suite) : types de questions étendus, réinitialisation, démarrage à vide.** Les questions supplémentaires et l'import des champs natifs couvrent désormais 7 types : texte, nombre, date, oui/non, choix (liste fixe saisie à la main), choix multiples (liste fixe), choix depuis une table. Le sélecteur de type dans la carte d'édition est passé de 2 boutons à une grille de 7 icônes. L'import gère maintenant Nombre, Date, Oui/non, Choix et Choix multiples (précédemment ignorés faute de type de question équivalent côté FormPlus) ; restent hors périmètre DateTime, Liste de références et Pièces jointes, faute de « kind » dédié. Chaque question importée porte désormais un `importedFrom` (identifiant du champ natif d'origine), ce qui permet un bouton « Réinitialiser les questions » : il vide la liste ET démasque précisément les champs natifs que l'import avait masqués, sans toucher aux champs masqués à la main dans Grist. Nouveau aussi : un bouton « Créer un formulaire natif vide », visible avant même de coller un lien, qui crée (ou réutilise) une table et y ajoute une section Formulaire native vide sur la page du widget (`CreateViewSection`, même mécanisme qu'`ensureTableGate`). Il ne reste alors au concepteur qu'à cliquer Publier puis Copier le lien : aucune méthode de l'API plugin n'expose la clé de partage secrète que « Publier » génère, cette dernière étape reste donc manuelle par nature, pas par paresse.
 
+**Mise à jour du 16 septembre 2026 (encore) : personnalisation, sections/blocs d'info, glisser-déposer, choix de formulaire dans une liste.** Nouveaux types de bloc dans la même liste de questions, sans collecter de réponse : « Titre de section » et « Bloc d'info repliable » (fermé par défaut), tous deux réordonnables et conditionnables comme une question normale. Glisser-déposer sur une poignée dédiée pour réordonner, en plus des flèches (gardées pour le clavier). Les questions « choix » (liste fixe ou depuis une table) peuvent s'afficher en menu déroulant ou en boutons radio, réglage repris automatiquement à l'import si le formulaire natif l'utilisait déjà. Nouvelle carte « Apparence et personnalisation » : titre et description du formulaire (sinon repris du natif), logo ou image d'en-tête, couleur d'accent (recalcule un fond adouci et un texte de bouton lisible automatiquement, jamais appliquée à l'écran de configuration lui-même), texte du bouton d'envoi, message de fin personnalisé, redirection différée après l'envoi, barre de progression optionnelle. Thème clair/sombre au choix du répondant (bouton dédié, mémorisé par navigateur via `localStorage`, jamais écrit dans le document — indépendant du réglage du concepteur). Étape 1 enrichie d'une liste déroulante des formulaires natifs déjà présents dans le document : un formulaire déjà publié voit sa clé de partage retrouvée automatiquement (`_grist_Pages.shareRef` → `_grist_Shares.linkId`, terrain non exposé par l'API plugin mais lisible comme n'importe quelle métadonnée) et son adresse générée sans copier-coller ; un formulaire non publié affiche une consigne précise (Publier, puis Copier le lien) plutôt qu'une tentative de publication automatique, qui resterait hors de portée pour la même raison que le point précédent. Le champ de collage manuel reste toujours disponible en repli. Couverte par une suite de 181 tests hors ligne (`widget.html#test`, voir `poc/README-poc.md`).
+
 ## 1. Principes d'interface
 
 Le différenciateur n'est pas technique, c'est la simplicité. Référence : Google Forms.
@@ -45,7 +47,7 @@ Le différenciateur n'est pas technique, c'est la simplicité. Référence : Goo
 **L'éditeur, la vraie priorité maintenant.**
 - ~~Constructeur à N questions~~ fait le 16 septembre 2026 (voir bilan ci-dessus).
 - Fusionner la question native (colonne du formulaire natif) et la question supplémentaire (lecture ou écriture croisée) en une seule liste homogène côté interface, au lieu de deux blocs visuellement distincts aujourd'hui.
-- Glisser-déposer pour réordonner (des flèches suffisent aujourd'hui, à remplacer par plus fluide).
+- ~~Glisser-déposer pour réordonner~~ fait le 16 septembre 2026, flèches gardées en complément (clavier, lecteurs d'écran).
 - Titre et description du formulaire, éditables depuis l'interface (repris du formulaire natif pour l'instant).
 - Passer du style « panneau de configuration technique » (étiquettes, badges, encarts) à des cartes sobres, une question visible à la fois en édition.
 
@@ -56,8 +58,8 @@ Le différenciateur n'est pas technique, c'est la simplicité. Référence : Goo
 - ~~Ouverture automatique des accès multi-tables~~ faite et généralisée à toute question (`ensureTableGate`, `ensureChoiceField`), plus liée aux étapes fixes.
 
 **Présentation :**
-- Thème sobre, DSFR, responsive complet, mode sombre propre sur l'ensemble de l'interface (les listes déroulantes sont corrigées, le reste de l'éditeur pas encore vérifié).
-- Message de fin personnalisé, redirection après envoi, réinitialisation.
+- Thème sobre, responsive complet, mode sombre propre sur l'ensemble de l'interface, couleur d'accent personnalisable côté répondant ✅. Reste : jeu de couleurs DSFR proposé en présélection plutôt qu'un simple sélecteur libre.
+- ~~Message de fin personnalisé, redirection après envoi~~ fait le 16 septembre 2026. Réinitialisation des questions faite le même jour (bouton dédié, distinct d'une remise à zéro de l'apparence).
 - ~~Assistant « Publier »~~ partiellement fait le 16 septembre 2026 : bouton « Créer un formulaire natif vide » qui prépare la table et la section Formulaire, ne laissant plus que Publier + Copier le lien à la charge du concepteur (ces deux clics restent hors de portée de l'API plugin, voir V2).
 
 ### V2, forte valeur, plus technique
@@ -68,7 +70,7 @@ Le différenciateur n'est pas technique, c'est la simplicité. Référence : Goo
 - Brouillon local et reprise de saisie.
 - Modèles et duplication de formulaire, import/export JSON.
 - Visualisation des réponses directement dans FormPlus, sans repasser par la grille Grist.
-- Automatiser aussi la publication initiale du formulaire natif (étape 1), pas seulement l'ouverture des tables suivantes — plus délicat, touche `_grist_Shares`/`_grist_Pages`, à traiter avec la même prudence qu'`ensureTableGate`.
+- Automatiser aussi la publication initiale du formulaire natif (étape 1), pas seulement l'ouverture des tables suivantes — plus délicat, touche `_grist_Shares`/`_grist_Pages`, à traiter avec la même prudence qu'`ensureTableGate`. Partiellement contourné le 16 septembre 2026 : la clé d'un formulaire DÉJÀ publié est retrouvée automatiquement (lecture seule de `_grist_Shares.linkId`) depuis la liste déroulante de l'étape 1, ce qui ne reste manuel que pour la toute première publication.
 
 ### V3, niche ou nécessitant une infrastructure
 

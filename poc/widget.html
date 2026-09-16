@@ -37,6 +37,7 @@
   input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
   select { background-color: var(--card); }
   select option { color: #1e1e1e; background-color: #fff; }
+  input[type=color] { border: 1px solid var(--border); border-radius: 7px; background: var(--card); cursor: pointer; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
   .row > div { flex: 1; min-width: 150px; }
   .row input, .row select { flex: 1; min-width: 150px; }
@@ -93,8 +94,33 @@
   .qcard-chevron { flex-shrink: 0; color: var(--muted); display: flex; transition: transform .15s; }
   .qcard.expanded .qcard-chevron { transform: rotate(180deg); }
   .qcard-body { padding: 4px 14px 16px; border-top: 1px solid var(--border-soft); }
-  .qf-choice-fields, .qf-text-fields, .qf-table-override, .qf-condition { margin-top: 8px; padding-top: 4px; }
+  .qf-choice-fields, .qf-text-fields, .qf-table-override, .qf-condition, .qf-fixed-options, .qf-display-mode { margin-top: 8px; padding-top: 4px; }
   .qf-table-override { margin-top: 10px; }
+  .qgrip { cursor: grab; display: flex; align-items: center; color: var(--muted); flex-shrink: 0; touch-action: none; }
+  .qgrip:active { cursor: grabbing; }
+  .qcard.drag-over { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .qcard[data-kind="section"] .qicon, .qcard[data-kind="info"] .qicon { background: var(--accent-soft); color: var(--accent); }
+  .qf-display-mode { display: flex; gap: 8px; }
+  .qf-display-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--muted); font-size: .82rem; }
+  .qf-display-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+
+  /* Théme du répondant (clair/sombre, indépendant du réglage du concepteur) */
+  .theme-row { display: flex; justify-content: flex-end; margin-bottom: 4px; }
+
+  /* Barre de progression */
+  #progress { margin-bottom: 10px; }
+  .progress-track { height: 6px; border-radius: 999px; background: var(--border-soft); overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width .2s; border-radius: 999px; }
+  #progress-text { margin: 6px 0 0; font-size: .8rem; }
+
+  /* Sections et blocs d'info dans le rendu répondant */
+  .q-section { margin: 28px 0 18px; }
+  .q-section:first-child { margin-top: 0; }
+  .q-section h2 { font-size: 1.05rem; }
+  .q-info { margin: 0 0 22px; border: 1px solid var(--border-soft); border-radius: 8px; padding: 4px 12px; background: var(--bg); }
+  .q-info summary { font-weight: 600; color: var(--text); font-size: .95rem; padding: 8px 0; }
+  .q-info .info-body { padding: 0 0 12px; color: var(--muted); font-size: .9rem; white-space: pre-wrap; }
+  .fill-logo { max-height: 64px; max-width: 100%; display: block; margin: 0 0 14px; object-fit: contain; }
 
   /* Combobox de recherche pour les tables et colonnes */
   .combo { position: relative; }
@@ -133,7 +159,10 @@
     <div class="card" id="step1">
       <h2>Formulaire principal</h2>
       <p class="muted">Le formulaire natif publié qui porte la clé de partage. Placez ce widget sur une page à lui seul pour un lien propre.</p>
-      <label for="link">Lien du formulaire natif publié (bouton « Copier le lien » du formulaire)</label>
+      <label for="formPicker">Formulaire natif trouvé dans ce document</label>
+      <select id="formPicker"><option value="">Chargement…</option></select>
+      <p id="formPicker-msg" class="muted"></p>
+      <label for="link" style="margin-top:16px">Ou coller un lien (bouton « Copier le lien » du formulaire)</label>
       <div class="row">
         <input id="link" type="url" placeholder="https://grist.numerique.gouv.fr/o/mon-equipe/forms/CLE/12">
         <button id="paste" type="button" title="Lire le presse-papiers">Coller</button>
@@ -184,11 +213,40 @@
       <p id="import-msg" class="muted"></p>
     </div>
 
+    <div class="card hidden" id="appearance-card">
+      <h2>Apparence et personnalisation</h2>
+      <p class="muted">Facultatif. Sans réglage, le formulaire garde le titre du formulaire natif et le thème sobre par défaut.</p>
+      <label for="opt-title">Titre du formulaire</label>
+      <input id="opt-title" type="text" placeholder="Repris du formulaire natif si laissé vide">
+      <label for="opt-desc">Description</label>
+      <input id="opt-desc" type="text" placeholder="Facultatif">
+      <label for="opt-logo">Logo ou image d'en-tête (URL)</label>
+      <input id="opt-logo" type="url" placeholder="https://…">
+      <label for="opt-accent">Couleur d'accent</label>
+      <div class="row">
+        <input id="opt-accent" type="color" value="#000091" style="flex:0 0 60px;padding:4px;height:38px">
+        <button id="opt-accent-reset" type="button">Réinitialiser la couleur</button>
+      </div>
+      <label class="toggle" style="margin-top:16px"><input type="checkbox" id="opt-progress"><span class="toggle-track"><span class="toggle-thumb"></span></span><span>Afficher une barre de progression</span></label>
+      <label for="opt-submit" style="margin-top:16px">Texte du bouton d'envoi</label>
+      <input id="opt-submit" type="text" placeholder="Envoyer">
+      <label for="opt-endmsg">Message affiché après l'envoi</label>
+      <input id="opt-endmsg" type="text" placeholder="Merci, votre réponse a bien été enregistrée.">
+      <label for="opt-redirect">Redirection après l'envoi (URL, facultatif)</label>
+      <input id="opt-redirect" type="url" placeholder="https://…">
+      <p id="appearance-msg" class="muted"></p>
+    </div>
+
     <details class="muted" style="margin-top:4px"><summary>Diagnostic</summary><pre id="diag" style="white-space:pre-wrap;font-size:.8rem">…</pre></details>
   </div>
 
   <div id="fill" class="hidden">
     <div class="toolbar" id="fill-toolbar"><button id="edit" type="button">Configuration</button></div>
+    <div class="theme-row"><button id="themeToggle" type="button" class="icon-btn" title="Changer de thème"></button></div>
+    <div id="progress" class="hidden">
+      <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+      <p class="muted" id="progress-text"></p>
+    </div>
     <div class="card" id="fill-card"><p class="muted">Chargement…</p></div>
     <details class="muted" style="margin:8px 4px 0"><summary>Diagnostic</summary><pre id="diag-fill" style="white-space:pre-wrap;font-size:.75rem">…</pre></details>
   </div>
@@ -205,6 +263,14 @@
     <p class="muted">Pour répondre à un formulaire hors de Grist (sans passer par une page Grist), utilisez <a href="public-form.html">public-form.html</a> avec le lien du formulaire après <code>#form=</code> — ne rend que les champs natifs, pas les questions supplémentaires.</p>
     <p class="muted">Secours : l'URL du widget peut elle-même contenir le lien du formulaire, <code>widget.html#form=&lt;lien&gt;</code>. Le mode répondant fonctionne alors même sans options enregistrées.</p>
   </div>
+
+  <div id="test" class="card hidden">
+    <h1>FormPlus · Tests</h1>
+    <p class="muted">Suite de non-régression interne, entièrement hors ligne (API Grist simulée). Ouvrir avec <code>widget.html#test</code>.</p>
+    <div id="test-summary"></div>
+    <pre id="test-log" style="white-space:pre-wrap;font-size:.82rem"></pre>
+    <div id="test-sandbox" style="position:absolute;left:-9999px;top:0;width:600px"></div>
+  </div>
 </div>
 
 <!-- QRCode for JavaScript, Kazuhiko Arase, licence MIT : https://github.com/davidshimjs/qrcodejs -->
@@ -213,7 +279,7 @@
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
-  const show = (id) => ['loading', 'config', 'fill', 'standalone', 'repair'].forEach(x => $(x).classList.toggle('hidden', x !== id));
+  const show = (id) => ['loading', 'config', 'fill', 'standalone', 'repair', 'test'].forEach(x => $(x).classList.toggle('hidden', x !== id));
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const uid = () => 'q_' + Math.random().toString(36).slice(2, 9);
 
@@ -238,8 +304,16 @@
     checkSquare: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
     toggleOn: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="5" width="22" height="14" rx="7"/><circle cx="16" cy="12" r="3" fill="currentColor" stroke="none"/></svg>',
     refresh: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>',
+    heading: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v16M18 4v16M6 12h12"/></svg>',
+    info: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+    grip: '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>',
+    sun: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>',
+    moon: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>',
+    radio: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></svg>',
   };
   // Types de question disponibles dans l'éditeur (question supplémentaire ou import de champ natif).
+  // 'section' et 'info' ne collectent aucune réponse : ce sont des blocs de mise en page insérés
+  // dans la même liste, réordonnables comme les autres (mêmes cartes, mêmes conditions d'affichage).
   const KINDS = [
     { id: 'text', label: 'Texte', icon: ICONS.text },
     { id: 'number', label: 'Nombre', icon: ICONS.hash },
@@ -248,12 +322,74 @@
     { id: 'select', label: 'Choix (liste fixe)', icon: ICONS.list },
     { id: 'multiselect', label: 'Choix multiples (liste fixe)', icon: ICONS.checkSquare },
     { id: 'choice', label: 'Choix depuis une table', icon: ICONS.table },
+    { id: 'section', label: 'Titre de section', icon: ICONS.heading },
+    { id: 'info', label: "Bloc d'info repliable", icon: ICONS.info },
   ];
+  const LAYOUT_KINDS = new Set(['section', 'info']); // ne collectent pas de réponse
+  const SINGLE_CHOICE_KINDS = new Set(['select', 'choice']); // peuvent s'afficher en menu ou en radio
   $('qadd').innerHTML = ICONS.plus + '<span>Ajouter une question</span>';
   $('qimport').innerHTML = ICONS.download + '<span>Importer les champs du formulaire natif</span>';
   $('qreset').innerHTML = ICONS.refresh + '<span>Réinitialiser les questions</span>';
   $('qrToggle').innerHTML = ICONS.qrcode;
   $('scratchToggle').innerHTML = ICONS.plus + '<span>Je n\'ai pas encore de formulaire, en créer un vide</span>';
+
+  // ───────────────────────── Thème du répondant (indépendant du réglage du concepteur) ─────────────────────────
+  // Préférence par navigateur (localStorage), jamais écrite dans le document. Bascule entre clair
+  // et sombre explicites ; sans choix, suit le système comme aujourd'hui.
+  function getStoredTheme() { try { return localStorage.getItem('formplus_theme') || ''; } catch (e) { return ''; } }
+  function setStoredTheme(t) { try { if (t) localStorage.setItem('formplus_theme', t); else localStorage.removeItem('formplus_theme'); } catch (e) { /* stockage indisponible, tant pis */ } }
+  function effectiveDark() {
+    const t = document.documentElement.dataset.theme;
+    if (t === 'dark') return true;
+    if (t === 'light') return false;
+    return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  }
+  function applyTheme(t) {
+    if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
+    const btn = $('themeToggle');
+    if (btn) { btn.innerHTML = effectiveDark() ? ICONS.sun : ICONS.moon; btn.title = effectiveDark() ? 'Passer en thème clair' : 'Passer en thème sombre'; }
+  }
+  // applyBranding dépend de `options`, pas encore chargé à ce stade du démarrage (TDZ de `let
+  // options` plus bas) : appelée séparément, jamais depuis applyTheme lui-même.
+  $('themeToggle').addEventListener('click', () => { const next = effectiveDark() ? 'light' : 'dark'; setStoredTheme(next); applyTheme(next); applyBranding(options); });
+  applyTheme(getStoredTheme());
+
+  // ───────────────────────── Couleur d'accent personnalisable ─────────────────────────
+  function hexToRgb(hex) {
+    const m = /^#?([0-9a-fA-F]{6})$/.exec(hex || '');
+    if (!m) return null;
+    const n = parseInt(m[1], 16);
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }
+  function softenColor(hex) {
+    const c = hexToRgb(hex);
+    if (!c) return null;
+    const bg = effectiveDark() ? 32 : 255;
+    const mix = (v) => Math.round(v * 0.18 + bg * 0.82);
+    return `rgb(${mix(c.r)}, ${mix(c.g)}, ${mix(c.b)})`;
+  }
+  function contrastText(hex) {
+    const c = hexToRgb(hex);
+    if (!c) return null;
+    const lum = (0.299 * c.r + 0.587 * c.g + 0.114 * c.b) / 255;
+    return lum > 0.6 ? '#1c1d21' : '#fff';
+  }
+  // Applique la couleur d'accent choisie par le concepteur (options.accentColor) sur le rendu
+  // répondant. N'est jamais utilisée dans l'écran de configuration lui-même (réservé au sobre
+  // thème par défaut, pour que le concepteur garde des repères visuels stables).
+  function applyBranding(opts) {
+    const root = document.documentElement;
+    const hex = opts && opts.accentColor;
+    if (hex && hexToRgb(hex)) {
+      root.style.setProperty('--accent', hex);
+      root.style.setProperty('--accent-soft', softenColor(hex));
+      root.style.setProperty('--accent-text', contrastText(hex));
+    } else {
+      root.style.removeProperty('--accent');
+      root.style.removeProperty('--accent-soft');
+      root.style.removeProperty('--accent-text');
+    }
+  }
 
   // ───────────────────────── Liens, adresses, format des options ─────────────────────────
 
@@ -322,6 +458,16 @@
     } catch (e) { return null; }
   }
 
+  // Hôte + organisation Grist, déduits du référent (même logique que myPageFromReferrer), pour
+  // reconstruire une adresse .../forms/<clé>/<section> sans que le concepteur ait à la coller.
+  function hostOrgFromReferrer() {
+    try {
+      const u = new URL(document.referrer);
+      const m = /^\/o\/([^/]+)\//.exec(u.pathname);
+      return { host: u.origin, org: m ? m[1] : null };
+    } catch (e) { return null; }
+  }
+
   // ───────────────────────── Métadonnées du document ─────────────────────────
 
   async function fetchMeta(tableId) { return grist.docApi.fetchTable(tableId); }
@@ -365,6 +511,33 @@
       if (opt.publish && opt.form) out.push(s.tableRef[i]);
     }
     return Promise.all(out.map(tableIdOfRef));
+  }
+
+  // Retrouve, pour une page déjà publiée, la clé de partage déjà générée par « Publier » — sans
+  // que le concepteur ait besoin de la copier-coller. D'après docs/01-etude-comparative.md
+  // (ACLRulesReader.ts, vérifié dans le code source) : _grist_Pages.shareRef pointe vers la ligne
+  // _grist_Shares dont le linkId EST la clé utilisée dans /forms/<clé>/... et /s/<clé>/... Terrain
+  // non vérifié en direct sur un document réel (pas d'accès à un document Grist depuis cet
+  // environnement) : en cas d'échec, renvoie null sans jamais lever d'erreur, et journalise les
+  // noms de colonnes réellement lus dans _grist_Shares pour corriger rapidement si le schéma
+  // diffère. Le champ « coller un lien manuellement » reste toujours disponible en repli.
+  async function findExistingShareKey(viewRef) {
+    try {
+      const pages = await fetchMeta('_grist_Pages');
+      const pIdx = pages.viewRef.indexOf(viewRef);
+      if (pIdx < 0) { diag({ event: 'findExistingShareKey-no-page', viewRef }); return null; }
+      const shareRef = pages.shareRef[pIdx];
+      if (!shareRef) { diag({ event: 'findExistingShareKey-no-shareRef', viewRef }); return null; }
+      const shares = await fetchMeta('_grist_Shares');
+      const sIdx = shares.id.indexOf(shareRef);
+      if (sIdx < 0) { diag({ event: 'findExistingShareKey-share-not-found', shareRef }); return null; }
+      const key = shares.linkId ? shares.linkId[sIdx] : null;
+      diag({ event: 'findExistingShareKey', viewRef, shareRef, found: !!key, shareColumns: Object.keys(shares) });
+      return key || null;
+    } catch (e) {
+      diag({ event: 'findExistingShareKey-error', message: e.message });
+      return null;
+    }
   }
 
   // Ouvre l'écriture sur une table pour la clé de partage, sans intervention manuelle : crée une
@@ -553,6 +726,17 @@
       viewRef: widgetPage,
       publicUrl,
       questions: cfgQuestions,
+      // Apparence : toujours relue depuis les champs de l'écran de configuration, quel que soit
+      // l'appelant (question, réordonnancement, réglage d'apparence…) pour ne jamais en perdre
+      // une valeur déjà saisie entre deux sauvegardes.
+      formTitle: $('opt-title').value.trim(),
+      formDescription: $('opt-desc').value.trim(),
+      logoUrl: $('opt-logo').value.trim(),
+      accentColor: $('opt-accent').value || '',
+      showProgress: $('opt-progress').checked,
+      submitLabel: $('opt-submit').value.trim(),
+      endMessage: $('opt-endmsg').value.trim(),
+      redirectUrl: $('opt-redirect').value.trim(),
     };
     const { self } = await findViewRefForSection(saved.vsId);
     let persisted = false;
@@ -597,11 +781,27 @@
       $('page-check').innerHTML = `<span class="ok">Le widget est seul sur la page ${widgetPage}, distincte de la page ${formPage} qui porte le formulaire natif. L'adresse n'affichera que ce widget : c'est la configuration la plus propre.</span>`;
     }
     $('questions-card').classList.remove('hidden');
+    $('appearance-card').classList.remove('hidden');
     renderQuestionList();
   }
 
   $('generate').addEventListener('click', generate);
   $('link').addEventListener('keydown', (e) => { if (e.key === 'Enter') generate(); });
+
+  // ───────────────────────── Apparence et personnalisation ─────────────────────────
+  ['opt-title', 'opt-desc', 'opt-logo', 'opt-accent', 'opt-progress', 'opt-submit', 'opt-endmsg', 'opt-redirect'].forEach(id => {
+    $(id).addEventListener('change', async () => {
+      if (!currentFormSection) return; // rien à sauvegarder tant qu'aucun formulaire n'est lié
+      await saveConfig(options.publicUrl, options.viewRef);
+      $('appearance-msg').innerHTML = '<span class="ok">Enregistré.</span>';
+    });
+  });
+  $('opt-accent-reset').addEventListener('click', async () => {
+    $('opt-accent').value = '#000091';
+    if (!currentFormSection) return;
+    await saveConfig(options.publicUrl, options.viewRef);
+    $('appearance-msg').innerHTML = '<span class="ok">Couleur réinitialisée.</span>';
+  });
   $('paste').addEventListener('click', async () => {
     try { $('link').value = (await navigator.clipboard.readText()).trim(); generate(); }
     catch (e) { $('cfg-msg').textContent = 'Lecture du presse-papiers refusée : collez le lien dans le champ avec Ctrl+V.'; $('link').focus(); }
@@ -675,7 +875,11 @@
 
   function questionSummary(q) {
     const parts = [];
+    if (q.kind === 'section') return q.description || '';
+    if (q.kind === 'info') return 'Repliable';
     if (q.kind === 'choice') parts.push(`Depuis « ${q.sourceTable} »`);
+    if (q.kind === 'select' || q.kind === 'multiselect') parts.push(`${(q.choices || []).length} option(s)`);
+    if (SINGLE_CHOICE_KINDS.has(q.kind) && q.displayMode === 'radio') parts.push('en radio');
     if (q.writeTable && q.writeTable !== mainTableIdCache) parts.push(`écrit dans « ${q.writeTable} »`);
     if (q.condition) {
       const src = cfgQuestions.find(x => x.id === q.condition.questionId);
@@ -688,10 +892,11 @@
     const id = isNew ? '__new__' : q.id;
     const expanded = expandedId === id;
     const icon = isNew ? ICONS.plus : (KINDS.find(k => k.id === q.kind)?.icon || ICONS.text);
-    const label = isNew ? 'Nouvelle question' : (q.label || '(sans titre)');
+    const label = isNew ? 'Nouvelle question' : (q.label || (q?.kind === 'section' ? '(titre de section)' : q?.kind === 'info' ? "(bloc d'info)" : '(sans titre)'));
     const meta = isNew ? '' : questionSummary(q);
-    return `<div class="qcard ${expanded ? 'expanded' : ''}" data-id="${id}">
+    return `<div class="qcard ${expanded ? 'expanded' : ''}" data-id="${id}" data-kind="${isNew ? '' : q.kind}">
       <div class="qcard-row" data-toggle="${id}">
+        ${!isNew ? `<span class="qgrip" draggable="true" data-qid="${id}" title="Glisser pour réordonner">${ICONS.grip}</span>` : ''}
         <span class="qicon">${icon}</span>
         <div class="qcard-main">
           <div class="qcard-label">${esc(label)}</div>
@@ -726,6 +931,40 @@
     if (moveEl) { e.stopPropagation(); moveQuestion(moveEl.dataset.qid, moveEl.dataset.move); return; }
     const toggleEl = e.target.closest('[data-toggle]');
     if (toggleEl) { toggleCard(toggleEl.dataset.toggle); }
+  });
+
+  // Glisser-déposer pour réordonner, en plus des flèches (gardées pour le clavier et les lecteurs
+  // d'écran, jamais retirées : le glisser-déposer seul n'est pas accessible à tout le monde).
+  let dragQId = null;
+  $('qlist').addEventListener('dragstart', (e) => {
+    const grip = e.target.closest('.qgrip');
+    if (!grip) { e.preventDefault(); return; }
+    dragQId = grip.dataset.qid;
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  $('qlist').addEventListener('dragover', (e) => {
+    if (!dragQId) return;
+    e.preventDefault();
+    const card = e.target.closest('.qcard');
+    if (!card || card.dataset.id === dragQId) return;
+    $('qlist').querySelectorAll('.qcard.drag-over').forEach(c => c.classList.remove('drag-over'));
+    card.classList.add('drag-over');
+  });
+  $('qlist').addEventListener('dragleave', (e) => { e.target.closest('.qcard')?.classList.remove('drag-over'); });
+  $('qlist').addEventListener('dragend', () => { dragQId = null; $('qlist').querySelectorAll('.qcard.drag-over').forEach(c => c.classList.remove('drag-over')); });
+  $('qlist').addEventListener('drop', async (e) => {
+    e.preventDefault();
+    const card = e.target.closest('.qcard');
+    $('qlist').querySelectorAll('.qcard.drag-over').forEach(c => c.classList.remove('drag-over'));
+    const fromId = dragQId; dragQId = null;
+    if (!card || !fromId || card.dataset.id === fromId) return;
+    const fromIdx = cfgQuestions.findIndex(q => q.id === fromId);
+    const toIdx = cfgQuestions.findIndex(q => q.id === card.dataset.id);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const [moved] = cfgQuestions.splice(fromIdx, 1);
+    cfgQuestions.splice(toIdx, 0, moved);
+    await saveConfig(options.publicUrl, options.viewRef);
+    renderQuestionList();
   });
   $('qadd').addEventListener('click', () => { expandedId = '__new__'; renderQuestionList(); $('qlist').lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); });
   $('qimport').addEventListener('click', importNativeFields);
@@ -807,14 +1046,17 @@
     const tableOverrideOpen = !!(q && q.kind !== 'choice' && q.writeTable && q.writeTable !== mainTableIdCache);
     const conditionOpen = !!q?.condition;
 
+    const displayMode = q?.displayMode || 'dropdown';
     body.innerHTML = `
       <div class="qtype-toggle">
         ${KINDS.map(k => `<button type="button" class="qtype-btn" data-kind="${k.id}">${k.icon}<span>${k.label}</span></button>`).join('')}
       </div>
       <label for="qf-label-${id}">Intitulé</label>
       <input id="qf-label-${id}" class="qf-label" type="text" placeholder="Votre question" value="${esc(q?.label || '')}">
-      <label for="qf-desc-${id}">Description</label>
+      <label for="qf-desc-${id}" class="qf-desc-label-short">Description</label>
       <input id="qf-desc-${id}" class="qf-desc" type="text" placeholder="Facultatif" value="${esc(q?.description || '')}">
+      <label for="qf-desc-long-${id}" class="qf-desc-label-long hidden">Contenu du bloc</label>
+      <textarea id="qf-desc-long-${id}" class="qf-desc-long hidden" rows="4" placeholder="Texte affiché une fois le bloc déplié">${esc(q?.description || '')}</textarea>
       <div class="qf-choice-fields hidden">
         <label>Table source</label><div class="combo-host" data-combo="srcTable"></div>
         <label>Colonne affichée (libellé)</label><div class="combo-host" data-combo="srcCol"></div>
@@ -823,6 +1065,10 @@
         <label for="qf-choices-${id}">Options (une par ligne)</label>
         <textarea id="qf-choices-${id}" class="qf-choices" rows="4" placeholder="Option 1&#10;Option 2">${esc((q?.choices || []).join('\n'))}</textarea>
       </div>
+      <div class="qf-display-mode hidden">
+        <button type="button" class="qf-display-btn" data-display="dropdown">${ICONS.list}<span>Menu déroulant</span></button>
+        <button type="button" class="qf-display-btn" data-display="radio">${ICONS.radio}<span>Boutons radio</span></button>
+      </div>
       <div class="qf-text-fields hidden">
         <label>Colonne de destination</label><div class="combo-host" data-combo="writeCol"></div>
         <button type="button" class="qf-link" data-reveal="table">${ICONS.settings}<span>Écrire dans une autre table</span></button>
@@ -830,7 +1076,7 @@
           <label>Table de destination</label><div class="combo-host" data-combo="writeTable"></div>
         </div>
       </div>
-      <label class="toggle"><input type="checkbox" class="qf-required" ${q?.required ? 'checked' : ''}><span class="toggle-track"><span class="toggle-thumb"></span></span><span>Obligatoire</span></label>
+      <label class="toggle qf-required-row"><input type="checkbox" class="qf-required" ${q?.required ? 'checked' : ''}><span class="toggle-track"><span class="toggle-thumb"></span></span><span>Obligatoire</span></label>
       <button type="button" class="qf-link" data-reveal="condition">${ICONS.branch}<span>Condition d'affichage</span></button>
       <div class="qf-condition ${conditionOpen ? '' : 'hidden'}">
         <label>Afficher si</label>
@@ -853,13 +1099,24 @@
 
     const kind = q?.kind || 'text';
     const setKind = (k) => {
+      const layout = LAYOUT_KINDS.has(k);
       body.querySelectorAll('.qtype-btn').forEach(b => b.classList.toggle('active', b.dataset.kind === k));
       body.querySelector('.qf-choice-fields').classList.toggle('hidden', k !== 'choice');
       body.querySelector('.qf-fixed-options').classList.toggle('hidden', k !== 'select' && k !== 'multiselect');
-      body.querySelector('.qf-text-fields').classList.toggle('hidden', k === 'choice');
+      body.querySelector('.qf-display-mode').classList.toggle('hidden', !SINGLE_CHOICE_KINDS.has(k));
+      body.querySelector('.qf-text-fields').classList.toggle('hidden', k === 'choice' || layout);
+      body.querySelector('.qf-required-row').classList.toggle('hidden', layout);
+      body.querySelector('.qf-desc-label-short').classList.toggle('hidden', k === 'info');
+      body.querySelector('.qf-desc').classList.toggle('hidden', k === 'info');
+      body.querySelector('.qf-desc-label-long').classList.toggle('hidden', k !== 'info');
+      body.querySelector('.qf-desc-long').classList.toggle('hidden', k !== 'info');
     };
     setKind(kind);
     body.querySelectorAll('.qtype-btn').forEach(b => b.addEventListener('click', () => setKind(b.dataset.kind)));
+
+    const setDisplay = (d) => body.querySelectorAll('.qf-display-btn').forEach(b => b.classList.toggle('active', b.dataset.display === d));
+    setDisplay(displayMode);
+    body.querySelectorAll('.qf-display-btn').forEach(b => b.addEventListener('click', () => setDisplay(b.dataset.display)));
 
     body.querySelectorAll('[data-reveal]').forEach(b => b.addEventListener('click', () => {
       const el = body.querySelector(b.dataset.reveal === 'table' ? '.qf-table-override' : '.qf-condition');
@@ -924,16 +1181,29 @@
   async function saveQuestionFromCard(id, body, existing, combos) {
     const msg = body.querySelector('.qf-msg');
     const kind = body.querySelector('.qtype-btn.active')?.dataset.kind || 'text';
-    const label = body.querySelector('.qf-label').value.trim() || (kind === 'choice' ? 'Votre choix' : 'Réponse');
-    const description = body.querySelector('.qf-desc').value.trim();
+    const label = body.querySelector('.qf-label').value.trim() ||
+      (kind === 'choice' ? 'Votre choix' : kind === 'section' ? 'Section' : kind === 'info' ? "Bloc d'info" : 'Réponse');
+    const description = (kind === 'info' ? body.querySelector('.qf-desc-long') : body.querySelector('.qf-desc')).value.trim();
     const condQ = body.querySelector('.qf-condQ').value;
     const condition = condQ ? { questionId: condQ, op: 'equals', value: combos.condValue.value } : null;
-    const mainTableId = await tableIdOfRef(currentFormSection.tableRef);
 
     try {
       msg.textContent = 'Enregistrement…';
-      const q = { id: existing?.id || uid(), kind, label, description, required: body.querySelector('.qf-required').checked, condition };
+      const q = { id: existing?.id || uid(), kind, label, description, condition };
       if (existing?.importedFrom) q.importedFrom = existing.importedFrom;
+
+      if (LAYOUT_KINDS.has(kind)) {
+        // Titre de section / bloc d'info : ne collecte rien, pas de destination ni d'obligatoire.
+        cfgQuestions = [...cfgQuestions.filter(x => x.id !== q.id), q];
+        await saveConfig(options.publicUrl, options.viewRef);
+        expandedId = null;
+        renderQuestionList();
+        return;
+      }
+
+      q.required = body.querySelector('.qf-required').checked;
+      if (SINGLE_CHOICE_KINDS.has(kind)) q.displayMode = body.querySelector('.qf-display-btn.active')?.dataset.display || 'dropdown';
+      const mainTableId = await tableIdOfRef(currentFormSection.tableRef);
       if (kind === 'choice') {
         q.sourceTable = combos.srcTable.value;
         q.sourceCol = combos.srcCol.value;
@@ -1006,6 +1276,7 @@
         // importedFrom (id du champ natif) permet à « Réinitialiser » de retrouver précisément
         // et de démasquer le bon champ, sans toucher aux champs masqués manuellement dans Grist.
         const q = { id: uid(), label: fl.question, description: fl.description || '', required: !!o.formRequired, condition: null, importedFrom: fieldId };
+        if (kind === 'choice' || kind === 'select') q.displayMode = o.formSelectFormat === 'radio' ? 'radio' : 'dropdown';
         if (kind === 'choice') {
           const colIdx = cols.colId.findIndex((c, i) => c === fl.colId && cols.parentId[i] === mainTableRef);
           if (colIdx < 0) { skipped['Référence (introuvable)'] = (skipped['Référence (introuvable)'] || 0) + 1; continue; }
@@ -1094,12 +1365,25 @@
     }
   }
 
+  function fillAppearanceFields(opts) {
+    $('opt-title').value = opts?.formTitle || '';
+    $('opt-desc').value = opts?.formDescription || '';
+    $('opt-logo').value = opts?.logoUrl || '';
+    $('opt-accent').value = opts?.accentColor || '#000091';
+    $('opt-progress').checked = !!opts?.showProgress;
+    $('opt-submit').value = opts?.submitLabel || '';
+    $('opt-endmsg').value = opts?.endMessage || '';
+    $('opt-redirect').value = opts?.redirectUrl || '';
+  }
+
   async function showConfig() {
     show('config');
+    populateFormPicker();
     if (options?.formLink) {
       $('link').value = options.formLink;
       currentLink = parseFormLink(options.formLink);
       cfgQuestions = migrateLegacy(options);
+      fillAppearanceFields(options);
       if (options.publicUrl) { $('public-url').textContent = options.publicUrl; $('result').classList.remove('hidden'); }
       if (currentLink) {
         const sections = await fetchMeta('_grist_Views_section');
@@ -1108,11 +1392,67 @@
           currentFormSection = { id: currentLink.vsId, viewRef: sections.parentId[idx], tableRef: sections.tableRef[idx] };
           mainTableIdCache = await tableIdOfRef(currentFormSection.tableRef);
           $('questions-card').classList.remove('hidden');
+          $('appearance-card').classList.remove('hidden');
           renderQuestionList();
         }
       }
     }
   }
+
+  // ───────────────────────── Choisir un formulaire natif déjà présent dans le document ─────────────────────────
+  // Repli toujours disponible : le champ de collage manuel du lien reste affiché sous la liste,
+  // jamais retiré. Un formulaire publié voit sa clé retrouvée automatiquement (findExistingShareKey)
+  // et l'adresse générée sans copier-coller ; un formulaire non publié affiche une consigne précise
+  // plutôt qu'une tentative de publication automatique (aucune méthode de l'API plugin ne génère la
+  // clé secrète que « Publier » crée, voir findExistingShareKey et docs/01-etude-comparative.md).
+  let formPickerItems = [];
+  async function populateFormPicker() {
+    const sel = $('formPicker');
+    sel.innerHTML = '<option value="">Chargement…</option>';
+    try {
+      const sections = await fetchMeta('_grist_Views_section');
+      const tables = await fetchMeta('_grist_Tables');
+      const tableIdByRef = {};
+      tables.id.forEach((id, i) => { tableIdByRef[id] = tables.tableId[i]; });
+      const items = [];
+      for (let i = 0; i < sections.id.length; i++) {
+        if (sections.parentKey[i] !== 'form') continue;
+        const tableId = tableIdByRef[sections.tableRef[i]];
+        if (!tableId || tableId.startsWith('_grist_')) continue;
+        let opt = {}; try { opt = JSON.parse(sections.shareOptions[i] || '{}') || {}; } catch (e) { /* ignore */ }
+        items.push({ vsId: sections.id[i], viewRef: sections.parentId[i], tableId, published: !!(opt.publish && opt.form) });
+      }
+      formPickerItems = items;
+      sel.innerHTML = items.length
+        ? '<option value="">— choisir —</option>' + items.map(it => `<option value="${it.vsId}">${esc(it.tableId)}${it.published ? '' : ' (non publié)'}</option>`).join('')
+        : '<option value="">Aucun formulaire natif trouvé dans ce document</option>';
+    } catch (e) {
+      sel.innerHTML = '<option value="">Liste indisponible</option>';
+      diag({ event: 'populateFormPicker-failed', message: e.message });
+    }
+  }
+  $('formPicker').addEventListener('change', async () => {
+    const vsId = Number($('formPicker').value);
+    const msg = $('formPicker-msg');
+    if (!vsId) { msg.textContent = ''; return; }
+    const item = formPickerItems.find(it => it.vsId === vsId);
+    if (!item) return;
+    if (!item.published) {
+      msg.innerHTML = `<span class="err">Ce formulaire n'est pas encore publié. Ouvrez-le sur sa page, cliquez sur <strong>Publier</strong>, puis <strong>Copier le lien</strong> et collez-le ci-dessous.</span>`;
+      return;
+    }
+    msg.textContent = "Recherche de l'adresse déjà publiée…";
+    const key = await findExistingShareKey(item.viewRef);
+    const origin = hostOrgFromReferrer();
+    if (!key || !origin) {
+      msg.innerHTML = `<span class="err">Adresse publiée non retrouvée automatiquement. Ouvrez ce formulaire, <strong>Copier le lien</strong>, et collez-le ci-dessous.</span>`;
+      return;
+    }
+    const base = origin.org ? `${origin.host}/o/${origin.org}` : origin.host;
+    $('link').value = `${base}/forms/${key}/${item.vsId}`;
+    msg.innerHTML = '<span class="ok">Adresse retrouvée automatiquement.</span>';
+    await generate();
+  });
 
   // ───────────────────────── Diagnostic ─────────────────────────
 
@@ -1190,16 +1530,49 @@
     return `<div class="q" data-native="1" data-type="${fl.type}" data-col="${name}" data-required="${o.formRequired ? 1 : 0}" ${hidden ? 'hidden' : ''}>${head}${input}<div class="err-msg">Ce champ est obligatoire.</div></div>`;
   }
 
+  // Lit la valeur courante d'un champ à choix unique, qu'il s'affiche en menu déroulant (élément
+  // <select>, direct ou imbriqué pour une question "choix depuis une table" chargée après coup)
+  // ou en boutons radio (conteneur générique) — un seul point de lecture pour la condition
+  // d'affichage (renderFill) et pour la soumission (onSubmit), jamais deux logiques à maintenir.
+  function singleValueOf(container) {
+    if (!container) return { value: '', label: '' };
+    const sel = container.tagName === 'SELECT' ? container : container.querySelector('select');
+    if (sel) return { value: sel.value, label: sel.selectedOptions[0]?.dataset.label ?? sel.value };
+    const checked = container.querySelector('input[type=radio]:checked');
+    if (checked) return { value: checked.value, label: checked.dataset.label ?? checked.value };
+    if (container.querySelector('input[type=radio]')) return { value: '', label: '' };
+    return { value: container.value ?? '', label: container.value ?? '' };
+  }
+
+  function radioGroup(name, choices) {
+    return choices.map(c => `<label class="opt"><input type="radio" name="${name}" value="${esc(c)}" data-label="${esc(c)}"> ${esc(c)}</label>`).join('');
+  }
+
   function renderExtraQuestion(q) {
+    if (q.kind === 'section') {
+      return `<div class="q q-section" data-extra="${q.id}" data-kind="section">
+        <h2>${esc(q.label)}</h2>
+        ${q.description ? `<p class="muted">${esc(q.description)}</p>` : ''}
+      </div>`;
+    }
+    if (q.kind === 'info') {
+      return `<details class="q q-info" data-extra="${q.id}" data-kind="info">
+        <summary>${esc(q.label)}</summary>
+        <div class="info-body">${esc(q.description)}</div>
+      </details>`;
+    }
     const req = q.required ? 'req' : '';
     let input;
     switch (q.kind) {
       case 'choice':
-        input = `<select id="eq-${q.id}"><option value="">Chargement…</option></select>`;
+        // Conteneur générique : le chargement (renderFill) y injecte un <select> ou des radios
+        // selon q.displayMode, une fois les libellés lus dans la table source.
+        input = `<div id="eq-${q.id}"><span class="muted">Chargement…</span></div>`;
         break;
       case 'select':
-        input = `<select id="eq-${q.id}"><option value="">Choisir…</option>` +
-          (q.choices || []).map(c => `<option value="${esc(c)}" data-label="${esc(c)}">${esc(c)}</option>`).join('') + `</select>`;
+        input = q.displayMode === 'radio'
+          ? `<div id="eq-${q.id}">${radioGroup(`eq-${q.id}`, q.choices || [])}</div>`
+          : `<select id="eq-${q.id}"><option value="">Choisir…</option>${(q.choices || []).map(c => `<option value="${esc(c)}" data-label="${esc(c)}">${esc(c)}</option>`).join('')}</select>`;
         break;
       case 'multiselect':
         input = `<div id="eq-${q.id}">` +
@@ -1224,15 +1597,41 @@
       ${input}<div class="err-msg">Ce champ est obligatoire.</div></div>`;
   }
 
+  // Un champ compte comme "répondu" pour la barre de progression : mêmes règles de "vide" que la
+  // validation à l'envoi, en plus permissif (ne bloque jamais, ne fait qu'indiquer où on en est).
+  function isAnswered(q) {
+    if (q.hidden || q.classList.contains('cond-hidden')) return null; // hors calcul
+    if (q.dataset.kind === 'section' || q.dataset.kind === 'info') return null;
+    const checkboxes = [...q.querySelectorAll('input[type=checkbox]')];
+    if (checkboxes.length > 1) return checkboxes.some(c => c.checked); // liste à choix multiples
+    if (checkboxes.length === 1) return true; // Oui/non : toujours "répondu", comme à l'envoi
+    if (q.querySelectorAll('input[type=radio]').length) return q.querySelector('input[type=radio]:checked') != null;
+    const file = q.querySelector('input[type=file]');
+    if (file) return file.files.length > 0;
+    const el = q.querySelector('input, select, textarea');
+    return el ? el.value !== '' : null;
+  }
+  function updateProgress(formEl) {
+    const box = $('progress');
+    if (box.classList.contains('hidden')) return;
+    const items = [...formEl.querySelectorAll('.q')].map(isAnswered).filter(v => v !== null);
+    const done = items.filter(Boolean).length;
+    const total = items.length;
+    $('progress-fill').style.width = total ? `${Math.round((done / total) * 100)}%` : '0%';
+    $('progress-text').textContent = total ? `${done} / ${total} question${total > 1 ? 's' : ''}` : '';
+  }
+
   async function renderFill() {
     show('fill');
     const card = $('fill-card');
     card.innerHTML = '<p class="muted">Chargement…</p>';
+    $('progress').classList.add('hidden');
 
     const formLink = options?.formLink || fragmentFormLink;
     const link = parseFormLink(formLink);
     if (!link) { card.innerHTML = '<h1>Formulaire indisponible</h1><p class="muted">Lien de formulaire illisible.</p>'; return; }
 
+    applyBranding(options);
     canEdit = await probeCanEdit(options?.vsId ?? link.vsId);
     diag({ event: 'canEdit', canEdit });
     $('fill-toolbar').classList.toggle('hidden', !canEdit);
@@ -1252,9 +1651,14 @@
     const prefillParams = new URLSearchParams(location.search);
     const nativeRows = layoutOrder(form).map(id => renderNativeField(id, form.formFieldsById[id], prefillParams)).join('');
     const extraRows = extraQuestions.map(renderExtraQuestion).join('');
+    const title = options?.formTitle || form.formTitle;
+    const description = options?.formDescription || '';
+    const submitLabel = options?.submitLabel || 'Envoyer';
 
     card.innerHTML = `
-      <h1>${esc(form.formTitle)}</h1>
+      ${options?.logoUrl ? `<img class="fill-logo" src="${esc(options.logoUrl)}" alt="">` : ''}
+      <h1>${esc(title)}</h1>
+      ${description ? `<p class="muted">${esc(description)}</p>` : ''}
       <p class="muted">Les champs marqués * sont obligatoires.</p>
       <form id="f" novalidate>
         ${nativeRows}
@@ -1262,15 +1666,16 @@
         <label class="hp">Ne pas remplir <input type="text" name="_website" tabindex="-1" autocomplete="off"></label>
         <div class="actions">
           <span id="fill-status" class="muted"></span>
-          <button type="submit" class="primary">Envoyer</button>
+          <button type="submit" class="primary">${esc(submitLabel)}</button>
         </div>
       </form>`;
 
-    // Charge les options de chaque question à choix, et relie chaque condition à sa question
-    // source (qui doit être elle-même de type "choice" pour fournir des valeurs à comparer).
+    // Charge les options de chaque question "choix depuis une table", en menu déroulant ou en
+    // radios selon q.displayMode, et relie chaque condition à sa question source (qui doit être
+    // elle-même "choix" ou "select" pour fournir des valeurs à comparer).
     for (const q of extraQuestions) {
       if (q.kind !== 'choice') continue;
-      const sel = $(`eq-${q.id}`);
+      const box = $(`eq-${q.id}`);
       try {
         const data = await grist.docApi.fetchTable(q.sourceTable);
         const ids = data.id || [];
@@ -1281,24 +1686,30 @@
           const v = rawLabels[i];
           return (v !== undefined && v !== null && v !== '') ? String(v) : `#${id}`;
         });
-        sel.innerHTML = '<option value="">Choisir…</option>' + ids.map((id, i) => `<option value="${id}" data-label="${esc(labels[i])}">${esc(labels[i])}</option>`).join('');
+        box.innerHTML = q.displayMode === 'radio'
+          ? ids.map((id, i) => `<label class="opt"><input type="radio" name="eq-${q.id}" value="${id}" data-label="${esc(labels[i])}"> ${esc(labels[i])}</label>`).join('')
+          : '<select><option value="">Choisir…</option>' + ids.map((id, i) => `<option value="${id}" data-label="${esc(labels[i])}">${esc(labels[i])}</option>`).join('') + '</select>';
         diag({ event: 'choice-loaded', questionId: q.id, sourceTable: q.sourceTable, sourceCol: q.sourceCol, hasCol, rowCount: ids.length });
       } catch (e) {
-        sel.innerHTML = '<option value="">(indisponible)</option>';
+        box.innerHTML = '<span class="muted">(indisponible)</span>';
         diag({ event: 'choice-error', questionId: q.id, message: e.message });
       }
     }
     for (const q of extraQuestions) {
       if (!q.condition) continue;
-      const src = $(`eq-${q.condition.questionId}`);
-      if (!src) continue;
+      const srcContainer = $(`eq-${q.condition.questionId}`);
+      if (!srcContainer) continue;
       const target = card.querySelector(`[data-extra="${q.id}"]`);
-      const check = () => {
-        const label = src.tagName === 'SELECT' ? (src.selectedOptions[0]?.dataset.label || '') : src.value;
-        target.classList.toggle('cond-hidden', label !== q.condition.value);
-      };
-      src.addEventListener('change', check);
+      const check = () => target.classList.toggle('cond-hidden', singleValueOf(srcContainer).label !== q.condition.value);
+      srcContainer.addEventListener('change', check);
       check();
+    }
+
+    if (options?.showProgress) {
+      $('progress').classList.remove('hidden');
+      $('f').addEventListener('input', () => updateProgress($('f')));
+      $('f').addEventListener('change', () => updateProgress($('f')));
+      updateProgress($('f'));
     }
 
     $('f').addEventListener('submit', (ev) => onSubmit(ev, form, link, extraQuestions));
@@ -1339,6 +1750,7 @@
     // Questions supplémentaires : regroupées par table de destination, pour n'envoyer qu'une
     // requête par table (la principale ET chacune des tables choisies, quel que soit leur nombre).
     for (const q of extraQuestions) {
+      if (LAYOUT_KINDS.has(q.kind)) continue; // titre de section / bloc d'info : rien à envoyer
       const el = formEl.querySelector(`[data-extra="${q.id}"]`);
       if (!el) continue;
       const visible = !el.classList.contains('cond-hidden');
@@ -1352,13 +1764,17 @@
         // les champs natifs Oui/non (voir la boucle des champs natifs juste au-dessus).
         value = $(`eq-${q.id}`).checked;
         empty = false;
+      } else if (SINGLE_CHOICE_KINDS.has(q.kind)) {
+        // Menu déroulant ou radios selon q.displayMode : même lecture des deux (singleValueOf).
+        const raw = singleValueOf($(`eq-${q.id}`)).value;
+        empty = raw === '' || raw == null;
+        if (!empty) value = q.kind === 'choice' ? Number(raw) : raw;
       } else {
         const raw = $(`eq-${q.id}`).value;
         empty = raw === '' || raw == null;
-        // Même règle que pour les champs natifs : seules les références numériques (ici, la
-        // question "choix depuis une table") et les nombres sont converties, une date reste une
-        // chaîne ISO que l'API REST sait déjà interpréter (voir renderNativeField/onSubmit natif).
-        if (!empty) value = (q.kind === 'choice' || q.kind === 'number') ? Number(raw) : raw;
+        // Même règle que pour les champs natifs : seuls les nombres sont convertis, une date reste
+        // une chaîne ISO que l'API REST sait déjà interpréter (voir renderNativeField/onSubmit natif).
+        if (!empty) value = q.kind === 'number' ? Number(raw) : raw;
       }
       el.classList.toggle('invalid', q.required && empty && visible);
       if (q.required && empty && visible) valid = false;
@@ -1397,15 +1813,587 @@
         catch (e) { diag({ event: 'extra-table-write-failed', tableId, message: e.message }); }
       }
 
-      $('fill-card').innerHTML = `<div class="center"><h1 class="ok">Merci, votre réponse a bien été enregistrée.</h1>
+      $('progress').classList.add('hidden');
+      const endMessage = options?.endMessage || 'Merci, votre réponse a bien été enregistrée.';
+      const redirectUrl = options?.redirectUrl || '';
+      $('fill-card').innerHTML = `<div class="center"><h1 class="ok">${esc(endMessage)}</h1>
         <p class="muted">Identifiant : ${esc(j.records?.[0]?.id)}</p>
+        ${redirectUrl ? `<p class="muted" id="redirect-msg">Redirection dans <span id="redirect-count">3</span> s… <a href="${esc(redirectUrl)}">continuer maintenant</a></p>` : ''}
         <p><button class="primary" onclick="location.reload()">Envoyer une autre réponse</button></p></div>`;
+      if (redirectUrl) {
+        let n = 3;
+        const t = setInterval(() => {
+          n -= 1;
+          const el = $('redirect-count');
+          if (el) el.textContent = String(n);
+          if (n <= 0) { clearInterval(t); location.href = redirectUrl; }
+        }, 1000);
+      }
     } catch (e) {
       btn.disabled = false; status.textContent = 'Erreur : ' + e.message; status.classList.add('err'); status.style.color = 'var(--error)';
     }
   }
 
   // ───────────────────────── Démarrage ─────────────────────────
+
+  // ───────────────────────── Suite de tests de non-régression (#test) ─────────────────────────
+  // Autonome et hors ligne : simule grist.docApi et fetch(), ne touche jamais à un vrai document.
+  // Accède directement aux fonctions internes (même portée que le reste du fichier), sans jamais
+  // passer par grist.ready — c'est pourquoi #test est intercepté avant même le test d'iframe, en
+  // tout début de la fonction de démarrage. Conçue pour être relancée après chaque changement.
+  async function runTests() {
+    show('test');
+    $('test-summary').textContent = 'Exécution…';
+    const results = [];
+    const record = (name, pass, detail) => results.push({ name, pass, detail });
+    const assert = (name, cond, detail) => record(name, !!cond, detail);
+    // Égalité profonde indépendante de l'ordre des clés (JSON.stringify seul donnerait de faux
+    // échecs entre deux objets équivalents construits dans un ordre de propriétés différent).
+    function deepEqual(a, b) {
+      if (a === b) return true;
+      if (typeof a !== typeof b || a == null || b == null) return false;
+      if (Array.isArray(a) !== Array.isArray(b)) return false;
+      if (typeof a !== 'object') return false;
+      const ka = Object.keys(a), kb = Object.keys(b);
+      if (ka.length !== kb.length) return false;
+      return ka.every(k => deepEqual(a[k], b[k]));
+    }
+    const assertEqual = (name, actual, expected, detail) => {
+      const pass = deepEqual(actual, expected);
+      record(name, pass, detail || (pass ? '' : `attendu ${JSON.stringify(expected)}, obtenu ${JSON.stringify(actual)}`));
+    };
+    const group = async (name, fn) => {
+      try { await fn(); } catch (e) { record(`${name} (exception)`, false, `${e.message}\n${e.stack || ''}`); }
+    };
+    const tick = () => new Promise(r => setTimeout(r, 0));
+    const sandbox = $('test-sandbox');
+    const mount = (el) => { sandbox.innerHTML = ''; sandbox.appendChild(el); return el; };
+    function selectCombo(comboHost, label) {
+      const input = comboHost.querySelector('.combo-input');
+      input.focus();
+      input.value = label;
+      input.dispatchEvent(new Event('input'));
+      const opt = [...comboHost.querySelectorAll('.combo-opt')].find(o => o.textContent === label);
+      if (!opt) throw new Error(`Option "${label}" introuvable dans la liste de "${comboHost.querySelector('.combo-input')?.placeholder}"`);
+      opt.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    }
+
+    // Sauvegarde l'état global mutable pour le restaurer une fois les tests terminés : cette
+    // suite s'exécute dans le MÊME script que l'application (même portée), donc dans la même
+    // session si elle était déjà active — jamais le cas via #test en pratique, mais prudence.
+    const savedState = { options, cfgQuestions, currentLink, currentFormSection, mainTableIdCache, expandedId };
+    const savedGrist = window.grist, savedFetch = window.fetch;
+
+    await group('parseFormLink / buildPublicUrl', () => {
+      const l1 = parseFormLink('https://grist.numerique.gouv.fr/o/mon-equipe/forms/ABC123/12');
+      assertEqual('avec organisation', l1 && { host: l1.host, org: l1.org, key: l1.key, vsId: l1.vsId, base: l1.base },
+        { host: 'https://grist.numerique.gouv.fr', org: 'mon-equipe', key: 'ABC123', vsId: 12, base: 'https://grist.numerique.gouv.fr/o/mon-equipe' });
+      const l2 = parseFormLink('https://docs.getgrist.com/forms/XYZ/7');
+      assertEqual('sans organisation', l2 && { org: l2.org, key: l2.key, vsId: l2.vsId, base: l2.base }, { org: null, key: 'XYZ', vsId: 7, base: 'https://docs.getgrist.com' });
+      assert('lien invalide -> null', parseFormLink('pas un lien') === null);
+      assert('lien vide -> null', parseFormLink('') === null);
+      assertEqual('buildPublicUrl', buildPublicUrl(l1, 9), 'https://grist.numerique.gouv.fr/o/mon-equipe/s/ABC123/p/9?style=singlePage');
+    });
+
+    await group('parseCustomView', () => {
+      assertEqual('chaîne JSON', parseCustomView({ customView: JSON.stringify({ widgetOptions: { a: 1 } }) }), { widgetOptions: { a: 1 } });
+      assertEqual('déjà un objet', parseCustomView({ customView: { url: 'x' } }), { url: 'x' });
+      assertEqual('rien', parseCustomView({}), {});
+      const corrupt = {};
+      JSON.stringify({ widgetOptions: { a: 2 } }).split('').forEach((c, i) => { corrupt[i] = c; });
+      assertEqual('corrompu (table de caractères)', parseCustomView({ customView: corrupt }), { widgetOptions: { a: 2 } });
+    });
+
+    await group('migrateLegacy', () => {
+      assertEqual('format à jour, description par défaut', migrateLegacy({ questions: [{ id: 'q1', kind: 'text' }] }), [{ id: 'q1', kind: 'text', description: '' }]);
+      const legacy = migrateLegacy({ fields: [{ id: 'q1', type: 'choice-table', label: 'L', sourceTable: 'T', sourceCol: 'c', writeTable: 'T', writeCol: 'c' }] });
+      assertEqual('ancien format choice-table -> kind choice', legacy[0]?.kind, 'choice');
+      assertEqual('aucune donnée -> []', migrateLegacy({}), []);
+    });
+
+    await group('couleurs (hexToRgb / softenColor / contrastText)', () => {
+      assertEqual('hexToRgb valide', hexToRgb('#ff0000'), { r: 255, g: 0, b: 0 });
+      assert('hexToRgb invalide -> null', hexToRgb('pas une couleur') === null);
+      assert('contrastText sur bleu sombre -> texte blanc', contrastText('#000091') === '#fff');
+      assert('contrastText sur jaune clair -> texte sombre', contrastText('#ffe600') === '#1c1d21');
+      delete document.documentElement.dataset.theme;
+      const soft = softenColor('#000091');
+      const m = /rgb\((\d+), (\d+), (\d+)\)/.exec(soft || '');
+      assert('softenColor en clair se rapproche du blanc', !!m && Number(m[1]) > 180 && Number(m[2]) > 180);
+    });
+
+    await group('choiceQuestionsBefore', () => {
+      cfgQuestions = [{ id: 'a', kind: 'choice' }, { id: 'b', kind: 'select' }, { id: 'c', kind: 'text' }, { id: 'd', kind: 'section' }];
+      assertEqual('choice + select seulement, exclut la question courante', choiceQuestionsBefore('a').map(q => q.id), ['b']);
+    });
+
+    await group('questionSummary', () => {
+      mainTableIdCache = 'Main';
+      cfgQuestions = [];
+      assertEqual('section -> sa description', questionSummary({ kind: 'section', description: 'intro' }), 'intro');
+      assertEqual("info -> 'Repliable'", questionSummary({ kind: 'info' }), 'Repliable');
+      assertEqual('select -> nombre d’options', questionSummary({ kind: 'select', choices: ['a', 'b'] }), '2 option(s)');
+      assertEqual('choice en radio', questionSummary({ kind: 'choice', sourceTable: 'T', displayMode: 'radio' }), 'Depuis « T » · en radio');
+      assertEqual('écrit ailleurs + condition', questionSummary({ kind: 'text', writeTable: 'Autre', condition: { questionId: 'zzz', value: 'X' } }), 'écrit dans « Autre » · si « ? » = « X »');
+    });
+
+    await group('singleValueOf', () => {
+      const h1 = document.createElement('div');
+      h1.innerHTML = '<select><option value="">-</option><option value="7" data-label="Sept">Sept</option></select>';
+      h1.querySelector('select').value = '7';
+      assertEqual('select imbriqué', singleValueOf(h1), { value: '7', label: 'Sept' });
+
+      const bare = document.createElement('select');
+      bare.innerHTML = '<option value="a" data-label="Alpha">Alpha</option>';
+      bare.value = 'a';
+      assertEqual('select direct', singleValueOf(bare), { value: 'a', label: 'Alpha' });
+
+      const radios = document.createElement('div');
+      radios.innerHTML = '<input type="radio" name="r" value="x" data-label="X"><input type="radio" name="r" value="y" data-label="Y">';
+      assertEqual('radios : rien coché', singleValueOf(radios), { value: '', label: '' });
+      radios.querySelectorAll('input')[1].checked = true;
+      assertEqual('radios : coché', singleValueOf(radios), { value: 'y', label: 'Y' });
+
+      const plain = document.createElement('input');
+      plain.value = 'texte';
+      assertEqual('repli sur un champ simple', singleValueOf(plain), { value: 'texte', label: 'texte' });
+      assertEqual('conteneur nul', singleValueOf(null), { value: '', label: '' });
+    });
+
+    await group('isAnswered', () => {
+      const form = document.createElement('form');
+      form.innerHTML = `
+        <div class="q" data-kind="text"><input type="text" value=""></div>
+        <div class="q" data-kind="text"><input type="text" value="abc"></div>
+        <div class="q" data-kind="bool"><input type="checkbox"></div>
+        <div class="q" data-kind="multiselect"><input type="checkbox" value="a"><input type="checkbox" value="b"></div>
+        <div class="q" data-kind="select"><input type="radio" name="r" value="a"><input type="radio" name="r" value="b"></div>
+        <div class="q" data-kind="section"><h2>Titre</h2></div>
+        <div class="q cond-hidden" data-kind="text"><input type="text" value="x"></div>`;
+      const qs = [...form.querySelectorAll('.q')];
+      assertEqual('texte vide -> false', isAnswered(qs[0]), false);
+      assertEqual('texte rempli -> true', isAnswered(qs[1]), true);
+      assertEqual('oui/non -> toujours true', isAnswered(qs[2]), true);
+      assertEqual('choix multiples, rien coché -> false', isAnswered(qs[3]), false);
+      qs[3].querySelector('input').checked = true;
+      assertEqual('choix multiples, un coché -> true', isAnswered(qs[3]), true);
+      assertEqual('radio, rien coché -> false', isAnswered(qs[4]), false);
+      assertEqual('section -> hors calcul (null)', isAnswered(qs[5]), null);
+      assertEqual('masquée par condition -> hors calcul (null)', isAnswered(qs[6]), null);
+    });
+
+    await group('renderExtraQuestion : forme du HTML par type', () => {
+      const host = document.createElement('div');
+      host.innerHTML = renderExtraQuestion({ id: 'q1', kind: 'text', label: 'L', required: true });
+      assert('texte : input type=text', !!host.querySelector('input[type=text]#eq-q1'));
+      assert('obligatoire : classe req sur le label', host.querySelector('label.req') != null);
+
+      host.innerHTML = renderExtraQuestion({ id: 'q2', kind: 'number', label: 'N' });
+      assert('nombre : input type=number', !!host.querySelector('input[type=number]#eq-q2'));
+
+      host.innerHTML = renderExtraQuestion({ id: 'q3', kind: 'date', label: 'D' });
+      assert('date : input type=date', !!host.querySelector('input[type=date]#eq-q3'));
+
+      host.innerHTML = renderExtraQuestion({ id: 'q4', kind: 'bool', label: 'B' });
+      assert('oui/non : checkbox', !!host.querySelector('input[type=checkbox]#eq-q4'));
+
+      host.innerHTML = renderExtraQuestion({ id: 'q5', kind: 'select', label: 'S', choices: ['A', 'B'] });
+      const sel = host.querySelector('#eq-q5');
+      assert('choix liste fixe (menu) : select à 3 options', sel?.tagName === 'SELECT' && sel.options.length === 3);
+
+      host.innerHTML = renderExtraQuestion({ id: 'q6', kind: 'select', label: 'S', choices: ['A', 'B'], displayMode: 'radio' });
+      assert('choix liste fixe (radio) : 2 boutons radio', host.querySelectorAll('#eq-q6 input[type=radio]').length === 2);
+
+      host.innerHTML = renderExtraQuestion({ id: 'q7', kind: 'multiselect', label: 'M', choices: ['A', 'B', 'C'] });
+      assert('choix multiples : 3 cases', host.querySelectorAll('#eq-q7 input[type=checkbox]').length === 3);
+
+      host.innerHTML = renderExtraQuestion({ id: 'q8', kind: 'choice', label: 'C' });
+      assert('choix depuis une table : conteneur en attente, pas encore de select', host.querySelector('#eq-q8') != null && host.querySelector('#eq-q8 select') == null);
+
+      host.innerHTML = renderExtraQuestion({ id: 'q9', kind: 'section', label: 'Titre section', description: 'sous-texte' });
+      assert('section : titre + pas de champ ni message d’erreur', host.querySelector('h2')?.textContent === 'Titre section' && host.querySelector('.err-msg') == null);
+
+      host.innerHTML = renderExtraQuestion({ id: 'q10', kind: 'info', label: 'Aide', description: 'contenu' });
+      assert('bloc d’info : <details><summary>, pas de champ', host.querySelector('details.q-info summary')?.textContent === 'Aide' && host.querySelector('.err-msg') == null);
+    });
+
+    await group('renderCardBody : setKind affiche les bons blocs par type', async () => {
+      mainTableIdCache = 'Main';
+      currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+      window.grist = { docApi: { listTables: async () => ['Main', 'Autre'], fetchTable: async (t) => t === '_grist_Tables' ? { id: [1, 2], tableId: ['Main', 'Autre'] } : { id: [10], colA: ['x'] } } };
+      const body = mount(document.createElement('div'));
+      await renderCardBody('__new__', body);
+      for (const k of KINDS.map(x => x.id)) {
+        body.querySelector(`[data-kind="${k}"]`).click();
+        const hidden = (sel) => body.querySelector(sel).classList.contains('hidden');
+        assertEqual(`${k} : bloc "table source" (choice seul)`, hidden('.qf-choice-fields'), k !== 'choice', k);
+        assertEqual(`${k} : bloc "options fixes" (select/multiselect)`, hidden('.qf-fixed-options'), !(k === 'select' || k === 'multiselect'), k);
+        assertEqual(`${k} : bloc "affichage menu/radio" (select/choice)`, hidden('.qf-display-mode'), !(k === 'select' || k === 'choice'), k);
+        assertEqual(`${k} : bloc "destination" (pas choice/section/info)`, hidden('.qf-text-fields'), (k === 'choice' || k === 'section' || k === 'info'), k);
+        assertEqual(`${k} : "obligatoire" (pas section/info)`, hidden('.qf-required-row'), (k === 'section' || k === 'info'), k);
+        assertEqual(`${k} : description courte (pas info)`, hidden('.qf-desc'), k === 'info', k);
+        assertEqual(`${k} : description longue (info seul)`, hidden('.qf-desc-long'), k !== 'info', k);
+      }
+    });
+
+    await group('saveQuestionFromCard : réponses simples, colonne par défaut', async () => {
+      for (const k of ['text', 'number', 'date', 'bool', 'select', 'multiselect']) {
+        cfgQuestions = [];
+        mainTableIdCache = 'Main';
+        currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+        window.grist = {
+          docApi: {
+            listTables: async () => ['Main', 'Autre'],
+            fetchTable: async (t) => t === '_grist_Tables' ? { id: [1, 2], tableId: ['Main', 'Autre'] } : { id: [10], colA: ['x'] },
+            applyUserActions: async () => ({}),
+            setOptions: async () => {},
+          },
+        };
+        options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
+        const body = mount(document.createElement('div'));
+        await renderCardBody('__new__', body);
+        body.querySelector(`[data-kind="${k}"]`).click();
+        body.querySelector('.qf-label').value = `Question ${k}`;
+        if (k === 'select' || k === 'multiselect') body.querySelector('.qf-choices').value = 'Un\nDeux';
+        selectCombo(body.querySelector('[data-combo="writeCol"]'), 'colA');
+        body.querySelector('.qf-save').click();
+        await tick();
+        assertEqual(`${k} : une question créée`, cfgQuestions.length, 1, JSON.stringify(cfgQuestions));
+        assertEqual(`${k} : bon type conservé`, cfgQuestions[0]?.kind, k);
+        assertEqual(`${k} : colonne de destination`, cfgQuestions[0]?.writeCol, 'colA');
+        if (k === 'select' || k === 'multiselect') assertEqual(`${k} : options`, cfgQuestions[0]?.choices, ['Un', 'Deux']);
+      }
+    });
+
+    await group('saveQuestionFromCard : affichage radio persisté', async () => {
+      cfgQuestions = [];
+      mainTableIdCache = 'Main';
+      currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+      window.grist = { docApi: { listTables: async () => ['Main'], fetchTable: async (t) => t === '_grist_Tables' ? { id: [1], tableId: ['Main'] } : { id: [10], colA: ['x'] }, applyUserActions: async () => ({}), setOptions: async () => {} } };
+      options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
+      const body = mount(document.createElement('div'));
+      await renderCardBody('__new__', body);
+      body.querySelector('[data-kind="select"]').click();
+      body.querySelector('.qf-label').value = 'Q';
+      body.querySelector('.qf-choices').value = 'Un\nDeux';
+      body.querySelector('[data-display="radio"]').click();
+      selectCombo(body.querySelector('[data-combo="writeCol"]'), 'colA');
+      body.querySelector('.qf-save').click();
+      await tick();
+      assertEqual('displayMode=radio enregistré', cfgQuestions[0]?.displayMode, 'radio');
+    });
+
+    await group('saveQuestionFromCard : choix depuis une table', async () => {
+      cfgQuestions = [];
+      mainTableIdCache = 'Main';
+      currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+      const sectionFields = { id: [], parentId: [], colRef: [], widgetOptions: [] };
+      window.grist = {
+        docApi: {
+          listTables: async () => ['Main', 'Autre'],
+          fetchTable: async (t) => {
+            if (t === '_grist_Tables') return { id: [1, 2], tableId: ['Main', 'Autre'] };
+            if (t === '_grist_Tables_column') return { id: [], colId: [], parentId: [], type: [], visibleCol: [] };
+            if (t === '_grist_Views_section_field') return sectionFields;
+            if (t === 'Autre') return { id: [1, 2], nom: ['Alpha', 'Beta'] };
+            return {};
+          },
+          applyUserActions: async () => ({}),
+          setOptions: async () => {},
+        },
+      };
+      options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
+      const body = mount(document.createElement('div'));
+      await renderCardBody('__new__', body);
+      body.querySelector('[data-kind="choice"]').click();
+      body.querySelector('.qf-label').value = 'Departement';
+      selectCombo(body.querySelector('[data-combo="srcTable"]'), 'Autre');
+      await tick();
+      selectCombo(body.querySelector('[data-combo="srcCol"]'), 'nom');
+      body.querySelector('.qf-save').click();
+      await tick();
+      assertEqual('une question créée', cfgQuestions.length, 1, JSON.stringify(cfgQuestions));
+      assertEqual('sourceTable', cfgQuestions[0]?.sourceTable, 'Autre');
+      assertEqual('sourceCol', cfgQuestions[0]?.sourceCol, 'nom');
+      assert('writeCol calculé (référence cachée)', typeof cfgQuestions[0]?.writeCol === 'string' && cfgQuestions[0].writeCol.startsWith('FormPlus_src_'));
+    });
+
+    await group('saveQuestionFromCard : section et bloc d’info', async () => {
+      for (const k of ['section', 'info']) {
+        cfgQuestions = [];
+        mainTableIdCache = 'Main';
+        currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+        window.grist = { docApi: { listTables: async () => ['Main'], fetchTable: async () => ({}), applyUserActions: async () => ({}), setOptions: async () => {} } };
+        options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
+        const body = mount(document.createElement('div'));
+        await renderCardBody('__new__', body);
+        body.querySelector(`[data-kind="${k}"]`).click();
+        body.querySelector('.qf-label').value = `Titre ${k}`;
+        (k === 'info' ? body.querySelector('.qf-desc-long') : body.querySelector('.qf-desc')).value = 'un contenu';
+        body.querySelector('.qf-save').click();
+        await tick();
+        assertEqual(`${k} : une entrée créée sans écriture de colonne`, cfgQuestions.length === 1 && !cfgQuestions[0].writeTable, true, JSON.stringify(cfgQuestions));
+        assertEqual(`${k} : description reprise`, cfgQuestions[0]?.description, 'un contenu');
+      }
+    });
+
+    await group('importNativeFields : correspondance des types natifs', async () => {
+      cfgQuestions = [];
+      mainTableIdCache = 'Reponses';
+      currentLink = { api: 'https://fake/api/s/KEY', vsId: 1 };
+      currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+      const sectionFields = { id: [100, 101, 102, 103, 104, 105, 106, 107], parentId: [1, 1, 1, 1, 1, 1, 1, 1], widgetOptions: ['{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}'] };
+      window.grist = {
+        docApi: {
+          fetchTable: async (t) => {
+            if (t === '_grist_Tables_column') return { id: [], colId: [], parentId: [], type: [], visibleCol: [] };
+            if (t === '_grist_Tables') return { id: [1], tableId: ['Reponses'] };
+            if (t === '_grist_Views_section_field') return sectionFields;
+            return {};
+          },
+          applyUserActions: async () => ({}),
+        },
+      };
+      window.fetch = async () => ({
+        ok: true, json: async () => ({
+          formFieldsById: {
+            100: { colId: 'a', type: 'Text', question: 'Q1', options: {} },
+            101: { colId: 'b', type: 'Numeric', question: 'Q2', options: {} },
+            102: { colId: 'c', type: 'Date', question: 'Q3', options: {} },
+            103: { colId: 'd', type: 'Bool', question: 'Q4', options: {} },
+            104: { colId: 'e', type: 'Choice', question: 'Q5', options: { choices: ['X', 'Y'] } },
+            105: { colId: 'f', type: 'ChoiceList', question: 'Q6', options: { choices: ['X', 'Y'] } },
+            106: { colId: 'g', type: 'Attachments', question: 'Q7', options: {} },
+            107: { colId: 'h', type: 'DateTime', question: 'Q8', options: {} },
+          },
+        }),
+      });
+      await importNativeFields();
+      await tick();
+      const kindByLabel = Object.fromEntries(cfgQuestions.map(q => [q.label, q.kind]));
+      assertEqual('Text -> text', kindByLabel.Q1, 'text');
+      assertEqual('Numeric -> number', kindByLabel.Q2, 'number');
+      assertEqual('Date -> date', kindByLabel.Q3, 'date');
+      assertEqual('Bool -> bool', kindByLabel.Q4, 'bool');
+      assertEqual('Choice -> select', kindByLabel.Q5, 'select');
+      assertEqual('ChoiceList -> multiselect', kindByLabel.Q6, 'multiselect');
+      assertEqual('Attachments et DateTime ignorés (6 importés sur 8)', cfgQuestions.length, 6);
+      assertEqual('options reprises pour Choice', cfgQuestions.find(q => q.label === 'Q5')?.choices, ['X', 'Y']);
+      assert('importedFrom renseigné', cfgQuestions.every(q => !!q.importedFrom));
+    });
+
+    await group('resetQuestions : démasque uniquement les champs importés', async () => {
+      const calls = [];
+      window.grist = {
+        docApi: {
+          fetchTable: async (t) => t === '_grist_Views_section_field'
+            ? { id: [10, 11], parentId: [1, 1], colRef: [100, 101], widgetOptions: ['{"formIsHidden":true}', '{"formIsHidden":true,"formRequired":true}'] }
+            : (t === '_grist_Views_section' ? { id: [1], parentId: [5], parentKey: ['custom'], tableRef: [1], options: ['{}'] } : {}),
+          applyUserActions: async (a) => { calls.push(a); return {}; },
+          setOptions: async () => {},
+        },
+      };
+      const origConfirm = window.confirm;
+      window.confirm = () => true;
+      cfgQuestions = [{ id: 'q1', kind: 'text', label: 'Importée', importedFrom: '10' }, { id: 'q2', kind: 'number', label: 'Manuelle' }];
+      currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+      options = { publicUrl: 'https://x', viewRef: 1, vsId: 1 };
+      await resetQuestions();
+      window.confirm = origConfirm;
+      assertEqual('liste vidée', cfgQuestions, []);
+      const unhideActions = calls.filter(a => a[0][0] === 'UpdateRecord' && a[0][1] === '_grist_Views_section_field');
+      assertEqual('un seul champ démasqué (le champ importé, pas le manuel)', unhideActions.length, 1);
+      assertEqual('cible bien la ligne 10 (importedFrom), pas la 11', unhideActions[0][0][2], 10);
+      assertEqual('la configuration est aussi sauvegardée (UpdateRecord section)', calls.some(a => a[0][1] === '_grist_Views_section'), true);
+    });
+
+    await group('createEmptyForm : réutilise une table existante', async () => {
+      const calls = [];
+      window.grist = {
+        docApi: {
+          fetchTable: async (t) => t === '_grist_Tables' ? { tableId: ['Departements'], id: [1] } : {},
+          applyUserActions: async (a) => { calls.push(a); return {}; },
+        },
+      };
+      const el = mount(document.createElement('div'));
+      el.innerHTML = '<input id="t-scratchTable"><p id="t-scratchMsg"></p>';
+      // createEmptyForm lit les vrais #scratchTable/#scratch-msg de la page (pas de la sandbox) :
+      // on les renseigne directement, ils existent déjà de façon statique dans le document.
+      $('scratchTable').value = 'Departements';
+      Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
+      await createEmptyForm();
+      assertEqual('une seule action, CreateViewSection direct (pas de AddTable)', calls.length, 1);
+      assertEqual('CreateViewSection sur la bonne table/page', calls[0][0], ['CreateViewSection', 1, 7, 'form', null, 'Departements']);
+    });
+
+    await group('createEmptyForm : crée une nouvelle table', async () => {
+      const calls = [];
+      let tablesState = { tableId: ['Departements'], id: [1] };
+      window.grist = {
+        docApi: {
+          fetchTable: async (t) => t === '_grist_Tables' ? { ...tablesState } : {},
+          applyUserActions: async (a) => {
+            calls.push(a);
+            if (a[0][0] === 'AddTable') tablesState = { tableId: [...tablesState.tableId, 'Reponses'], id: [...tablesState.id, 2] };
+            return {};
+          },
+        },
+      };
+      $('scratchTable').value = 'Réponses';
+      Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
+      await createEmptyForm();
+      assertEqual('deux actions : AddTable puis CreateViewSection', calls.map(c => c[0][0]), ['AddTable', 'CreateViewSection']);
+      assertEqual('CreateViewSection cible la table nouvellement créée (ref 2)', calls[1][0][1], 2);
+    });
+
+    await group('createEmptyForm : page introuvable -> message clair, aucune action', async () => {
+      const calls = [];
+      window.grist = { docApi: { fetchTable: async () => ({ tableId: [], id: [] }), applyUserActions: async (a) => { calls.push(a); return {}; } } };
+      $('scratchTable').value = 'Table';
+      Object.defineProperty(document, 'referrer', { value: '', configurable: true });
+      await createEmptyForm();
+      assertEqual('aucune action déclenchée', calls.length, 0);
+      assert('message d’erreur affiché', $('scratch-msg').innerHTML.includes('err'));
+    });
+
+    await group('hostOrgFromReferrer / findExistingShareKey', async () => {
+      Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
+      assertEqual('hostOrgFromReferrer', hostOrgFromReferrer(), { host: 'https://grist.example.com', org: 'team' });
+
+      window.grist = {
+        docApi: {
+          fetchTable: async (t) => {
+            if (t === '_grist_Pages') return { id: [1], viewRef: [7], shareRef: [9] };
+            if (t === '_grist_Shares') return { id: [9], linkId: ['SECRETKEY'] };
+            return {};
+          },
+        },
+      };
+      assertEqual('clé retrouvée pour une page publiée', await findExistingShareKey(7), 'SECRETKEY');
+      assertEqual('page sans partage -> null', await findExistingShareKey(999), null);
+    });
+
+    await group('populateFormPicker : liste et filtre les formulaires natifs', async () => {
+      window.grist = {
+        docApi: {
+          fetchTable: async (t) => {
+            if (t === '_grist_Views_section') return {
+              id: [1, 2, 3], parentKey: ['form', 'form', 'form'], tableRef: [10, 20, 30], parentId: [5, 6, 7],
+              shareOptions: ['{"publish":true,"form":true}', '{}', '{"publish":true,"form":true}'],
+            };
+            if (t === '_grist_Tables') return { id: [10, 20, 30], tableId: ['Reponses', 'Brouillon', '_grist_Interne'] };
+            return {};
+          },
+        },
+      };
+      await populateFormPicker();
+      assertEqual('table technique _grist_* exclue de la liste', formPickerItems.map(it => it.tableId), ['Reponses', 'Brouillon']);
+      assertEqual('statut publié détecté', formPickerItems.find(it => it.tableId === 'Reponses')?.published, true);
+      assertEqual('statut non publié détecté', formPickerItems.find(it => it.tableId === 'Brouillon')?.published, false);
+      assertEqual('options du <select> (une de plus pour "choisir")', $('formPicker').options.length, 3);
+    });
+
+    await group('sélection dans formPicker : formulaire non publié -> consigne, pas de génération', async () => {
+      formPickerItems = [{ vsId: 1, viewRef: 5, tableId: 'Brouillon', published: false }];
+      $('formPicker').innerHTML = '<option value="1">Brouillon (non publié)</option>';
+      $('formPicker').value = '1';
+      $('link').value = '';
+      $('formPicker').dispatchEvent(new Event('change'));
+      await tick();
+      assert('message explicite : publier puis copier le lien', $('formPicker-msg').innerHTML.includes('Publier'));
+      assertEqual('le champ lien manuel reste vide (aucune tentative)', $('link').value, '');
+    });
+
+    await group('sélection dans formPicker : formulaire publié, clé retrouvée -> adresse générée', async () => {
+      formPickerItems = [{ vsId: 12, viewRef: 7, tableId: 'Reponses', published: true }];
+      $('formPicker').innerHTML = '<option value="12">Reponses</option>';
+      $('formPicker').value = '12';
+      $('link').value = '';
+      Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
+      window.grist = {
+        docApi: {
+          listTables: async () => ['Reponses'],
+          fetchTable: async (t) => {
+            if (t === '_grist_Pages') return { id: [1], viewRef: [7], shareRef: [9] };
+            if (t === '_grist_Shares') return { id: [9], linkId: ['SECRETKEY'] };
+            if (t === '_grist_Views_section') return { id: [12], parentId: [7], tableRef: [10] };
+            return {};
+          },
+          setOptions: async () => {},
+        },
+      };
+      $('formPicker').dispatchEvent(new Event('change'));
+      await tick(); await tick(); await tick(); // generate() enchaîne plusieurs opérations asynchrones
+      assertEqual('lien reconstruit automatiquement', $('link').value, 'https://grist.example.com/o/team/forms/SECRETKEY/12');
+      assert('message de succès', $('formPicker-msg').innerHTML.includes('ok'));
+    });
+
+    await group('onSubmit : construit les bons champs par type et par table', async () => {
+      const form = { formTableId: 'Reponses', formFieldsById: {} };
+      const link = { api: 'https://fake/api/s/KEY' };
+      const extraQuestions = [
+        { id: 'q1', kind: 'text', label: 'Nom', required: true, writeTable: 'Reponses', writeCol: 'Nom' },
+        { id: 'q2', kind: 'number', label: 'Age', writeTable: 'Reponses', writeCol: 'Age' },
+        { id: 'q3', kind: 'date', label: 'Naissance', writeTable: 'Reponses', writeCol: 'Naissance' },
+        { id: 'q4', kind: 'bool', label: 'OK', writeTable: 'Reponses', writeCol: 'OK' },
+        { id: 'q5', kind: 'select', label: 'Ville', choices: ['Paris', 'Lyon'], writeTable: 'Reponses', writeCol: 'Ville' },
+        { id: 'q6', kind: 'select', label: 'VilleRadio', choices: ['Paris', 'Lyon'], displayMode: 'radio', writeTable: 'Reponses', writeCol: 'VilleRadio' },
+        { id: 'q7', kind: 'multiselect', label: 'Langues', choices: ['Fr', 'En'], writeTable: 'Reponses', writeCol: 'Langues' },
+        { id: 'q8', kind: 'choice', label: 'Dept', writeTable: 'Reponses', writeCol: 'Dept', displayMode: 'radio' },
+        { id: 'q9', kind: 'section', label: 'Section' },
+        { id: 'q10', kind: 'info', label: 'Info' },
+        { id: 'q11', kind: 'text', label: 'Commentaire', writeTable: 'Autre', writeCol: 'Texte' },
+      ];
+      const formEl = mount(document.createElement('form'));
+      formEl.innerHTML = `<input type="text" name="_website" value="" style="display:none">${extraQuestions.map(renderExtraQuestion).join('')}<span id="fill-status"></span><button type="submit"></button>`;
+      formEl.querySelector('#eq-q1').value = 'Alice';
+      formEl.querySelector('#eq-q2').value = '30';
+      formEl.querySelector('#eq-q3').value = '2026-01-02';
+      formEl.querySelector('#eq-q4').checked = true;
+      formEl.querySelector('#eq-q5').value = 'Lyon';
+      formEl.querySelectorAll('#eq-q6 input[type=radio]')[0].checked = true; // Paris
+      formEl.querySelectorAll('#eq-q7 input[type=checkbox]')[1].checked = true; // En
+      formEl.querySelector('#eq-q11').value = 'Bonjour';
+      formEl.querySelector('#eq-q8').innerHTML = '<label class="opt"><input type="radio" name="eq-q8" value="5" data-label="Rhône"></label>';
+      formEl.querySelector('#eq-q8 input').checked = true;
+
+      const extraTableWrites = [];
+      window.grist = { docApi: { applyUserActions: async (a) => { extraTableWrites.push(a); return {}; } } };
+      let capturedBody = null;
+      window.fetch = async (url, opts) => {
+        if (String(url).includes('/tables/Reponses/records')) { capturedBody = JSON.parse(opts.body); return { ok: true, json: async () => ({ records: [{ id: 42 }] }) }; }
+        return { ok: true, json: async () => ({}) };
+      };
+      options = {};
+      await onSubmit({ preventDefault() {}, target: formEl }, form, link, extraQuestions);
+      await tick();
+      const fields = capturedBody?.records?.[0]?.fields || {};
+      assertEqual('texte', fields.Nom, 'Alice');
+      assertEqual('nombre converti', fields.Age, 30);
+      assertEqual('date : chaîne ISO conservée telle quelle', fields.Naissance, '2026-01-02');
+      assertEqual('oui/non', fields.OK, true);
+      assertEqual('choix liste fixe (menu déroulant)', fields.Ville, 'Lyon');
+      assertEqual('choix liste fixe (radio)', fields.VilleRadio, 'Paris');
+      assertEqual('choix multiples', fields.Langues, ['L', 'En']);
+      assertEqual('choix depuis une table (radio, numérique)', fields.Dept, 5);
+      assert('titre de section absent des champs envoyés', !('Section' in fields));
+      assert('bloc d’info absent des champs envoyés', !('Info' in fields));
+      await tick();
+      assertEqual('écriture séparée vers la table Autre', extraTableWrites[0]?.[0], ['AddRecord', 'Autre', null, { Texte: 'Bonjour' }]);
+    });
+
+    // Restauration de l'état global et des stubs, pour ne rien laisser fuiter si la page reste ouverte.
+    options = savedState.options; cfgQuestions = savedState.cfgQuestions; currentLink = savedState.currentLink;
+    currentFormSection = savedState.currentFormSection; mainTableIdCache = savedState.mainTableIdCache; expandedId = savedState.expandedId;
+    window.grist = savedGrist; window.fetch = savedFetch;
+    sandbox.innerHTML = '';
+
+    const pass = results.filter(r => r.pass).length;
+    const fail = results.length - pass;
+    $('test-summary').innerHTML = `<p class="${fail ? 'err' : 'ok'}" style="font-weight:700;font-size:1.1rem">${pass} / ${results.length} tests réussis${fail ? `, ${fail} échec(s)` : ''}</p>`;
+    $('test-log').textContent = results.map(r => `${r.pass ? '✓' : '✗'} ${r.name}${!r.pass && r.detail ? '\n    ' + r.detail : ''}`).join('\n');
+    console.log(`[FormPlus tests] ${pass}/${results.length} OK`, results.filter(r => !r.pass));
+  }
 
   function loadPluginApi() {
     return new Promise((resolve) => {
@@ -1422,6 +2410,9 @@
   }
 
   (async () => {
+    // Suite de non-régression, hors ligne, indépendante de Grist : mêmes conditions qu'un vrai
+    // document (grist.docApi simulé) sans jamais y toucher. Même convention que #repair.
+    if (hashParams.has('test')) { await runTests(); return; }
     const inIframe = window.self !== window.top;
     const ok = inIframe && await loadPluginApi();
     if (!ok) { diag({ event: 'standalone', inIframe }); show('standalone'); return; }
