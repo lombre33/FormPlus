@@ -88,7 +88,7 @@ Pour être notés au retour : le widget s'affiche-t-il bien en navigation privé
 
 ## 6. Test du périmètre fonctionnel : lecture multi-tables, condition, écriture multi-tables
 
-Outil : `multi-table-test.html`. Objectif : prouver, avec le transport `/s/<clé>`, que le widget peut lire une liste de choix depuis une table quelconque du document, afficher une question conditionnelle, et écrire la réponse dans une table différente de celle du formulaire natif.
+Ces étapes sont désormais intégrées à `widget.html` (étapes 2 et 3 de l'écran de configuration, sous l'étape 1 et l'adresse générée). Objectif : prouver, avec le transport `/s/<clé>`, que le widget peut lire une liste de choix depuis une table quelconque du document, afficher une question conditionnelle, et écrire la réponse dans une table différente de celle du formulaire natif.
 
 **À faire d'abord sur un document de test**, cet outil modifie la structure du document (ajout d'une colonne). Prévoir 5 tables :
 
@@ -100,11 +100,11 @@ Outil : `multi-table-test.html`. Objectif : prouver, avec le transport `/s/<clé
 
 1. Sur une page, ajouter un widget **Formulaire** sur `Reponses`, le publier, copier le lien.
 2. Sur la **même page**, ajouter un widget **Formulaire** sur `Commentaires`, et le publier aussi. Il n'a pas besoin d'être configuré ni rempli : son seul rôle est d'ouvrir l'accès en écriture à `Commentaires` pour la même clé.
-3. Sur la même page, ajouter un widget **Personnalisé**, URL `https://lombre33.github.io/FormPlus/poc/multi-table-test.html`, accès complet.
-4. Étape 1 de l'outil : coller le lien du formulaire `Reponses`, **Valider**.
-5. Étape 2 : Table source `Departements`, colonne `nom`, **Aperçu de l'action** puis **Ajouter ce champ**. Ceci ajoute une colonne cachée `FormPlus_src_Departements` (Référence vers `Departements`) à `Reponses`, et l'attache masquée au formulaire natif publié.
-6. Étape 3 : condition sur une valeur de `Departements`, table B `Commentaires`, colonne `Texte`. Le message doit confirmer qu'un formulaire publié existe pour `Commentaires` sur cette page. **Enregistrer la configuration**.
-7. Copier l'adresse générée, l'ouvrir en navigation privée (ou cliquer **Tester ici**). Le journal en bas de la page doit afficher : lecture de `Departements` réussie avec le nombre d'options, puis, après avoir choisi une valeur déclenchant la condition, rempli le second champ et cliqué Envoyer, deux lignes de succès : écriture dans `Reponses` et écriture dans `Commentaires`.
+3. Sur la même page, ajouter un widget **Personnalisé**, URL `https://lombre33.github.io/FormPlus/poc/widget.html`, accès complet.
+4. Étape 1 : coller le lien du formulaire `Reponses`, **Générer l'adresse**. Les étapes 2 et 3 se débloquent.
+5. Étape 2 : Table source `Departements`, colonne `nom`, **Aperçu de l'action** puis **Ajouter ce champ**. Ceci ajoute une colonne cachée `FormPlus_src_Departements` (Référence vers `Departements`) à `Reponses`, l'attache masquée au formulaire natif publié, et enregistre.
+6. Étape 3 : condition sur une valeur de `Departements`, table B `Commentaires`, colonne `Texte`. Le message doit confirmer qu'un formulaire publié existe pour `Commentaires` sur cette page. **Enregistrer cette question**.
+7. Copier l'adresse générée (bouton **Copier l'adresse** dans le bloc « Adresse à diffuser », inchangée depuis l'étape 1), l'ouvrir en navigation privée. Le formulaire affiche les champs natifs de `Reponses` puis, après un filet de séparation, la question à choix et la question conditionnelle. Le journal Diagnostic en bas confirme la lecture de `Departements` ; après avoir choisi une valeur déclenchant la condition, rempli le second champ et cliqué Envoyer, la réponse apparaît dans `Reponses` (choix compris) et dans `Commentaires`.
 
 Si une étape échoue, le journal affiche le message d'erreur exact de Grist, à coller ici pour diagnostic.
 
@@ -113,7 +113,7 @@ Si une étape échoue, le journal affiche le message d'erreur exact de Grist, à
 La clé accordée par « Publier » porte sur la table, pas sur la page : une fois le formulaire natif publié, la table reste accessible depuis n'importe quelle autre page du même document, avec la même clé. On peut donc séparer :
 
 1. Une page technique, jamais montrée aux répondants, qui porte le ou les formulaires natifs publiés (`Reponses`, et `Commentaires` si le test de la section 6 est utilisé).
-2. Une seconde page, qui ne contient QUE le widget FormPlus (`widget.html` ou `multi-table-test.html`).
+2. Une seconde page, qui ne contient QUE le widget `widget.html`.
 
 Sur cette seconde page, ouvrez la configuration du widget et cliquez de nouveau sur **Générer l'adresse** (le lien du formulaire natif collé précédemment suffit, pas besoin de le recopier). Le message sous l'adresse indique désormais si le widget est isolé sur sa propre page (adresse propre) ou encore sur la même page que le formulaire natif (adresse fonctionnelle, mais avec l'habillage du formulaire natif visible en plus). Déplacez le widget vers la seconde page avec un simple glisser-déposer si besoin, puis régénérez l'adresse.
 

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FormPlus</title>
 <style>
-  :root { --bg: #f5f6fa; --card: #fff; --text: #1e1e1e; --muted: #666; --border: #d9d9e0; --accent: #000091; --accent-text: #fff; --ok: #18753c; --error: #ce0500; }
+  :root { --bg: #f5f6fa; --card: #fff; --text: #1e1e1e; --muted: #666; --border: #d9d9e0; --accent: #000091; --accent-text: #fff; --ok: #18753c; --error: #ce0500; --radius: 8px; }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) { --bg: #161616; --card: #1f1f1f; --text: #f0f0f0; --muted: #a8a8a8; --border: #3a3a3a; --accent: #8585f6; --accent-text: #0b0b3b; --ok: #6ee7a0; --error: #ff7a70; }
   }
@@ -13,16 +13,23 @@
   html, body { height: 100%; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   .wrap { max-width: 640px; margin: 0 auto; padding: 16px; }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 12px; }
+  .banner { background: #fef3cd; color: #664500; border: 1px solid #f5d76e; border-radius: 6px; padding: 8px 12px; font-size: .85rem; margin-bottom: 12px; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .banner { background: #3a2f0f; color: #f5d76e; border-color: #5c4a12; } }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 12px; }
   h1 { font-size: 1.2rem; margin: 0 0 4px; }
   h2 { font-size: 1rem; margin: 0 0 8px; }
   p { margin: 0 0 10px; }
-  .muted { color: var(--muted); font-size: .9rem; }
+  .muted { color: var(--muted); font-size: .85rem; }
   label { display: block; font-weight: 600; margin: 10px 0 6px; }
-  input[type=url], input[type=text] { width: 100%; padding: 10px 12px; font: inherit; color: inherit; background: transparent; border: 1px solid var(--border); border-radius: 6px; }
-  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+  label.title { font-weight: 600; margin-bottom: 6px; }
+  .req::after { content: " *"; color: var(--error); }
+  .desc { color: var(--muted); font-size: .85rem; margin: -4px 0 8px; font-weight: 400; }
+  input[type=url], input[type=text], input[type=number], input[type=date], input[type=datetime-local], input[type=email], textarea, select {
+    width: 100%; padding: 9px 11px; font: inherit; color: inherit; background: transparent; border: 1px solid var(--border); border-radius: 6px;
+  }
+  input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .row input { flex: 1; min-width: 200px; }
+  .row input, .row select { flex: 1; min-width: 160px; }
   button { font: inherit; font-weight: 600; padding: 9px 14px; border-radius: 6px; border: 1px solid var(--border); cursor: pointer; background: var(--card); color: var(--text); }
   button.primary { background: var(--accent); color: var(--accent-text); border-color: transparent; }
   button:disabled { opacity: .5; cursor: default; }
@@ -31,9 +38,30 @@
   .url { font-family: ui-monospace, Consolas, monospace; font-size: .85rem; overflow-wrap: anywhere; word-break: break-all; background: var(--bg); padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border); }
   .steps { padding-left: 20px; margin: 0 0 10px; }
   .steps li { margin-bottom: 6px; }
-  iframe.form { width: 100%; border: 0; min-height: 480px; height: calc(100vh - 32px); background: transparent; }
+  .step { border-left: 3px solid var(--border); padding-left: 14px; }
+  .step.done { border-left-color: var(--ok); }
+  .step.disabled { opacity: .55; pointer-events: none; }
+  .badge { display: inline-block; font-size: .72rem; padding: 1px 8px; border-radius: 10px; background: var(--bg); border: 1px solid var(--border); margin-left: 6px; font-weight: 600; }
+  .badge.ok { color: var(--ok); border-color: var(--ok); }
+  .badge.pending { color: var(--muted); }
+  .log { white-space: pre-wrap; font-family: ui-monospace, Consolas, monospace; font-size: .78rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin-top: 8px; max-height: 220px; overflow: auto; }
   .toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 8px; }
   .hidden { display: none; }
+  .q { margin: 0 0 20px; }
+  .q:last-child { margin-bottom: 0; }
+  .q.cond-hidden { display: none; }
+  .opt { display: flex; gap: 10px; align-items: center; padding: 5px 0; font-weight: 400; }
+  .opt input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .switch { display: flex; gap: 10px; align-items: center; font-weight: 400; }
+  .err-msg { color: var(--error); font-size: .85rem; margin-top: 6px; display: none; }
+  .q.invalid .err-msg { display: block; }
+  .q.invalid input, .q.invalid select, .q.invalid textarea { border-color: var(--error); }
+  .actions { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+  .hp { position: absolute; left: -9999px; }
+  .center { text-align: center; }
+  .divider { border: 0; border-top: 1px solid var(--border); margin: 22px 0; }
+  code { font-size: .85em; background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+  details summary { cursor: pointer; }
 </style>
 </head>
 <body>
@@ -41,11 +69,11 @@
   <div class="card" id="loading"><p class="muted">Connexion à Grist…</p></div>
 
   <div id="config" class="hidden">
-    <div class="card">
-      <h1>FormPlus · Publier ce formulaire</h1>
-      <p class="muted">Ce widget doit être placé sur la même page que le formulaire natif publié, replié si vous voulez.</p>
+    <div class="card step done" id="step1">
+      <h2>1. Formulaire principal</h2>
+      <p class="muted">Le formulaire natif publié qui porte la clé. Ce widget doit être sur la même page que lui (le plus propre : sur une page à lui seul, la clé porte sur la table, pas sur la page — voir le message plus bas).</p>
       <ol class="steps">
-        <li>Dans le widget Formulaire natif de cette page, cliquez <strong>Publier</strong> si ce n'est pas fait, puis <strong>Copier le lien</strong>.</li>
+        <li>Dans le widget Formulaire natif, cliquez <strong>Publier</strong> si ce n'est pas fait, puis <strong>Copier le lien</strong>.</li>
         <li>Collez ce lien ci-dessous.</li>
       </ol>
       <label for="link">Lien du formulaire natif publié</label>
@@ -55,7 +83,6 @@
         <button id="generate" type="button" class="primary">Générer l'adresse</button>
       </div>
       <p id="cfg-msg" class="muted"></p>
-      <details class="muted" style="margin-top:8px"><summary>Diagnostic</summary><pre id="diag" style="white-space:pre-wrap;font-size:.8rem">…</pre></details>
     </div>
 
     <div class="card hidden" id="result">
@@ -69,12 +96,47 @@
       </div>
       <p id="page-check" class="muted" style="margin-top:10px"></p>
     </div>
+
+    <div class="card step disabled" id="step2">
+      <h2>2. Question à choix, lue depuis une autre table <span id="step2-badge" class="badge pending">optionnel</span></h2>
+      <p class="muted">Ajoute une colonne Référence cachée dans la table du formulaire, attachée au formulaire publié, pour exposer les libellés de la table choisie.</p>
+      <div class="row">
+        <div><label for="srcTable">Table source</label><select id="srcTable"></select></div>
+        <div><label for="srcCol">Colonne affichée (libellé)</label><select id="srcCol"></select></div>
+      </div>
+      <label for="q1Label">Intitulé de la question</label>
+      <input id="q1Label" type="text" value="Votre choix">
+      <div class="row" style="margin-top:10px">
+        <button id="q2-preview" type="button">Aperçu de l'action</button>
+        <button id="q2-apply" type="button" class="primary" disabled>Ajouter ce champ</button>
+      </div>
+      <div id="step2-log" class="log hidden"></div>
+    </div>
+
+    <div class="card step disabled" id="step3">
+      <h2>3. Question conditionnelle, écrite dans une autre table <span id="step3-badge" class="badge pending">optionnel</span></h2>
+      <p class="muted">Visible seulement si la question 2 vaut une valeur précise. La réponse est écrite dans une table différente (table B).</p>
+      <label for="q2Label">Intitulé de la question</label>
+      <input id="q2Label" type="text" value="Précisez">
+      <div class="row">
+        <div><label for="condValue">Afficher si la question 2 =</label><select id="condValue"></select></div>
+      </div>
+      <div class="row">
+        <div><label for="destTable">Table B (destination)</label><select id="destTable"></select></div>
+        <div><label for="destCol">Colonne de destination</label><select id="destCol"></select></div>
+      </div>
+      <p id="step3-check" class="muted"></p>
+      <button id="save" type="button" class="primary" disabled>Enregistrer cette question</button>
+      <p id="step3-msg" class="muted"></p>
+    </div>
+
+    <details class="muted" style="margin-top:4px"><summary>Diagnostic</summary><pre id="diag" style="white-space:pre-wrap;font-size:.8rem">…</pre></details>
   </div>
 
   <div id="fill" class="hidden">
     <div class="toolbar" id="fill-toolbar"><button id="edit" type="button">Configuration</button></div>
-    <iframe class="form" id="form-frame" title="Formulaire"></iframe>
-    <details class="muted" style="margin:8px 12px 0;font-size:.8rem"><summary>Diagnostic</summary><pre id="diag-fill" style="white-space:pre-wrap;font-size:.75rem">…</pre></details>
+    <div class="card" id="fill-card"><p class="muted">Chargement…</p></div>
+    <details class="muted" style="margin:8px 4px 0"><summary>Diagnostic</summary><pre id="diag-fill" style="white-space:pre-wrap;font-size:.75rem">…</pre></details>
   </div>
 
   <div id="repair" class="card hidden">
@@ -85,8 +147,8 @@
 
   <div id="standalone" class="card hidden">
     <h1>FormPlus</h1>
-    <p>Cette page est un widget Grist. Ajoutez-la dans un document : Ajouter un widget, Personnalisé, URL personnalisée, puis collez l'adresse de cette page. Niveau d'accès : accès complet, nécessaire au concepteur pour retrouver la page.</p>
-    <p class="muted">Pour répondre à un formulaire hors de Grist, utilisez <a href="public-form.html">public-form.html</a> avec le lien du formulaire après <code>#form=</code>.</p>
+    <p>Cette page est un widget Grist. Ajoutez-la dans un document : Ajouter un widget, Personnalisé, URL personnalisée, puis collez l'adresse de cette page. Niveau d'accès : accès complet, nécessaire au concepteur pour retrouver la page et pour les questions des étapes 2 et 3.</p>
+    <p class="muted">Pour répondre à un formulaire hors de Grist (sans passer par une page Grist), utilisez <a href="public-form.html">public-form.html</a> avec le lien du formulaire après <code>#form=</code> — ne rend que les champs natifs, pas les questions des étapes 2 et 3.</p>
     <p class="muted">Secours : l'URL du widget peut elle-même contenir le lien du formulaire, <code>widget.html#form=&lt;lien&gt;</code>. Le mode répondant fonctionne alors même sans options enregistrées.</p>
   </div>
 </div>
@@ -97,37 +159,20 @@
   const show = (id) => ['loading', 'config', 'fill', 'standalone', 'repair'].forEach(x => $(x).classList.toggle('hidden', x !== id));
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+  // ───────────────────────── Liens, adresses, format des options ─────────────────────────
+
   // Analyse d'un lien de formulaire publié : https://hote[/o/org]/forms/<clé>/<section>
   function parseFormLink(u) {
     const m = /^(https?:\/\/[^/]+)(?:\/o\/([^/]+))?\/forms\/([^/?#]+)\/(\d+)/.exec((u || '').trim());
     if (!m) return null;
     const [, host, org, key, vsId] = m;
-    return { host, org: org || null, key, vsId: Number(vsId), base: org ? `${host}/o/${org}` : host };
+    const base = org ? `${host}/o/${org}` : host;
+    return { host, org: org || null, key, vsId: Number(vsId), base, api: `${base}/api/s/${key}` };
   }
   function buildPublicUrl(link, viewRef) {
     return `${link.base}/s/${link.key}/p/${viewRef}?style=singlePage`;
   }
   window.FormPlus = { parseFormLink, buildPublicUrl, parseCustomView: (o) => parseCustomView(o) }; // exposé pour les tests
-
-  let options = null;
-  let connected = false;
-  let canEdit = true;
-  let stayOnConfig = false; // après une génération, rester sur l'écran de configuration pour copier l'adresse
-
-  // Charge grist-plugin-api.js depuis l'instance Grist qui héberge le widget, sinon depuis docs.getgrist.com.
-  function loadPluginApi() {
-    return new Promise((resolve) => {
-      let origin = 'https://docs.getgrist.com';
-      try { if (document.referrer) origin = new URL(document.referrer).origin; } catch (e) { /* ignore */ }
-      const tryLoad = (src, next) => {
-        const s = document.createElement('script');
-        s.src = src; s.onload = () => resolve(true); s.onerror = next;
-        document.head.appendChild(s);
-      };
-      tryLoad(`${origin}/grist-plugin-api.js`, () =>
-        origin === 'https://docs.getgrist.com' ? resolve(false) : tryLoad('https://docs.getgrist.com/grist-plugin-api.js', () => resolve(false)));
-    });
-  }
 
   // Dans _grist_Views_section.options, la clé customView est une CHAÎNE JSON imbriquée
   // (Grist la relit avec JSON.parse). Cette fonction la décode, et récupère aussi une valeur
@@ -163,12 +208,57 @@
     } catch (e) { return null; }
   }
 
+  // ───────────────────────── Métadonnées du document ─────────────────────────
+
+  async function fetchMeta(tableId) { return grist.docApi.fetchTable(tableId); }
+  async function getTableRef(tableId) {
+    const t = await fetchMeta('_grist_Tables');
+    const i = t.tableId.indexOf(tableId);
+    return i >= 0 ? t.id[i] : null;
+  }
+  async function tableIdOfRef(tableRef) {
+    const t = await fetchMeta('_grist_Tables');
+    const i = t.id.indexOf(tableRef);
+    return i >= 0 ? t.tableId[i] : null;
+  }
+  async function getColRef(tableId, colId) {
+    const tref = await getTableRef(tableId);
+    const c = await fetchMeta('_grist_Tables_column');
+    for (let i = 0; i < c.id.length; i++) if (c.parentId[i] === tref && c.colId[i] === colId) return c.id[i];
+    return null;
+  }
+  async function colExists(tableId, colId) { return (await getColRef(tableId, colId)) !== null; }
+  function columnOptions(tableData) {
+    return Object.keys(tableData).filter(k => k !== 'id' && !k.startsWith('gristHelper') && k !== 'manualSort');
+  }
+  function fillSelect(sel, values, labels) {
+    sel.innerHTML = values.map((v, i) => `<option value="${esc(v)}">${esc(labels ? labels[i] : v)}</option>`).join('');
+  }
+  async function getFormTableId(vsId) {
+    const sections = await fetchMeta('_grist_Views_section');
+    const idx = sections.id.indexOf(vsId);
+    if (idx < 0) return null;
+    return tableIdOfRef(sections.tableRef[idx]);
+  }
+  // Tables ayant un formulaire natif PUBLIÉ sur la page donnée (nécessaire pour qu'une clé
+  // accorde l'écriture — voir ACLRulesReader._addRulesForShare).
+  async function formTablesOnPage(viewRef) {
+    const s = await fetchMeta('_grist_Views_section');
+    const out = [];
+    for (let i = 0; i < s.id.length; i++) {
+      if (s.parentId[i] !== viewRef || s.parentKey[i] !== 'form') continue;
+      let opt = {}; try { opt = JSON.parse(s.shareOptions[i] || '{}') || {}; } catch (e) { /* ignore */ }
+      if (opt.publish && opt.form) out.push(s.tableRef[i]);
+    }
+    return Promise.all(out.map(tableIdOfRef));
+  }
+
   async function findViewRefForSection(vsId) {
     // La clé accordée par le formulaire natif porte sur sa TABLE, pas sur sa page : elle vaut
     // pour tout le document (voir ACLRulesReader._shareTableForForm, aclFormula ne référence que
     // user.ShareRef). Le widget peut donc être sur une page distincte du formulaire natif — page
     // que l'on préfère pour l'adresse finale, puisqu'elle n'affiche pas le formulaire natif.
-    const sections = await grist.docApi.fetchTable('_grist_Views_section');
+    const sections = await fetchMeta('_grist_Views_section');
     const idx = sections.id.indexOf(vsId);
     if (idx < 0) return { formPage: null, widgetPage: null, self: null, samePage: null };
     const formPage = sections.parentId[idx];
@@ -220,7 +310,7 @@
     const out = $('repair-log');
     const lines = [];
     try {
-      const sections = await grist.docApi.fetchTable('_grist_Views_section');
+      const sections = await fetchMeta('_grist_Views_section');
       const fixes = [];
       for (let i = 0; i < sections.id.length; i++) {
         if (sections.parentKey[i] !== 'custom') continue;
@@ -247,8 +337,7 @@
   // - un jeton d'accès (getAccessToken) ne couvre QUE le contenu d'un document, tables et
   //   cellules, jamais ses métadonnées (qui a accès, propriétaires...) — documenté explicitement
   //   dans GristAPI.ts. Un appel à un point d'API réservé aux propriétaires (usersForViewAs) y
-  //   échoue donc systématiquement par 403, même pour le vrai propriétaire : ce n'est pas un
-  //   test de rôle, c'est un test de portée du jeton, sans rapport avec la question posée.
+  //   échoue donc systématiquement par 403, même pour le vrai propriétaire.
   //
   // Piste retenue : grist.docApi.applyUserActions() passe par la session complète du widget, pas
   // par un jeton à portée réduite. On y teste une action de SCHÉMA (ajouter puis aussitôt retirer
@@ -257,14 +346,6 @@
   // session de partage par ACLRulesReader._addDefaultShareRules ("-S" générique sur "*"), à la
   // différence de l'écriture dans une table _grist_* qui n'est, elle, pas couverte. Réussite =
   // droits d'édition réels sur le document (concepteur) ; échec = session de partage anonyme.
-  async function getFormTableId(vsId) {
-    const sections = await grist.docApi.fetchTable('_grist_Views_section');
-    const idx = sections.id.indexOf(vsId);
-    if (idx < 0) return null;
-    const tables = await grist.docApi.fetchTable('_grist_Tables');
-    const i = tables.id.indexOf(sections.tableRef[idx]);
-    return i >= 0 ? tables.tableId[i] : null;
-  }
   async function probeCanEdit(vsId) {
     try {
       const tableId = await getFormTableId(vsId);
@@ -278,19 +359,49 @@
     } catch (e) { console.warn('[FormPlus] probeCanEdit', e); return false; }
   }
 
-  function showFill(publicUrl, formLink) {
-    show('fill');
-    $('fill-toolbar').classList.toggle('hidden', !canEdit);
-    // Le rendu répondant réutilise public-form.html ; la clé passe dans le fragment, jamais au serveur.
-    $('form-frame').src = new URL('public-form.html#form=' + encodeURIComponent(formLink), location.href).href;
-  }
+  // ───────────────────────── Configuration (concepteur) ─────────────────────────
 
-  function showConfig() {
-    show('config');
-    if (options?.formLink) {
-      $('link').value = options.formLink;
-      if (options.publicUrl) { $('public-url').textContent = options.publicUrl; $('result').classList.remove('hidden'); }
-    }
+  let options = null;
+  let connected = false;
+  let canEdit = true;
+  let stayOnConfig = false; // après une génération, rester sur l'écran de configuration pour copier l'adresse
+  let currentLink = null;   // lien du formulaire natif, analysé (étape 1)
+  let currentFormSection = null; // { id (vsId), viewRef, tableRef }, table du formulaire (étape 1)
+  let cfgFields = [];       // questions ajoutées aux étapes 2 et 3, [q1?, q2?]
+
+  function setStepEnabled(id, enabled) { $(id).classList.toggle('disabled', !enabled); }
+
+  async function loadTablePickers() {
+    const tables = await grist.docApi.listTables();
+    fillSelect($('srcTable'), tables);
+    fillSelect($('destTable'), tables);
+    await loadColumnsFor($('srcTable').value, $('srcCol'));
+    await loadColumnsFor($('destTable').value, $('destCol'));
+  }
+  async function loadColumnsFor(tableId, sel) {
+    if (!tableId) return;
+    const data = await fetchMeta(tableId);
+    fillSelect(sel, columnOptions(data));
+  }
+  $('srcTable')?.addEventListener('change', () => loadColumnsFor($('srcTable').value, $('srcCol')));
+  $('destTable')?.addEventListener('change', () => { loadColumnsFor($('destTable').value, $('destCol')); checkStep3(); });
+
+  // Enregistre {formLink, shareKey, vsId, viewRef, publicUrl, fields} dans le document.
+  async function saveConfig(publicUrl, widgetPage) {
+    const saved = {
+      formLink: currentLink ? $('link').value.trim() : options?.formLink,
+      shareKey: currentLink?.key ?? options?.shareKey,
+      vsId: currentLink?.vsId ?? options?.vsId,
+      viewRef: widgetPage,
+      publicUrl,
+      fields: cfgFields,
+    };
+    const { self } = await findViewRefForSection(saved.vsId);
+    let persisted = false;
+    if (self) { try { await persistOptions(self, saved); persisted = true; } catch (e) { console.warn('[FormPlus] écriture directe refusée', e); } }
+    if (!persisted) { try { await grist.setOptions(saved); } catch (e) { /* ignore */ } }
+    options = saved;
+    return persisted;
   }
 
   async function generate() {
@@ -302,21 +413,18 @@
     try { ({ formPage, widgetPage, self, samePage, onFormPage, ambiguous } = await findViewRefForSection(link.vsId)); }
     catch (e) { msg.innerHTML = `<span class="err">Impossible de lire les métadonnées du document (${esc(e.message)}). Le widget a-t-il l'accès complet ?</span>`; return; }
     if (!formPage) { msg.innerHTML = '<span class="err">Cette section de formulaire n\'existe pas dans ce document. Le lien vient-il bien d\'ici ?</span>'; return; }
-    const publicUrl = buildPublicUrl(link, widgetPage);
-    const saved = { formLink: $('link').value.trim(), shareKey: link.key, vsId: link.vsId, viewRef: widgetPage, publicUrl };
+    currentLink = link;
+    const sections = await fetchMeta('_grist_Views_section');
+    const idx = sections.id.indexOf(link.vsId);
+    currentFormSection = { id: link.vsId, viewRef: formPage, tableRef: sections.tableRef[idx] };
+    // On garde les questions déjà enregistrées (étapes 2/3) si ce lien était déjà configuré ainsi.
+    cfgFields = (options?.vsId === link.vsId && Array.isArray(options?.fields)) ? options.fields.slice() : [];
     stayOnConfig = true;
-    let persisted = false;
-    if (self) {
-      try { await persistOptions(self, saved); persisted = true; }
-      catch (e) { console.warn('[FormPlus] écriture directe refusée', e); }
-    }
-    if (persisted) {
-      options = saved;
-      msg.innerHTML = '<span class="ok">Configuration enregistrée dans le document.</span>';
-    } else {
-      try { await grist.setOptions(saved); options = saved; } catch (e) { /* ignore */ }
-      msg.innerHTML = '<span class="err">Configuration posée dans cette session seulement : cliquez sur <strong>Enregistrer</strong> dans la barre du widget pour la conserver.</span>';
-    }
+    const publicUrl = buildPublicUrl(link, widgetPage);
+    const persisted = await saveConfig(publicUrl, widgetPage);
+    msg.innerHTML = persisted
+      ? '<span class="ok">Configuration enregistrée dans le document.</span>'
+      : '<span class="err">Configuration posée dans cette session seulement : cliquez sur <strong>Enregistrer</strong> dans la barre du widget pour la conserver.</span>';
     $('public-url').textContent = publicUrl;
     $('result').classList.remove('hidden');
     if (!self && ambiguous) {
@@ -327,6 +435,25 @@
       $('page-check').innerHTML = `<span class="ok">Le widget est sur la même page (${formPage}) que le formulaire natif${onFormPage > 1 ? `, avec ${onFormPage} widgets personnalisés dessus` : ''}. L'adresse fonctionnera, mais affichera aussi l'habillage du formulaire natif au-dessus ou à côté. Pour un rendu plus propre, déplacez ce widget seul sur une autre page : la clé reste valable, elle porte sur la table, pas sur la page.</span>`;
     } else {
       $('page-check').innerHTML = `<span class="ok">Le widget est seul sur la page ${widgetPage}, distincte de la page ${formPage} qui porte le formulaire natif. L'adresse n'affichera que ce widget : c'est la configuration la plus propre.</span>`;
+    }
+    setStepEnabled('step2', true);
+    setStepEnabled('step3', true);
+    await loadTablePickers();
+    prefillSteps23();
+  }
+
+  function prefillSteps23() {
+    const q1 = cfgFields.find(f => f.id === 'q1');
+    const q2 = cfgFields.find(f => f.id === 'q2');
+    if (q1) {
+      $('srcTable').value = q1.sourceTable; loadColumnsFor(q1.sourceTable, $('srcCol')).then(() => { $('srcCol').value = q1.sourceCol; });
+      $('q1Label').value = q1.label;
+      $('step2').classList.add('done'); $('step2-badge').textContent = 'fait'; $('step2-badge').className = 'badge ok';
+    }
+    if (q2) {
+      $('q2Label').value = q2.label;
+      $('destTable').value = q2.writeTable; loadColumnsFor(q2.writeTable, $('destCol')).then(() => { $('destCol').value = q2.writeCol; checkStep3(); });
+      $('step3').classList.add('done'); $('step3-badge').textContent = 'fait'; $('step3-badge').className = 'badge ok';
     }
   }
 
@@ -342,25 +469,340 @@
     catch (e) { window.prompt('Copiez cette adresse :', url); }
   });
   $('open').addEventListener('click', () => window.open($('public-url').textContent, '_blank', 'noopener'));
-  $('done').addEventListener('click', () => { stayOnConfig = false; if (options?.formLink) showFill(options.publicUrl, options.formLink); });
+  $('done').addEventListener('click', () => { stayOnConfig = false; if (options?.formLink) renderFill(); });
   $('edit').addEventListener('click', showConfig);
 
-  // Paramètres ajoutés par Grist à l'URL du widget (access, readonly) et secours dans le fragment (#form=).
+  // ---- Étape 2 : colonne Référence cachée, question à choix depuis une autre table ----
+  $('q2-preview')?.addEventListener('click', () => {
+    if (!currentFormSection) { $('cfg-msg').innerHTML = '<span class="err">Validez d\'abord l\'étape 1.</span>'; return; }
+    const src = $('srcTable').value;
+    const hiddenColId = `FormPlus_src_${src}`;
+    const log = $('step2-log'); log.classList.remove('hidden');
+    log.textContent = `Actions prévues (additives, sans risque pour les données existantes) :\n`
+      + `1. AddColumn sur la table du formulaire : ${hiddenColId} (type Ref:${src})\n`
+      + `2. AddRecord _grist_Views_section_field : attache ${hiddenColId} au formulaire publié, formIsHidden=true\n\n`
+      + `Aucune donnée existante n'est modifiée. Cliquez « Ajouter ce champ » pour appliquer.`;
+    $('q2-apply').disabled = false;
+  });
+  $('q2-apply')?.addEventListener('click', async () => {
+    const log = $('step2-log'); log.classList.remove('hidden');
+    const mainTableId = await tableIdOfRef(currentFormSection.tableRef);
+    const src = $('srcTable').value, srcCol = $('srcCol').value, q1Label = $('q1Label').value || 'Votre choix';
+    const hiddenColId = `FormPlus_src_${src}`;
+    try {
+      if (!(await colExists(mainTableId, hiddenColId))) {
+        log.textContent = `Ajout de la colonne ${hiddenColId}…`;
+        await grist.docApi.applyUserActions([['AddColumn', mainTableId, hiddenColId, { type: `Ref:${src}`, label: q1Label }]]);
+      } else {
+        log.textContent = `La colonne ${hiddenColId} existe déjà, réutilisée.`;
+      }
+      const colRef = await getColRef(mainTableId, hiddenColId);
+      const fields = await fetchMeta('_grist_Views_section_field');
+      let already = false;
+      for (let i = 0; i < fields.id.length; i++) if (fields.parentId[i] === currentFormSection.id && fields.colRef[i] === colRef) already = true;
+      if (!already) {
+        await grist.docApi.applyUserActions([['AddRecord', '_grist_Views_section_field', null, {
+          parentId: currentFormSection.id, colRef, widgetOptions: JSON.stringify({ formIsHidden: true }),
+        }]]);
+      }
+      const q1 = { id: 'q1', type: 'choice-table', label: q1Label, sourceTable: src, sourceCol: srcCol, writeTable: mainTableId, writeCol: hiddenColId };
+      cfgFields = [q1, ...cfgFields.filter(f => f.id !== 'q1')];
+      await saveConfig($('public-url').textContent, options.viewRef);
+      log.textContent += `\n✅ Champ prêt et enregistré. La table « ${src} » deviendra lisible pour les répondants via ce formulaire.`;
+      $('step2').classList.add('done'); $('step2-badge').textContent = 'fait'; $('step2-badge').className = 'badge ok';
+      const srcData = await fetchMeta(src);
+      fillSelect($('condValue'), srcData[srcCol] || []);
+      await checkStep3();
+    } catch (e) {
+      log.textContent += `\n❌ Erreur : ${e.message}`;
+    }
+  });
+
+  // ---- Étape 3 : question conditionnelle écrite dans une table B ----
+  async function checkStep3() {
+    if (!currentFormSection) return;
+    const destTable = $('destTable').value;
+    if (!destTable) return;
+    const tables = await formTablesOnPage(currentFormSection.viewRef);
+    const ok = tables.includes(destTable);
+    $('step3-check').innerHTML = ok
+      ? `<span class="ok">Un formulaire publié existe pour « ${esc(destTable)} » sur cette page : l'écriture devrait être acceptée.</span>`
+      : `<span class="err">Aucun formulaire publié pour « ${esc(destTable)} » sur cette page. Ajoutez un widget Formulaire pour cette table ici, publiez-le, puis revenez.</span>`;
+    $('save').disabled = !(ok && cfgFields.find(f => f.id === 'q1'));
+  }
+  $('save')?.addEventListener('click', async () => {
+    const msg = $('step3-msg');
+    const q2 = {
+      id: 'q2', type: 'text', label: $('q2Label').value || 'Précisez',
+      condition: { field: 'q1', op: 'equals', value: $('condValue').value },
+      writeTable: $('destTable').value, writeCol: $('destCol').value,
+    };
+    cfgFields = [...cfgFields.filter(f => f.id !== 'q2'), q2];
+    try {
+      const persisted = await saveConfig($('public-url').textContent, options.viewRef);
+      msg.innerHTML = persisted ? '<span class="ok">Question enregistrée.</span>'
+        : '<span class="err">Enregistrée pour cette session seulement : cliquez sur Enregistrer dans la barre du widget.</span>';
+      $('step3').classList.add('done'); $('step3-badge').textContent = 'fait'; $('step3-badge').className = 'badge ok';
+    } catch (e) {
+      msg.innerHTML = `<span class="err">Erreur d'enregistrement : ${esc(e.message)}</span>`;
+    }
+  });
+
+  function showConfig() {
+    show('config');
+    setStepEnabled('step2', !!currentFormSection);
+    setStepEnabled('step3', !!currentFormSection);
+    if (options?.formLink) {
+      $('link').value = options.formLink;
+      currentLink = parseFormLink(options.formLink);
+      cfgFields = Array.isArray(options.fields) ? options.fields.slice() : [];
+      if (options.publicUrl) { $('public-url').textContent = options.publicUrl; $('result').classList.remove('hidden'); }
+      if (currentLink) {
+        fetchMeta('_grist_Views_section').then(sections => {
+          const idx = sections.id.indexOf(currentLink.vsId);
+          if (idx >= 0) {
+            currentFormSection = { id: currentLink.vsId, viewRef: sections.parentId[idx], tableRef: sections.tableRef[idx] };
+            setStepEnabled('step2', true); setStepEnabled('step3', true);
+            loadTablePickers().then(prefillSteps23);
+          }
+        });
+      }
+    }
+  }
+
+  // ───────────────────────── Diagnostic ─────────────────────────
+
   const urlParams = new URLSearchParams(location.search);
   const hashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
-  const gristAccess = urlParams.get('access');
-  const gristReadonly = urlParams.get('readonly');
   const fragmentFormLink = hashParams.get('form');
 
   function diag(extra) {
     let referrerOrigin = null;
     try { referrerOrigin = document.referrer ? new URL(document.referrer).origin : null; } catch (e) { /* ignore */ }
-    const d = { referrerOrigin, myPageFromReferrer: myPageFromReferrer(), access: gristAccess, readonly: gristReadonly, fragmentFormLink: !!fragmentFormLink, ...extra };
+    const d = { referrerOrigin, myPageFromReferrer: myPageFromReferrer(), access: urlParams.get('access'), readonly: urlParams.get('readonly'), fragmentFormLink: !!fragmentFormLink, ...extra };
     console.log('[FormPlus]', JSON.stringify(d));
     const text = JSON.stringify(d, null, 2);
     const el = $('diag'); if (el) el.textContent = text;
     const elFill = $('diag-fill'); if (elFill) elFill.textContent = text;
     return d;
+  }
+
+  // ───────────────────────── Rendu répondant (formulaire natif + questions enrichies) ─────────────────────────
+
+  function layoutOrder(f) {
+    const ids = [];
+    try {
+      const walk = (n) => { if (!n) return; if (n.type === 'Field' && n.leaf != null) ids.push(String(n.leaf)); (n.children || []).forEach(walk); };
+      walk(JSON.parse(f.formLayoutSpec));
+    } catch (e) { /* ignore */ }
+    const all = Object.keys(f.formFieldsById);
+    return ids.filter(i => all.includes(i)).concat(all.filter(i => !ids.includes(i)));
+  }
+
+  function renderNativeField(id, fl, prefillParams) {
+    const o = fl.options || {};
+    const name = fl.colId;
+    const req = o.formRequired ? 'req' : '';
+    const hidden = o.formIsHidden;
+    const prefill = o.formAcceptFromUrl ? prefillParams.get(name) : null;
+    const head = `<label class="title ${req}" for="i${id}">${esc(fl.question)}</label>` +
+      (fl.description ? `<p class="desc">${esc(fl.description)}</p>` : '');
+    let input = '';
+    const choices = o.choices || [];
+    const refs = fl.refValues || [];
+    switch (fl.type) {
+      case 'Int': case 'Numeric':
+        input = `<input id="i${id}" type="number" step="any" name="${name}" value="${esc(prefill ?? '')}">`; break;
+      case 'Bool':
+        input = `<label class="switch"><input type="checkbox" name="${name}" ${prefill === 'true' ? 'checked' : ''}> Oui</label>`; break;
+      case 'Date':
+        input = `<input id="i${id}" type="date" name="${name}" value="${esc(prefill ?? '')}">`; break;
+      case 'DateTime':
+        input = `<input id="i${id}" type="datetime-local" name="${name}" value="${esc(prefill ?? '')}">`; break;
+      case 'Choice':
+      case 'Ref': {
+        const opts = fl.type === 'Choice' ? choices.map(c => [c, c]) : refs.map(([rid, v]) => [rid, v]);
+        if (o.formSelectFormat === 'radio') {
+          input = opts.map(([v, l]) => `<label class="opt"><input type="radio" name="${name}" value="${esc(v)}" ${String(v) === prefill ? 'checked' : ''}> ${esc(l)}</label>`).join('');
+        } else {
+          input = `<select id="i${id}" name="${name}"><option value="">Choisir…</option>` +
+            opts.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === prefill ? 'selected' : ''}>${esc(l)}</option>`).join('') + `</select>`;
+        }
+        break;
+      }
+      case 'ChoiceList':
+      case 'RefList': {
+        const opts = fl.type === 'ChoiceList' ? choices.map(c => [c, c]) : refs.map(([rid, v]) => [rid, v]);
+        input = opts.map(([v, l]) => `<label class="opt"><input type="checkbox" name="${name}[]" value="${esc(v)}"> ${esc(l)}</label>`).join('');
+        break;
+      }
+      case 'Attachments':
+        input = `<input id="i${id}" type="file" name="${name}" multiple>`; break;
+      default:
+        input = o.formTextFormat === 'multiline'
+          ? `<textarea id="i${id}" name="${name}" rows="${o.formTextLineCount || 3}">${esc(prefill ?? '')}</textarea>`
+          : `<input id="i${id}" type="text" name="${name}" value="${esc(prefill ?? '')}" ${o.formTextMaximumLength ? `maxlength="${o.formTextMaximumLength}"` : ''}>`;
+    }
+    return `<div class="q" data-native="1" data-type="${fl.type}" data-col="${name}" data-required="${o.formRequired ? 1 : 0}" ${hidden ? 'hidden' : ''}>${head}${input}<div class="err-msg">Ce champ est obligatoire.</div></div>`;
+  }
+
+  async function renderFill() {
+    show('fill');
+    const card = $('fill-card');
+    card.innerHTML = '<p class="muted">Chargement…</p>';
+
+    const formLink = options?.formLink || fragmentFormLink;
+    const link = parseFormLink(formLink);
+    if (!link) { card.innerHTML = '<h1>Formulaire indisponible</h1><p class="muted">Lien de formulaire illisible.</p>'; return; }
+
+    canEdit = await probeCanEdit(options?.vsId ?? link.vsId);
+    diag({ event: 'canEdit', canEdit });
+    $('fill-toolbar').classList.toggle('hidden', !canEdit);
+
+    let form;
+    try {
+      const r = await fetch(`${link.api}/forms/${link.vsId}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      form = await r.json();
+    } catch (e) {
+      card.innerHTML = `<h1>Formulaire indisponible</h1><p class="muted">${esc(e.message)}</p>`;
+      return;
+    }
+
+    const enhanced = (options?.formLink === formLink && Array.isArray(options?.fields)) ? options.fields : [];
+    const q1 = enhanced.find(f => f.id === 'q1');
+    const q2 = enhanced.find(f => f.id === 'q2');
+
+    const prefillParams = new URLSearchParams(location.search);
+    const nativeRows = layoutOrder(form).map(id => renderNativeField(id, form.formFieldsById[id], prefillParams)).join('');
+    const enhancedRows = [
+      q1 ? `<div class="q" data-enhanced="q1"><label class="title" for="q1-input">${esc(q1.label)}</label><select id="q1-input"><option value="">Chargement…</option></select></div>` : '',
+      q2 ? `<div class="q cond-hidden" data-enhanced="q2"><label class="title" for="q2-input">${esc(q2.label)}</label><input id="q2-input" type="text"></div>` : '',
+    ].join('');
+
+    card.innerHTML = `
+      <h1>${esc(form.formTitle)}</h1>
+      <p class="muted">Les champs marqués * sont obligatoires.</p>
+      <form id="f" novalidate>
+        ${nativeRows}
+        ${enhancedRows ? `<hr class="divider">${enhancedRows}` : ''}
+        <label class="hp">Ne pas remplir <input type="text" name="_website" tabindex="-1" autocomplete="off"></label>
+        <div class="actions">
+          <span id="fill-status" class="muted"></span>
+          <button type="submit" class="primary">Envoyer</button>
+        </div>
+      </form>`;
+
+    if (q1) {
+      try {
+        const data = await grist.docApi.fetchTable(q1.sourceTable);
+        const ids = data.id || [], labels = data[q1.sourceCol] || [];
+        $('q1-input').innerHTML = '<option value="">Choisir…</option>' + ids.map((id, i) => `<option value="${id}" data-label="${esc(labels[i])}">${esc(labels[i])}</option>`).join('');
+        if (ids.length === 0) diag({ event: 'q1-empty', sourceTable: q1.sourceTable });
+      } catch (e) {
+        $('q1-input').innerHTML = '<option value="">(indisponible)</option>';
+        diag({ event: 'q1-error', message: e.message });
+      }
+      if (q2) {
+        const check = () => {
+          const label = $('q1-input').selectedOptions[0]?.dataset.label || '';
+          card.querySelector('[data-enhanced="q2"]').classList.toggle('cond-hidden', label !== q2.condition.value);
+        };
+        $('q1-input').addEventListener('change', check);
+      }
+    }
+
+    $('f').addEventListener('submit', (ev) => onSubmit(ev, form, link, q1, q2));
+  }
+
+  async function onSubmit(ev, form, link, q1, q2) {
+    ev.preventDefault();
+    const formEl = ev.target;
+    if (formEl._website.value) return; // honeypot
+    const fields = {};
+    const uploads = [];
+    let valid = true;
+    for (const q of formEl.querySelectorAll('.q[data-native="1"]')) {
+      const col = q.dataset.col, type = q.dataset.type, required = q.dataset.required === '1';
+      let value = null;
+      if (type === 'Bool') value = q.querySelector('input').checked;
+      else if (type === 'ChoiceList' || type === 'RefList') {
+        const vals = [...q.querySelectorAll('input:checked')].map(i => type === 'RefList' ? Number(i.value) : i.value);
+        value = vals.length ? ['L', ...vals] : null;
+      } else if (type === 'Attachments') {
+        const files = [...q.querySelector('input').files];
+        if (files.length) uploads.push({ col, files });
+        value = files.length ? 'pending' : null;
+      } else if (q.querySelector('input[type=radio]')) {
+        const c = q.querySelector('input:checked'); value = c ? c.value : null;
+        if (type === 'Ref' && value != null) value = Number(value);
+      } else {
+        const el = q.querySelector('input, select, textarea');
+        value = el.value === '' ? null : (type === 'Ref' ? Number(el.value) : (type === 'Int' || type === 'Numeric') ? Number(el.value) : el.value);
+      }
+      const empty = value === null || value === '' || (value === false && type !== 'Bool');
+      q.classList.toggle('invalid', required && empty && !q.hidden);
+      if (required && empty && !q.hidden) valid = false;
+      if (value !== null && type !== 'Attachments') fields[col] = value;
+    }
+    // Question 1 (choix depuis une autre table) : écrite dans la même table, même enregistrement.
+    if (q1) {
+      const val = $('q1-input')?.value;
+      if (val) fields[q1.writeCol] = Number(val);
+    }
+    if (!valid) { formEl.querySelector('.invalid')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+
+    const btn = formEl.querySelector('button[type=submit]');
+    const status = $('fill-status');
+    btn.disabled = true; status.textContent = 'Envoi…'; status.classList.remove('err');
+    try {
+      for (const up of uploads) {
+        const fd = new FormData();
+        up.files.forEach(file => fd.append('upload', file));
+        const r = await fetch(`${link.api}/attachments`, { method: 'POST', body: fd });
+        if (!r.ok) throw new Error(`Pièces jointes : HTTP ${r.status}`);
+        fields[up.col] = ['L', ...(await r.json())];
+      }
+      const r = await fetch(`${link.api}/tables/${form.formTableId}/records`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ records: [{ fields }] }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status} ${await r.text()}`);
+      const j = await r.json();
+
+      // Question 2 (conditionnelle) : table différente, même clé (son formulaire natif doit être
+      // publié sur la même page — vérifié à l'étape 3 de la configuration).
+      if (q2) {
+        const cond = !formEl.querySelector('[data-enhanced="q2"]')?.classList.contains('cond-hidden');
+        const val = $('q2-input')?.value;
+        if (cond && val) {
+          try { await grist.docApi.applyUserActions([['AddRecord', q2.writeTable, null, { [q2.writeCol]: val }]]); }
+          catch (e) { diag({ event: 'q2-write-failed', message: e.message }); }
+        }
+      }
+
+      $('fill-card').innerHTML = `<div class="center"><h1 class="ok">Merci, votre réponse a bien été enregistrée.</h1>
+        <p class="muted">Identifiant : ${esc(j.records?.[0]?.id)}</p>
+        <p><button class="primary" onclick="location.reload()">Envoyer une autre réponse</button></p></div>`;
+    } catch (e) {
+      btn.disabled = false; status.textContent = 'Erreur : ' + e.message; status.classList.add('err'); status.style.color = 'var(--error)';
+    }
+  }
+
+  // ───────────────────────── Démarrage ─────────────────────────
+
+  function loadPluginApi() {
+    return new Promise((resolve) => {
+      let origin = 'https://docs.getgrist.com';
+      try { if (document.referrer) origin = new URL(document.referrer).origin; } catch (e) { /* ignore */ }
+      const tryLoad = (src, next) => {
+        const s = document.createElement('script');
+        s.src = src; s.onload = () => resolve(true); s.onerror = next;
+        document.head.appendChild(s);
+      };
+      tryLoad(`${origin}/grist-plugin-api.js`, () =>
+        origin === 'https://docs.getgrist.com' ? resolve(false) : tryLoad('https://docs.getgrist.com/grist-plugin-api.js', () => resolve(false)));
+    });
   }
 
   (async () => {
@@ -374,13 +816,9 @@
       options = opts || {};
       diag({ event: 'onOptions', optionKeys: Object.keys(options), hasFormLink: !!options.formLink, settings });
       if (hashParams.has('repair')) { if (!stayOnConfig) { stayOnConfig = true; runRepair(); } return; }
-      // Le mode répondant n'a besoin que du lien du formulaire : options du widget, sinon fragment de l'URL du widget.
       const formLink = options.formLink || fragmentFormLink;
       if (formLink && !stayOnConfig) {
-        const probeVsId = options.vsId || parseFormLink(formLink)?.vsId;
-        canEdit = await probeCanEdit(probeVsId);
-        diag({ event: 'canEdit', canEdit, probeVsId });
-        showFill(options.publicUrl || '', formLink);
+        await renderFill();
       } else if (!stayOnConfig) {
         showConfig();
       }

@@ -54,9 +54,8 @@
   </div>
 
   <div class="card">
-    <h2>Outil de test : lecture, condition, écriture multi-tables</h2>
-    <p>Valide le périmètre fonctionnel principal : liste de choix lue depuis une autre table, question conditionnelle, réponse écrite dans une troisième table. Modifie la structure du document, à utiliser sur un document de test.</p>
-    <p><code id="mtt-url">poc/multi-table-test.html</code></p>
+    <h2>Fonctions avancées : lecture, condition, écriture multi-tables</h2>
+    <p>Le même widget ci-dessus propose, dans sa configuration (étapes 2 et 3), une question à choix lue depuis une autre table et une question conditionnelle écrite dans une troisième table. Ces étapes modifient la structure du document (ajout d'une colonne), à utiliser sur un document de test la première fois.</p>
     <p class="muted">Mode d'emploi détaillé : section 6 de <a href="https://github.com/lombre33/FormPlus/blob/main/poc/README-poc.md">poc/README-poc.md</a>.</p>
   </div>
 
@@ -72,7 +71,6 @@
 </main>
 <script>
   document.getElementById('widget-url').textContent = new URL('poc/widget.html', location.href).href;
-  document.getElementById('mtt-url').textContent = new URL('poc/multi-table-test.html', location.href).href;
   const input = document.getElementById('u'), out = document.getElementById('out');
   // Le lien du formulaire est placé dans le fragment (#) : il reste dans le navigateur et n'est jamais envoyé à l'hébergeur de la page.
   const build = () => new URL('poc/public-form.html#form=' + encodeURIComponent(input.value.trim()), location.href).href;

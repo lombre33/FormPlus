@@ -18,7 +18,7 @@ Objectif : dépasser les limites du formulaire natif de Grist avec une interface
 | `docs/01-etude-comparative.md` | Comparatif Grist natif / widget isaytoo / FormPlus, et les 4 options de lien dédié |
 | `docs/02-poc-transport1-resultats.md` | Résultats de la preuve de concept du lien public |
 | `docs/03-roadmap-priorites.md` | Principes d'interface, architecture, backlog V1 / V2 / V3 |
-| `poc/` | Kit de test : script `poc_transport1.py`, page `public-form.html`, mode d'emploi `README-poc.md` |
+| `poc/` | Widget consolidé `widget.html` (configuration + rendu répondant, natif et multi-tables), script de test `poc_transport1.py`, page de secours hors-Grist `public-form.html`, mode d'emploi `README-poc.md` |
 | `index.html` | Page d'accueil GitHub Pages avec accès à la page de test |
 
 ## Tester la preuve de concept
