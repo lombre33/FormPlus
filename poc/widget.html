@@ -743,12 +743,21 @@
     if (q1) {
       try {
         const data = await grist.docApi.fetchTable(q1.sourceTable);
-        const ids = data.id || [], labels = data[q1.sourceCol] || [];
+        const ids = data.id || [];
+        const availableCols = Object.keys(data);
+        const hasCol = availableCols.includes(q1.sourceCol);
+        const rawLabels = hasCol ? (data[q1.sourceCol] || []) : [];
+        // Repli visible si la colonne configurée est introuvable ou si une valeur est vide : mieux
+        // vaut afficher l'identifiant que rien du tout, et ça rend le problème visible d'un coup d'œil.
+        const labels = ids.map((id, i) => {
+          const v = rawLabels[i];
+          return (v !== undefined && v !== null && v !== '') ? String(v) : `#${id}`;
+        });
         $('q1-input').innerHTML = '<option value="">Choisir…</option>' + ids.map((id, i) => `<option value="${id}" data-label="${esc(labels[i])}">${esc(labels[i])}</option>`).join('');
-        if (ids.length === 0) diag({ event: 'q1-empty', sourceTable: q1.sourceTable });
+        diag({ event: 'q1-loaded', sourceTable: q1.sourceTable, sourceCol: q1.sourceCol, hasCol, availableCols, rowCount: ids.length, sampleLabels: labels.slice(0, 3) });
       } catch (e) {
         $('q1-input').innerHTML = '<option value="">(indisponible)</option>';
-        diag({ event: 'q1-error', message: e.message });
+        diag({ event: 'q1-error', message: e.message, sourceTable: q1.sourceTable, sourceCol: q1.sourceCol });
       }
       if (q2) {
         const check = () => {
