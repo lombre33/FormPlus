@@ -263,7 +263,7 @@ Un seul moteur de formulaire, plusieurs transports interchangeables selon le con
 
 1. **Preuve de concept du transport 1** en 30 minutes : publier un formulaire natif sur un document de test DINUM, récupérer la clé dans l'URL `/forms/<clé>/<idSection>`, puis tester au `curl` : `GET /api/s/<clé>/forms/<id>`, `POST .../records`, `POST .../attachments`, deux formulaires sur une même page, et la lecture d'une table `Formulaires` exposée via une Ref masquée.
 2. **Spécifier le modèle de définition** (JSON versionné) : champs, sections, pages, conditions avec ET/OU, sources d'options, thème. Stocker dans une table `FormBuilder_Forms` du document comme le fait isaytoo, sans secrets.
-3. **Choisir la stack** : vanilla ou framework léger, DSFR pour l'interface, layout en flux responsive, pas d'`eval`, CSP stricte, i18n FR/EN.
+3. **Choisir la stack** : vanilla ou framework léger, layout en flux responsive, pas d'`eval`, CSP stricte, i18n FR/EN. *Correction du 18 septembre 2026 : pas de charte DSFR — réservée aux services de l'État, FormPlus n'y a pas droit.*
 4. **Préparer la publication** : dépôt public, README bilingue, CI, hébergement statique (GitHub Pages ou VPS), puis demande d'ajout dans `gristgouv/widgets-config` après revue, comme Intra Form.
 5. **Réutiliser** ce qui est bon chez isaytoo (Apache-2.0) : logique des cascades, création de table de réponses, templates et historique, mode édition via `onRecord`.
 

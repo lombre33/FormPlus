@@ -40,7 +40,7 @@ Le différenciateur n'est pas technique, c'est la simplicité. Référence : Goo
 3. **Les options vivent dans la carte sélectionnée** : type, obligatoire, description, « Afficher si ». Tout le reste derrière un « Plus ».
 4. **Zéro jargon Grist pour le répondant, minimum pour le concepteur.** On parle de questions et de réponses ; la colonne Grist est déduite ou créée automatiquement.
 5. **Défauts intelligents.** Le type de question découle du type de colonne. Les colonnes manquantes sont créées. « Publier » tient en un clic et s'occupe du formulaire natif sous-jacent.
-6. **Sobre et accessible.** Typographie système, une couleur d'accent compatible DSFR, mode sombre, mobile d'abord, RGAA dès la conception, aucun élément décoratif.
+6. **Sobre et accessible.** Typographie système, une couleur d'accent personnalisable sur palette libre (jamais la charte DSFR, réservée aux services de l'État — FormPlus n'y a pas droit), mode sombre, mobile d'abord, RGAA dès la conception, aucun élément décoratif.
 7. **L'aperçu est le vrai rendu.** Le même moteur affiche l'aperçu du concepteur, le widget interne et la page publique.
 
 ## 2. Décisions d'architecture
@@ -61,12 +61,13 @@ les deux divergent (stockage de la définition, TypeScript/Vite jamais introduit
 
 ### V1, le socle : indispensable et à forte valeur
 
-**Priorité immédiate (ce qui ferme le jalon J2), dans cet ordre :**
-1. Fusionner la question native (colonne du formulaire natif) et la question supplémentaire (lecture ou écriture croisée) en une seule liste homogène côté interface, au lieu de deux blocs visuellement distincts aujourd'hui. C'est le plus gros chantier restant de V1 : tant que ce n'est pas fait, le widget viole son propre principe n°1 (« le formulaire est l'éditeur »), et c'est le vrai obstacle à la sortie de J2 (« un agent crée et remplit un formulaire sans lire de doc »).
-2. Dans la foulée, passer du style « panneau de configuration technique » (étiquettes, badges, encarts) à des cartes sobres, une question visible à la fois en édition — la fusion ci-dessus oblige de toute façon à redessiner ces cartes, autant faire les deux dans le même chantier.
-3. Généraliser les conditions à plusieurs critères combinés en ET/OU, au lieu d'un seul critère d'égalité aujourd'hui.
-4. Types de questions restants à forte valeur : pièces jointes, texte long multi-lignes. Moins urgents : date+heure, liste de références.
-5. Jeu de couleurs DSFR proposé en présélection plutôt qu'un simple sélecteur libre (petit chantier, cosmétique — à caser dès qu'il y a un créneau court).
+**Fusion visuelle des champs natifs et des questions supplémentaires, et passage à des cartes sobres** (ce qui viole aujourd'hui le principe n°1 ci-dessus et bloque la sortie du jalon J2) : repris par le chantier de refonte de l'UI qu'Antoine a demandé séparément le 18 septembre 2026 (deux maquettes proposées, façon Google Forms), pas par ce point de la feuille de route — voir ce fil-là pour l'avancement.
+
+**Priorité immédiate de ce chantier fonctionnel, dans cet ordre :**
+1. Généraliser les conditions à plusieurs critères combinés en ET/OU, au lieu d'un seul critère d'égalité aujourd'hui.
+2. Types de questions restants à forte valeur : pièces jointes, texte long multi-lignes. Moins urgents : date+heure, liste de références.
+
+**Explicitement hors de portée : toute charte DSFR.** Antoine l'a rappelé le 18 septembre 2026 : FormPlus n'a pas le droit d'utiliser la charte graphique DSFR, réservée aux services de l'État — ce n'est pas un ministère. Le principe n°6 ci-dessus et la personnalisation de couleur restent sur une palette libre, jamais une présélection DSFR.
 
 **Déjà fait — corrections apportées à cette feuille de route le 18 septembre 2026, après relecture du code (elle donnait encore ces points comme ouverts, à tort) :**
 - ~~Constructeur à N questions~~ fait le 16 septembre 2026.
