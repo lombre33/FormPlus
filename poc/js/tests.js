@@ -5,7 +5,7 @@ import { KINDS } from './kinds.js';
 import { singleValueOf, isAnswered, renderExtraQuestion, onSubmit, conditionMet } from './respond.js';
 import {
   questionSummary, choiceQuestionsBefore, renderCardBody,
-  importNativeFields, resetQuestions, createEmptyForm, populateFormPicker,
+  importNativeFields, resetQuestions, createEmptyForm, populateFormPicker, generate,
 } from './config-editor.js';
 import { findExistingShareKey } from './grist-meta.js';
 import { state } from './state.js';
@@ -559,6 +559,24 @@ export async function runTests() {
     assertEqual('options du <select> (une de plus pour "choisir")', $('formPicker').options.length, 3);
   });
 
+  await group('populateFormPicker : exclut les copies créées par FormPlus (formplusDuplicate)', async () => {
+    window.grist = {
+      docApi: {
+        fetchTable: async (t) => {
+          if (t === '_grist_Views_section') return {
+            id: [1, 2], parentKey: ['form', 'form'], tableRef: [10, 10], parentId: [5, 5],
+            shareOptions: ['{"publish":true,"form":true}', '{"publish":true,"form":true}'],
+            options: ['{}', '{"formplusDuplicate":true,"formplusSource":1}'],
+          };
+          if (t === '_grist_Tables') return { id: [10], tableId: ['Reponses'] };
+          return {};
+        },
+      },
+    };
+    await populateFormPicker();
+    assertEqual('seul le vrai formulaire (1) reste proposé, pas sa copie (2)', state.formPickerItems.map(it => it.vsId), [1]);
+  });
+
   await group('sélection dans formPicker : formulaire non publié -> consigne, pas de génération', async () => {
     state.formPickerItems = [{ vsId: 1, viewRef: 5, tableId: 'Brouillon', published: false }];
     $('formPicker').innerHTML = '<option value="1">Brouillon (non publié)</option>';
@@ -592,6 +610,117 @@ export async function runTests() {
     await tick(); await tick(); await tick(); // generate() enchaîne plusieurs opérations asynchrones
     assertEqual('lien reconstruit automatiquement', $('link').value, 'https://grist.example.com/o/team/forms/SECRETKEY/12');
     assert('message de succès', $('formPicker-msg').innerHTML.includes('ok'));
+  });
+
+  await group('generate() : formulaire natif existant → duplication automatique, original jamais modifié', async () => {
+    state.options = {};
+    state.cfgQuestions = [];
+    let nextSectionId = 100;
+    const sectionsState = {
+      id: [12], parentId: [7], parentKey: ['form'], tableRef: [10],
+      shareOptions: ['{"publish":true,"form":true}'], options: ['{}'],
+    };
+    const fieldsState = {
+      // parentPos volontairement pas dans l'ordre de création, pour vérifier que la copie
+      // respecte l'ORDRE (parentPos), pas l'ordre des lignes retournées par l'API.
+      id: [1000, 1001], parentId: [12, 12], colRef: [500, 501],
+      widgetOptions: ['{}', '{"formIsHidden":true}'], parentPos: [2, 1],
+    };
+    // Colonnes de la table Reponses (tableRef 10) : CreateViewSection peuple automatiquement la
+    // nouvelle section avec un champ par colonne (comportement réel de Grist, voir la mémoire
+    // formplus-createviewsection-autofields) ; duplicateFormSection doit les retirer avant de
+    // recopier les champs du formulaire source, sinon chaque colonne se retrouve en double.
+    const tableColumns = { 10: [500, 501] };
+    let nextFieldId = 2000;
+    const removeFieldRow = (id) => {
+      const idx = fieldsState.id.indexOf(id);
+      if (idx < 0) return;
+      for (const key of ['id', 'parentId', 'colRef', 'widgetOptions', 'parentPos']) {
+        fieldsState[key] = fieldsState[key].filter((_, i) => i !== idx);
+      }
+    };
+    const calls = [];
+    window.grist = {
+      docApi: {
+        listTables: async () => ['Reponses'],
+        fetchTable: async (t) => {
+          if (t === '_grist_Pages') return { id: [1], viewRef: [7], shareRef: [9] };
+          if (t === '_grist_Shares') return { id: [9], linkId: ['SECRETKEY'] };
+          if (t === '_grist_Views_section') return { ...sectionsState };
+          if (t === '_grist_Views_section_field') return { ...fieldsState };
+          if (t === '_grist_Tables') return { id: [10], tableId: ['Reponses'] };
+          return {};
+        },
+        applyUserActions: async (actions) => {
+          calls.push(actions);
+          for (const a of actions) {
+            if (a[0] === 'CreateViewSection') {
+              const newId = nextSectionId++;
+              sectionsState.id = [...sectionsState.id, newId];
+              sectionsState.parentId = [...sectionsState.parentId, a[2]];
+              sectionsState.parentKey = [...sectionsState.parentKey, 'form'];
+              sectionsState.tableRef = [...sectionsState.tableRef, a[1]];
+              sectionsState.shareOptions = [...sectionsState.shareOptions, '{}'];
+              sectionsState.options = [...sectionsState.options, '{}'];
+              for (const colRef of tableColumns[a[1]] || []) {
+                fieldsState.id = [...fieldsState.id, nextFieldId++];
+                fieldsState.parentId = [...fieldsState.parentId, newId];
+                fieldsState.colRef = [...fieldsState.colRef, colRef];
+                fieldsState.widgetOptions = [...fieldsState.widgetOptions, ''];
+                fieldsState.parentPos = [...fieldsState.parentPos, fieldsState.parentPos.length];
+              }
+            } else if (a[0] === 'AddRecord' && a[1] === '_grist_Views_section_field') {
+              fieldsState.id = [...fieldsState.id, nextFieldId++];
+              fieldsState.parentId = [...fieldsState.parentId, a[3].parentId];
+              fieldsState.colRef = [...fieldsState.colRef, a[3].colRef];
+              fieldsState.widgetOptions = [...fieldsState.widgetOptions, a[3].widgetOptions];
+              fieldsState.parentPos = [...fieldsState.parentPos, fieldsState.parentPos.length];
+            } else if (a[0] === 'RemoveRecord' && a[1] === '_grist_Views_section_field') {
+              removeFieldRow(a[2]);
+            } else if (a[0] === 'UpdateRecord' && a[1] === '_grist_Views_section') {
+              const idx = sectionsState.id.indexOf(a[2]);
+              if (idx >= 0) {
+                if (a[3].shareOptions !== undefined) { const arr = [...sectionsState.shareOptions]; arr[idx] = a[3].shareOptions; sectionsState.shareOptions = arr; }
+                if (a[3].options !== undefined) { const arr = [...sectionsState.options]; arr[idx] = a[3].options; sectionsState.options = arr; }
+              }
+            }
+          }
+          return { retValues: actions.map(() => null) };
+        },
+        setOptions: async () => {},
+      },
+    };
+    Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
+    $('link').value = 'https://grist.example.com/o/team/forms/SECRETKEY/12';
+    await generate();
+    await tick();
+
+    const dupVsId = state.currentFormSection?.id;
+    assert('une copie est créée (id différent du formulaire source 12)', dupVsId != null && dupVsId !== 12);
+    assertEqual('sourceVsId enregistré', state.options.sourceVsId, 12);
+    const allActions = calls.flatMap(a => a);
+    assertEqual('le formulaire source (12) ne reçoit aucune écriture', allActions.some(a => a[0] === 'UpdateRecord' && a[1] === '_grist_Views_section' && a[2] === 12), false);
+    const removeFieldCalls = allActions.filter(a => a[0] === 'RemoveRecord' && a[1] === '_grist_Views_section_field');
+    assertEqual('les 2 champs auto-créés par CreateViewSection sont retirés avant la copie', removeFieldCalls.length, 2);
+    const addFieldCalls = allActions.filter(a => a[0] === 'AddRecord' && a[1] === '_grist_Views_section_field');
+    assertEqual('2 champs dupliqués', addFieldCalls.length, 2);
+    assertEqual('ordre respecté (parentPos 1 puis 2, pas l’ordre des lignes source)', addFieldCalls.map(a => a[3].colRef), [501, 500]);
+    assertEqual('widgetOptions repris tel quel', addFieldCalls.map(a => a[3].widgetOptions), ['{"formIsHidden":true}', '{}']);
+    const finalFields = [];
+    for (let i = 0; i < fieldsState.id.length; i++) if (fieldsState.parentId[i] === dupVsId) finalFields.push({ colRef: fieldsState.colRef[i], parentPos: fieldsState.parentPos[i] });
+    finalFields.sort((a, b) => a.parentPos - b.parentPos);
+    assertEqual('exactement 2 champs sur la copie au final (pas de doublon)', finalFields.map(f => f.colRef), [501, 500]);
+    const dupIdx = sectionsState.id.indexOf(dupVsId);
+    assertEqual('la copie est marquée formplusDuplicate', JSON.parse(sectionsState.options[dupIdx]).formplusDuplicate, true);
+    assertEqual('la copie référence sa source', JSON.parse(sectionsState.options[dupIdx]).formplusSource, 12);
+    assertEqual('la copie est publiée sous la clé existante (pas de republication manuelle)', JSON.parse(sectionsState.shareOptions[dupIdx]), { publish: true, form: true });
+
+    // Recoller EXACTEMENT le même lien : on garde la copie déjà créée, pas de duplication en double.
+    const callsBefore = calls.length;
+    await generate();
+    await tick();
+    assertEqual('même copie réutilisée au second collage', state.currentFormSection?.id, dupVsId);
+    assertEqual('aucune nouvelle section créée', calls.slice(callsBefore).flatMap(a => a).some(a => a[0] === 'CreateViewSection'), false);
   });
 
   await group('onSubmit : construit les bons champs par type et par table', async () => {

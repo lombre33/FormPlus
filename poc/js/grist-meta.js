@@ -122,6 +122,64 @@ export async function ensureChoiceField(mainTableId, formSectionId, sourceTable,
   return hiddenColId;
 }
 
+// Duplique un formulaire natif déjà publié en une nouvelle section, sur la MÊME page : une clé
+// de partage porte sur la PAGE (_grist_Pages.shareRef), jamais sur une section précise (voir
+// docs/01-etude-comparative.md, "toutes les sections d'une même page appartiennent au même
+// partage"). Poser shareOptions.publish/form sur la nouvelle section suffit donc à la rendre
+// utilisable tout de suite sous la clé déjà existante : ni republication, ni nouvelle clé,
+// exactement le mécanisme déjà utilisé par ensureTableGate pour ouvrir une AUTRE table. Mêmes
+// colonnes, même ordre (parentPos) : les réponses continuent d'atterrir exactement là où le
+// concepteur les attendait déjà. Le formulaire source n'est JAMAIS modifié : uniquement des
+// lectures dessus, toute écriture vise la section nouvellement créée.
+export async function duplicateFormSection(sourceVsId) {
+  const sections = await fetchMeta('_grist_Views_section');
+  const srcIdx = sections.id.indexOf(sourceVsId);
+  if (srcIdx < 0) throw new Error('Formulaire source introuvable dans ce document.');
+  const viewRef = sections.parentId[srcIdx];
+  const tableRef = sections.tableRef[srcIdx];
+  const tableId = await tableIdOfRef(tableRef);
+  if (!tableId) throw new Error('Table du formulaire source introuvable.');
+
+  const before = await fetchMeta('_grist_Views_section');
+  await grist.docApi.applyUserActions([['CreateViewSection', tableRef, viewRef, 'form', null, tableId]]);
+  const after = await fetchMeta('_grist_Views_section');
+  const newVsId = after.id.find(id => !before.id.includes(id));
+  if (newVsId == null) throw new Error('Section dupliquée introuvable après sa création.');
+
+  // CreateViewSection peuple automatiquement la nouvelle section avec un champ par colonne de la
+  // table (comportement natif de Grist, vérifié sur un vrai document, jamais documenté par
+  // ailleurs dans ce dépôt) : on la vide d'abord, sinon chaque colonne se retrouve en double une
+  // fois les champs du formulaire source recopiés ci-dessous.
+  const fields = await fetchMeta('_grist_Views_section_field');
+  const autoFieldIds = [];
+  const srcFields = [];
+  for (let i = 0; i < fields.id.length; i++) {
+    if (fields.parentId[i] === newVsId) autoFieldIds.push(fields.id[i]);
+    if (fields.parentId[i] === sourceVsId) {
+      srcFields.push({ colRef: fields.colRef[i], widgetOptions: fields.widgetOptions[i], parentPos: fields.parentPos ? fields.parentPos[i] : 0 });
+    }
+  }
+  if (autoFieldIds.length) {
+    await grist.docApi.applyUserActions(autoFieldIds.map(id => ['RemoveRecord', '_grist_Views_section_field', id]));
+  }
+  srcFields.sort((a, b) => (a.parentPos || 0) - (b.parentPos || 0));
+  if (srcFields.length) {
+    await grist.docApi.applyUserActions(srcFields.map(f => (
+      ['AddRecord', '_grist_Views_section_field', null, { parentId: newVsId, colRef: f.colRef, widgetOptions: f.widgetOptions }]
+    )));
+  }
+
+  // « formplusDuplicate » marque cette section comme une copie gérée par FormPlus : ignorée par
+  // populateFormPicker (jamais proposée comme SOURCE d'une autre duplication) et par nous-mêmes
+  // si on la retrouve un jour dans les métadonnées. shareOptions la rend utilisable tout de suite.
+  await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section', newVsId, {
+    shareOptions: JSON.stringify({ publish: true, form: true }),
+    options: JSON.stringify({ formplusDuplicate: true, formplusSource: sourceVsId }),
+  }]]);
+
+  return newVsId;
+}
+
 export async function findViewRefForSection(vsId) {
   // La clé accordée par le formulaire natif porte sur sa TABLE, pas sur sa page : elle vaut
   // pour tout le document (voir ACLRulesReader._shareTableForForm, aclFormula ne référence que

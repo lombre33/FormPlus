@@ -6,18 +6,31 @@ import { diag } from './diag.js';
 import {
   fetchMeta, getTableRef, tableIdOfRef, columnOptions,
   findExistingShareKey, ensureTableGate, ensureChoiceField,
-  findViewRefForSection, persistOptions,
+  findViewRefForSection, persistOptions, duplicateFormSection,
 } from './grist-meta.js';
 import { state } from './state.js';
 import { renderFill } from './respond.js';
 
 // ───────────────────────── Configuration (concepteur) ─────────────────────────
+// Exactement 2 façons de commencer, jamais plus :
+// 1. « Créer un formulaire natif vide » (createEmptyForm, plus bas) : table + section vides,
+//    pour un concepteur qui n'a encore rien.
+// 2. Choisir dans la liste ou coller le lien d'un formulaire natif déjà publié (generate,
+//    ci-dessous) : FormPlus en crée systématiquement une COPIE (duplicateFormSection, dans
+//    grist-meta.js) et ne travaille plus que sur cette copie. Le formulaire natif du concepteur
+//    n'est jamais modifié, qu'il soit tout juste créé (voie 1) ou déjà rempli depuis longtemps.
+// Ces deux voies convergent donc sur le même état ensuite : state.currentFormSection pointe
+// toujours vers une section que FormPlus a lui-même créée.
 
 export async function saveConfig(publicUrl, widgetPage) {
   const saved = {
     formLink: state.currentLink ? $('link').value.trim() : state.options?.formLink,
     shareKey: state.currentLink?.key ?? state.options?.shareKey,
     vsId: state.currentLink?.vsId ?? state.options?.vsId,
+    // Le formulaire natif réellement collé/choisi par le concepteur, avant duplication : sert à
+    // reconnaître un nouveau collage du MÊME lien (on garde alors la copie déjà créée, voir
+    // generate()) plutôt que d'en créer une de plus à chaque fois.
+    sourceVsId: state.currentLink?.sourceVsId ?? state.options?.sourceVsId,
     viewRef: widgetPage,
     publicUrl,
     questions: state.cfgQuestions,
@@ -43,26 +56,46 @@ export async function saveConfig(publicUrl, widgetPage) {
 
 export async function generate() {
   const msg = $('cfg-msg');
-  const link = parseFormLink($('link').value);
-  if (!link) { msg.innerHTML = '<span class="err">Lien non reconnu. Il doit contenir <code>/forms/&lt;clé&gt;/&lt;numéro&gt;</code>.</span>'; return; }
-  msg.textContent = 'Recherche de la page du widget…';
+  const pastedLink = parseFormLink($('link').value);
+  if (!pastedLink) { msg.innerHTML = '<span class="err">Lien non reconnu. Il doit contenir <code>/forms/&lt;clé&gt;/&lt;numéro&gt;</code>.</span>'; return; }
+  msg.textContent = 'Recherche de la page du formulaire…';
   let formPage = null, widgetPage = null, self = null, samePage = null, onFormPage = 0, ambiguous = false;
-  try { ({ formPage, widgetPage, self, samePage, onFormPage, ambiguous } = await findViewRefForSection(link.vsId)); }
+  try { ({ formPage, widgetPage, self, samePage, onFormPage, ambiguous } = await findViewRefForSection(pastedLink.vsId)); }
   catch (e) { msg.innerHTML = `<span class="err">Impossible de lire les métadonnées du document (${esc(e.message)}). Le widget a-t-il l'accès complet ?</span>`; return; }
   if (!formPage) { msg.innerHTML = '<span class="err">Cette section de formulaire n\'existe pas dans ce document. Le lien vient-il bien d\'ici ?</span>'; return; }
+
+  // FormPlus ne travaille jamais directement sur un formulaire natif qu'il n'a pas lui-même
+  // créé. Même lien déjà collé auparavant (sourceVsId inchangé) : on garde la copie déjà faite,
+  // avec ses questions. Lien nouveau ou différent : on en duplique un exemplaire (même colonnes,
+  // même page, donc même clé de partage, sans republication manuelle), et on repart d'une liste
+  // de questions vide, comme pour tout changement de formulaire aujourd'hui. Les configurations
+  // enregistrées avant cette fonctionnalité (sourceVsId absent) sont préservées telles quelles :
+  // pas de duplication rétroactive tant que le même lien continue d'être utilisé.
+  const knownSource = state.options?.sourceVsId ?? state.options?.vsId;
+  const isSameSource = knownSource === pastedLink.vsId;
+  let vsId;
+  if (isSameSource && state.options?.vsId) {
+    vsId = state.options.vsId;
+  } else {
+    msg.textContent = "Duplication du formulaire (le vôtre n'est jamais modifié)…";
+    try { vsId = await duplicateFormSection(pastedLink.vsId); }
+    catch (e) { msg.innerHTML = `<span class="err">Impossible de dupliquer ce formulaire (${esc(e.message)}).</span>`; return; }
+  }
+  const link = { ...pastedLink, vsId, sourceVsId: pastedLink.vsId };
   state.currentLink = link;
   const sections = await fetchMeta('_grist_Views_section');
-  const idx = sections.id.indexOf(link.vsId);
-  state.currentFormSection = { id: link.vsId, viewRef: formPage, tableRef: sections.tableRef[idx] };
+  const idx = sections.id.indexOf(vsId);
+  state.currentFormSection = { id: vsId, viewRef: formPage, tableRef: sections.tableRef[idx] };
   state.mainTableIdCache = await tableIdOfRef(state.currentFormSection.tableRef);
   // On garde les questions déjà enregistrées si ce lien était déjà configuré.
-  state.cfgQuestions = (state.options?.vsId === link.vsId) ? migrateLegacy(state.options) : [];
+  state.cfgQuestions = isSameSource ? migrateLegacy(state.options) : [];
   state.stayOnConfig = true;
   const publicUrl = buildPublicUrl(link, widgetPage);
   const persisted = await saveConfig(publicUrl, widgetPage);
+  const dupNote = isSameSource ? '' : 'Copie du formulaire créée pour FormPlus, le vôtre est inchangé. ';
   msg.innerHTML = persisted
-    ? '<span class="ok">Configuration enregistrée dans le document.</span>'
-    : '<span class="err">Configuration posée dans cette session seulement : cliquez sur <strong>Enregistrer</strong> dans la barre du widget pour la conserver.</span>';
+    ? `<span class="ok">${dupNote}Configuration enregistrée dans le document.</span>`
+    : `<span class="err">${dupNote}Configuration posée dans cette session seulement : cliquez sur <strong>Enregistrer</strong> dans la barre du widget pour la conserver.</span>`;
   $('public-url').textContent = publicUrl;
   $('result').classList.remove('hidden');
   $('qrPanel').classList.add('hidden'); // évite d'afficher un QR code périmé après une nouvelle adresse
@@ -590,10 +623,13 @@ export async function saveQuestionFromCard(id, body, existing, combos) {
 // Bascule un champ natif compatible (Texte, Nombre, Date, Oui/non, Choix, Choix multiples ou
 // Référence) vers une question FormPlus éditable dans la même liste : le masque côté formulaire
 // natif (formIsHidden, même mécanisme que pour nos propres colonnes techniques) et crée
-// l'entrée correspondante. À sens unique : une fois importé, le champ se gère depuis FormPlus ;
-// le rendre à nouveau visible côté Grist natif ne resynchronise pas automatiquement les
-// libellés ou réglages dans l'autre sens (seul « Réinitialiser les questions » sait revenir en
-// arrière, en redémasquant précisément les champs qu'il a lui-même importés).
+// l'entrée correspondante. state.currentFormSection est TOUJOURS la copie créée par
+// duplicateFormSection (voir generate(), plus haut), jamais le formulaire d'origine du
+// concepteur : masquer un champ ici ne touche donc que cette copie. À sens unique : une fois
+// importé, le champ se gère depuis FormPlus ; le rendre à nouveau visible sur la copie ne
+// resynchronise pas automatiquement les libellés ou réglages dans l'autre sens (seul
+// « Réinitialiser les questions » sait revenir en arrière, en redémasquant précisément les
+// champs qu'il a lui-même importés).
 export async function importNativeFields() {
   const msg = $('import-msg');
   msg.textContent = 'Lecture du formulaire natif…';
@@ -736,11 +772,15 @@ export async function showConfig() {
   populateFormPicker();
   if (state.options?.formLink) {
     $('link').value = state.options.formLink;
-    state.currentLink = parseFormLink(state.options.formLink);
+    // state.options.vsId est la section que FormPlus gère réellement (sa copie, voir generate()
+    // dans grist-meta.js) : jamais ré-déduite du lien collé, qui pointe vers le formulaire
+    // d'origine du concepteur et peut différer du vsId depuis l'ajout de la duplication.
+    const parsed = parseFormLink(state.options.formLink);
+    state.currentLink = parsed ? { ...parsed, vsId: state.options.vsId, sourceVsId: state.options.sourceVsId ?? state.options.vsId } : null;
     state.cfgQuestions = migrateLegacy(state.options);
     fillAppearanceFields(state.options);
     if (state.options.publicUrl) { $('public-url').textContent = state.options.publicUrl; $('result').classList.remove('hidden'); }
-    if (state.currentLink) {
+    if (state.currentLink?.vsId != null) {
       const sections = await fetchMeta('_grist_Views_section');
       const idx = sections.id.indexOf(state.currentLink.vsId);
       if (idx >= 0) {
@@ -773,6 +813,10 @@ export async function populateFormPicker() {
       if (sections.parentKey[i] !== 'form') continue;
       const tableId = tableIdByRef[sections.tableRef[i]];
       if (!tableId || tableId.startsWith('_grist_')) continue;
+      // Jamais nos propres copies (duplicateFormSection) : ce sont des formulaires GÉRÉS par
+      // FormPlus, jamais une source à dupliquer à nouveau.
+      let secOpt = {}; try { secOpt = JSON.parse(sections.options[i] || '{}') || {}; } catch (e) { /* ignore */ }
+      if (secOpt.formplusDuplicate) continue;
       let opt = {}; try { opt = JSON.parse(sections.shareOptions[i] || '{}') || {}; } catch (e) { /* ignore */ }
       items.push({ vsId: sections.id[i], viewRef: sections.parentId[i], tableId, published: !!(opt.publish && opt.form) });
     }
