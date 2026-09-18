@@ -1,4 +1,4 @@
-import { $, esc, uid, cssEsc, show } from './dom.js';
+import { $, esc, uid, show } from './dom.js';
 import { ICONS } from './icons.js';
 import { KINDS, LAYOUT_KINDS, SINGLE_CHOICE_KINDS } from './kinds.js';
 import { parseFormLink, buildPublicUrl, migrateLegacy, myPageFromReferrer, hostOrgFromReferrer, normalizeCondition } from './links.js';
@@ -321,27 +321,22 @@ export function questionSummary(q) {
   return parts.join(' · ');
 }
 
+// Édition directe : chaque carte affiche TOUJOURS son formulaire de réglages (voir
+// renderCardBody), plus d'accordéon à déplier — l'esprit "ce que vous voyez est ce que vous
+// obtenez" de la maquette. Poignée de glisser-déposer et flèches restent dans une petite barre
+// au-dessus de la carte (visible au survol via le CSS), le corps de la carte étant lui-même
+// stylé pour ressembler au rendu que verra le répondant (voir widget.css, ".qcard").
 export function cardShell(q, i, total, isNew) {
   const id = isNew ? '__new__' : q.id;
-  const expanded = state.expandedId === id;
-  const icon = isNew ? ICONS.plus : (KINDS.find(k => k.id === q.kind)?.icon || ICONS.text);
-  const label = isNew ? 'Nouvelle question' : (q.label || (q?.kind === 'section' ? '(titre de section)' : q?.kind === 'info' ? "(bloc d'info)" : '(sans titre)'));
-  const meta = isNew ? '' : questionSummary(q);
-  return `<div class="qcard ${expanded ? 'expanded' : ''}" data-id="${id}" data-kind="${isNew ? '' : q.kind}">
-    <div class="qcard-row" data-toggle="${id}">
-      ${!isNew ? `<span class="qgrip" draggable="true" data-qid="${id}" title="Glisser pour réordonner">${ICONS.grip}</span>` : ''}
-      <span class="qicon">${icon}</span>
-      <div class="qcard-main">
-        <div class="qcard-label">${esc(label)}</div>
-        ${meta ? `<div class="qcard-meta">${esc(meta)}</div>` : ''}
-      </div>
-      ${!isNew ? `<div class="qcard-order">
+  return `<div class="qcard" data-id="${id}" data-kind="${isNew ? '' : q.kind}">
+    <div class="qcard-toolbar">
+      ${!isNew ? `<span class="qgrip" draggable="true" data-qid="${id}" title="Glisser pour réordonner">${ICONS.grip}</span>
+      <div class="qcard-order">
         <button type="button" class="icon-btn" data-move="up" data-qid="${id}" ${i === 0 ? 'disabled' : ''} title="Monter">${ICONS.arrowUp}</button>
         <button type="button" class="icon-btn" data-move="down" data-qid="${id}" ${i === total - 1 ? 'disabled' : ''} title="Descendre">${ICONS.arrowDown}</button>
-      </div>` : ''}
-      <span class="qcard-chevron">${ICONS.chevronDown}</span>
+      </div>` : `<span class="qcard-new-flag">${ICONS.plus}<span>Nouvelle question</span></span>`}
     </div>
-    <div class="qcard-body hidden"></div>
+    <div class="qcard-body"></div>
   </div>`;
 }
 
@@ -352,17 +347,18 @@ export function renderQuestionList() {
   if (state.expandedId === '__new__') html += cardShell(null, total, total, true);
   list.innerHTML = html;
   $('qlist-empty').classList.toggle('hidden', total > 0 || state.expandedId === '__new__');
-  if (state.expandedId) {
-    const body = list.querySelector(`.qcard[data-id="${cssEsc(state.expandedId)}"] .qcard-body`);
-    if (body) { body.classList.remove('hidden'); renderCardBody(state.expandedId, body); }
-  }
+  // Chaque carte peuple son propre formulaire (table/colonnes, conditions…) de façon
+  // indépendante et silencieuse : un échec sur une carte (environnement inhabituel) n'empêche
+  // jamais les autres de s'afficher, et ne fait jamais planter la liste.
+  [...list.children].forEach(card => {
+    const body = card.querySelector('.qcard-body');
+    if (body) renderCardBody(card.dataset.id, body).catch(() => {});
+  });
 }
 
 $('qlist').addEventListener('click', (e) => {
   const moveEl = e.target.closest('[data-move]');
-  if (moveEl) { e.stopPropagation(); moveQuestion(moveEl.dataset.qid, moveEl.dataset.move); return; }
-  const toggleEl = e.target.closest('[data-toggle]');
-  if (toggleEl) { toggleCard(toggleEl.dataset.toggle); }
+  if (moveEl) { e.stopPropagation(); moveQuestion(moveEl.dataset.qid, moveEl.dataset.move); }
 });
 
 // Glisser-déposer pour réordonner, en plus des flèches (gardées pour le clavier et les lecteurs
@@ -397,14 +393,25 @@ $('qlist').addEventListener('drop', async (e) => {
   await saveConfig(state.options.publicUrl, state.options.viewRef);
   renderQuestionList();
 });
-$('qadd').addEventListener('click', () => { state.expandedId = '__new__'; renderQuestionList(); $('qlist').lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); });
+$('qadd').addEventListener('click', () => {
+  state.expandedId = '__new__';
+  renderQuestionList();
+  const card = $('qlist').lastElementChild;
+  card?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  // Le corps de la carte se peuple de façon asynchrone (renderCardBody) : le champ titre n'existe
+  // pas encore au moment de ce clic, d'où cette attente courte avant de lui donner le focus —
+  // pouvoir taper le titre tout de suite est le principal geste attendu juste après "Ajouter une
+  // question" en édition directe.
+  let tries = 0;
+  const tryFocus = () => {
+    const label = card?.querySelector('.qf-label');
+    if (label) { label.focus(); return; }
+    if (++tries < 20) setTimeout(tryFocus, 50);
+  };
+  setTimeout(tryFocus, 50);
+});
 $('qimport').addEventListener('click', importNativeFields);
 $('qreset').addEventListener('click', resetQuestions);
-
-export function toggleCard(id) {
-  state.expandedId = (state.expandedId === id) ? null : id;
-  renderQuestionList();
-}
 
 export async function moveQuestion(id, dir) {
   const i = state.cfgQuestions.findIndex(q => q.id === id);
@@ -471,7 +478,8 @@ export function mountCombo(host, placeholder) {
 export async function renderCardBody(id, body) {
   const isNew = id === '__new__';
   const q = isNew ? null : state.cfgQuestions.find(x => x.id === id);
-  const tables = await grist.docApi.listTables();
+  let tables = [];
+  try { tables = await grist.docApi.listTables(); } catch (e) { tables = []; }
   const tableItems = tables.map(t => ({ value: t, label: t }));
   const condCandidates = choiceQuestionsBefore(isNew ? null : id);
   const tableOverrideOpen = !!(q && q.kind !== 'choice' && q.writeTable && q.writeTable !== state.mainTableIdCache);
@@ -479,15 +487,15 @@ export async function renderCardBody(id, body) {
 
   const displayMode = q?.displayMode || 'dropdown';
   body.innerHTML = `
-    <div class="qtype-toggle">
-      ${KINDS.map(k => `<button type="button" class="qtype-btn" data-kind="${k.id}">${k.icon}<span>${k.label}</span></button>`).join('')}
-    </div>
-    <label for="qf-label-${id}">Intitulé</label>
-    <input id="qf-label-${id}" class="qf-label" type="text" placeholder="Votre question" value="${esc(q?.label || '')}">
-    <label for="qf-desc-${id}" class="qf-desc-label-short">Description</label>
-    <input id="qf-desc-${id}" class="qf-desc" type="text" placeholder="Facultatif" value="${esc(q?.description || '')}">
-    <label for="qf-desc-long-${id}" class="qf-desc-label-long hidden">Contenu du bloc</label>
+    <label for="qf-label-${id}" class="visually-hidden">Intitulé</label>
+    <input id="qf-label-${id}" class="qf-label" type="text" placeholder="Question sans titre" value="${esc(q?.label || '')}">
+    <label for="qf-desc-${id}" class="qf-desc-label-short visually-hidden">Description</label>
+    <input id="qf-desc-${id}" class="qf-desc" type="text" placeholder="Description (facultatif)" value="${esc(q?.description || '')}">
+    <label for="qf-desc-long-${id}" class="qf-desc-label-long hidden visually-hidden">Contenu du bloc</label>
     <textarea id="qf-desc-long-${id}" class="qf-desc-long hidden" rows="4" placeholder="Texte affiché une fois le bloc déplié">${esc(q?.description || '')}</textarea>
+    <div class="qtype-toggle">
+      ${KINDS.map(k => `<button type="button" class="qtype-btn" data-kind="${k.id}" title="${esc(k.label)}">${k.icon}<span>${k.label}</span></button>`).join('')}
+    </div>
     <div class="qf-choice-fields hidden">
       <label>Table source</label><div class="combo-host" data-combo="srcTable"></div>
       <label>Colonne affichée (libellé)</label><div class="combo-host" data-combo="srcCol"></div>
@@ -522,9 +530,9 @@ export async function renderCardBody(id, body) {
       <div class="qcard-footer-left">
         ${!isNew ? `<button type="button" class="icon-btn" data-dup title="Dupliquer">${ICONS.copy}</button><button type="button" class="icon-btn danger" data-del title="Supprimer">${ICONS.trash}</button>` : ''}
       </div>
-      <div class="qcard-footer-right">
+      <div class="qcard-footer-right ${isNew ? '' : 'hidden'}">
         <button type="button" class="qf-cancel">Annuler</button>
-        <button type="button" class="qf-save primary">Enregistrer</button>
+        <button type="button" class="qf-save primary hidden">Enregistrer</button>
       </div>
     </div>`;
 
@@ -650,6 +658,20 @@ export async function renderCardBody(id, body) {
 
   body.querySelector('.qf-cancel').addEventListener('click', () => { state.expandedId = null; renderQuestionList(); });
   body.querySelector('.qf-save').addEventListener('click', () => saveQuestionFromCard(id, body, q, combos));
+
+  // Édition directe : quitter le titre, la description ou les options, ou cocher "Obligatoire",
+  // enregistre tout seul (pas de bouton). rerender=isNew : une question qui existe déjà n'a pas
+  // besoin de reconstruire toute la liste pour un simple changement de texte, seule une toute
+  // nouvelle question a besoin de ce passage pour quitter l'emplacement "__new__". Les sélecteurs
+  // de type/table/condition restent volontairement en dehors de cet auto-enregistrement : une
+  // nouvelle question ne doit se créer qu'une fois qu'elle a un contenu, jamais au simple survol
+  // des options du sélecteur de type.
+  const autoSave = () => saveQuestionFromCard(id, body, q, combos, { rerender: isNew });
+  ['.qf-label', '.qf-desc', '.qf-desc-long', '.qf-choices'].forEach(sel => {
+    body.querySelector(sel).addEventListener('blur', autoSave);
+  });
+  body.querySelector('.qf-required').addEventListener('change', autoSave);
+
   body.querySelector('[data-del]')?.addEventListener('click', async () => {
     state.cfgQuestions = state.cfgQuestions.filter(x => x.id !== id);
     state.expandedId = null;
@@ -666,13 +688,36 @@ export async function renderCardBody(id, body) {
   });
 }
 
-export async function saveQuestionFromCard(id, body, existing, combos) {
+// Remplace l'entrée existante EN PLACE (même position dans la liste) plutôt que de la retirer
+// et de la rajouter à la fin : indispensable maintenant que l'enregistrement se déclenche tout
+// seul (au moindre blur) plutôt qu'une seule fois via un bouton — sinon chaque frappe déplacerait
+// la question en cours d'édition à la fin de la liste.
+function upsertQuestion(q) {
+  const idx = state.cfgQuestions.findIndex(x => x.id === q.id);
+  state.cfgQuestions = idx >= 0
+    ? state.cfgQuestions.map(x => (x.id === q.id ? q : x))
+    : [...state.cfgQuestions, q];
+}
+
+// Édition directe : chaque champ s'enregistre tout seul (voir les écouteurs "blur"/"change" dans
+// renderCardBody), sans bouton Enregistrer. rerender=false (le cas courant, une question déjà
+// existante) évite de reconstruire toute la liste à chaque frappe — la carte affiche déjà ce que
+// l'utilisateur vient de taper, inutile de la redessiner. rerender=true (question tout juste créée,
+// ou passage par le bouton .qf-save resté câblé pour compatibilité) reconstruit la liste, pour
+// faire apparaître la nouvelle carte et réinitialiser l'emplacement "nouvelle question".
+export async function saveQuestionFromCard(id, body, existing, combos, { rerender = true } = {}) {
   const msg = body.querySelector('.qf-msg');
   const kind = body.querySelector('.qtype-btn.active')?.dataset.kind || 'text';
   const label = body.querySelector('.qf-label').value.trim() ||
     (kind === 'choice' ? 'Votre choix' : kind === 'section' ? 'Section' : kind === 'info' ? "Bloc d'info" : 'Réponse');
   const description = (kind === 'info' ? body.querySelector('.qf-desc-long') : body.querySelector('.qf-desc')).value.trim();
   const condition = body.getCondition ? body.getCondition() : null;
+
+  const done = () => {
+    if (rerender) { state.expandedId = null; renderQuestionList(); return; }
+    msg.innerHTML = '<span class="ok">Enregistré.</span>';
+    setTimeout(() => { if (msg.isConnected) msg.textContent = ''; }, 1500);
+  };
 
   try {
     msg.textContent = 'Enregistrement…';
@@ -681,11 +726,10 @@ export async function saveQuestionFromCard(id, body, existing, combos) {
 
     if (LAYOUT_KINDS.has(kind)) {
       // Titre de section / bloc d'info : ne collecte rien, pas de destination ni d'obligatoire.
-      state.cfgQuestions = [...state.cfgQuestions.filter(x => x.id !== q.id), q];
+      upsertQuestion(q);
       await saveConfig(state.options.publicUrl, state.options.viewRef);
-      state.expandedId = null;
-      renderQuestionList();
-      return;
+      done();
+      return q;
     }
 
     q.required = body.querySelector('.qf-required').checked;
@@ -710,10 +754,10 @@ export async function saveQuestionFromCard(id, body, existing, combos) {
       if (!q.writeTable || !q.writeCol) { msg.innerHTML = '<span class="err">Choisissez la colonne où enregistrer la réponse.</span>'; return; }
       if (q.writeTable !== mainTableId) await ensureTableGate(q.writeTable, state.currentFormSection.viewRef);
     }
-    state.cfgQuestions = [...state.cfgQuestions.filter(x => x.id !== q.id), q];
+    upsertQuestion(q);
     await saveConfig(state.options.publicUrl, state.options.viewRef);
-    state.expandedId = null;
-    renderQuestionList();
+    done();
+    return q;
   } catch (e) {
     msg.innerHTML = `<span class="err">Erreur : ${esc(e.message)}</span>`;
   }
