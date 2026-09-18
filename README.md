@@ -23,6 +23,7 @@ Objectif : dépasser les limites du formulaire natif de Grist avec une interface
 | `poc/poc_transport1.py`, `poc/public-form.html`, `poc/README-poc.md` | Script de test en ligne de commande, page de secours hors-Grist, mode d'emploi |
 | `index.html` | Page d'accueil GitHub Pages avec accès à la page de test |
 | `.github/workflows/tests.yml` | Relance la suite de tests du widget (181+ vérifications) à chaque push, voir plus bas |
+| `tests/` | Point d'entrée de tout ce qui touche aux tests : suite hors ligne, environnement Grist auto-hébergé pour tester en conditions réelles |
 
 Le widget lui-même n'a ni build ni dépendance à installer : `poc/js/` est chargé par le
 navigateur en modules ES natifs (`<script type="module">`), servis tels quels par GitHub Pages.
@@ -73,6 +74,11 @@ aucun document Grist réel touché). Deux façons de la lancer :
 - En ligne de commande (Chromium headless via Playwright) : `.github/workflows/tests.yml` la
   relance à chaque push et pull request. Pour la lancer en local, `npm install` dans
   `.github/scripts/` puis `node .github/scripts/run-widget-tests.js` depuis la racine du dépôt.
+
+Cette suite ne touche jamais un vrai document Grist. Pour tester le widget contre un Grist réel
+(installation en widget personnalisé, publication, écriture anonyme), voir
+[`tests/`](tests/README.md), qui centralise aussi un environnement Grist auto-hébergé prêt à
+l'emploi (`tests/grist-env/`).
 
 ## Licence
 
