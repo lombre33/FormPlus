@@ -13,4 +13,5 @@ export const state = {
   expandedId: null,    // id de la carte actuellement dépliée, '__new__' pour un ajout, ou null
   formPickerItems: [],
   dragQId: null,
+  startView: 'choices', // vue affichée sur l'écran de démarrage : choices | existing | scratch | link
 };

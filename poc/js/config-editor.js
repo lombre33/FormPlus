@@ -167,7 +167,16 @@ $('edit').addEventListener('click', showConfig);
 // méthode de l'API plugin n'expose la clé de partage secrète que "Publier" génère (_grist_Shares) ;
 // il n'y a donc pas moyen d'automatiser cette dernière étape sans passer par un compte propriétaire
 // en dehors du widget (voir docs/01-etude-comparative.md).
-$('scratchToggle').addEventListener('click', () => $('scratchPanel').classList.toggle('hidden'));
+// ───────────────────────── Démarrage : tuiles + panneau déplié, un seul à la fois ─────────────────────────
+const START_VIEWS = { choices: 'start-choices', existing: 'start-panel-existing', scratch: 'start-panel-scratch', link: 'start-panel-link' };
+export function showStartView(view) {
+  state.startView = view;
+  Object.entries(START_VIEWS).forEach(([v, id]) => $(id).classList.toggle('hidden', v !== view));
+}
+$('step1').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-startgo]');
+  if (btn) showStartView(btn.dataset.startgo);
+});
 $('scratchCreate').addEventListener('click', createEmptyForm);
 
 export async function createEmptyForm() {
@@ -769,6 +778,7 @@ export function fillAppearanceFields(opts) {
 
 export async function showConfig() {
   show('config');
+  showStartView('choices');
   populateFormPicker();
   if (state.options?.formLink) {
     $('link').value = state.options.formLink;

@@ -16,7 +16,7 @@ $('qadd').innerHTML = ICONS.plus + '<span>Ajouter une question</span>';
 $('qimport').innerHTML = ICONS.download + '<span>Importer les champs du formulaire natif</span>';
 $('qreset').innerHTML = ICONS.refresh + '<span>Réinitialiser les questions</span>';
 $('qrToggle').innerHTML = ICONS.qrcode;
-$('scratchToggle').innerHTML = ICONS.plus + '<span>Je n\'ai pas encore de formulaire, en créer un vide</span>';
+document.querySelectorAll('.start-tile-icon[data-icon]').forEach(el => { el.innerHTML = ICONS[el.dataset.icon] || ''; });
 
 // applyBranding dépend de `state.options`, pas encore chargé à ce stade du démarrage : appelée
 // séparément, jamais depuis applyTheme lui-même.

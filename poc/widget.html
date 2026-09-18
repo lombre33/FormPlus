@@ -12,27 +12,48 @@
 
   <div id="config" class="hidden">
     <div class="card" id="step1">
-      <h2>Formulaire principal</h2>
-      <p class="muted">Deux façons de commencer : choisir ci-dessous un formulaire natif déjà publié dans ce document (FormPlus en crée une copie dédiée, sans jamais modifier l'original), ou en créer un vide juste en dessous si vous n'en avez pas encore.</p>
-      <label for="formPicker">Formulaire natif trouvé dans ce document</label>
-      <select id="formPicker"><option value="">Chargement…</option></select>
-      <p id="formPicker-msg" class="muted"></p>
-      <label for="link" style="margin-top:16px">Ou coller un lien (bouton « Copier le lien » du formulaire)</label>
-      <div class="row">
-        <input id="link" type="url" placeholder="https://grist.numerique.gouv.fr/o/mon-equipe/forms/CLE/12">
-        <button id="paste" type="button" title="Lire le presse-papiers">Coller</button>
-        <button id="generate" type="button" class="primary">Générer l'adresse</button>
-      </div>
-      <p id="cfg-msg" class="muted"></p>
-      <div style="margin-top:14px">
-        <button type="button" class="qf-link" id="scratchToggle"></button>
-        <div id="scratchPanel" class="hidden" style="margin-top:10px">
-          <label for="scratchTable">Nom de la table qui recevra les réponses</label>
-          <input id="scratchTable" type="text" placeholder="Reponses">
-          <p class="muted" style="margin-top:4px">Une table de ce nom déjà existante sera réutilisée, sinon elle est créée.</p>
-          <button id="scratchCreate" type="button" class="primary" style="margin-top:10px">Créer un formulaire natif vide</button>
-          <p id="scratch-msg" class="muted"></p>
+      <div id="start-choices">
+        <h2>Comment voulez-vous démarrer ?</h2>
+        <div class="start-tiles">
+          <button type="button" class="start-tile" data-startgo="existing">
+            <span class="start-tile-icon" data-icon="copy"></span>
+            <span class="start-tile-title">Repartir d'un formulaire existant</span>
+            <span class="start-tile-desc">Utiliser un formulaire natif déjà publié dans ce document. FormPlus en crée une copie dédiée, sans jamais modifier l'original.</span>
+          </button>
+          <button type="button" class="start-tile" data-startgo="scratch">
+            <span class="start-tile-icon" data-icon="plus"></span>
+            <span class="start-tile-title">Partir de zéro</span>
+            <span class="start-tile-desc">Créer un formulaire natif vide, juste pour obtenir son adresse de partage.</span>
+          </button>
         </div>
+        <button type="button" class="qf-link start-alt" data-startgo="link">Vous avez déjà un lien de formulaire ?</button>
+      </div>
+
+      <div id="start-panel-existing" class="hidden">
+        <button type="button" class="qf-link start-back" data-startgo="choices">‹ Changer de méthode</button>
+        <label for="formPicker">Formulaire natif trouvé dans ce document</label>
+        <select id="formPicker"><option value="">Chargement…</option></select>
+        <p id="formPicker-msg" class="muted"></p>
+      </div>
+
+      <div id="start-panel-scratch" class="hidden">
+        <button type="button" class="qf-link start-back" data-startgo="choices">‹ Changer de méthode</button>
+        <label for="scratchTable">Nom de la table de réponses par défaut</label>
+        <input id="scratchTable" type="text" value="Réponses" placeholder="Réponses">
+        <p class="muted" style="margin-top:4px">C'est la table qui recevra les réponses de ce formulaire. Si une table de ce nom existe déjà, elle est réutilisée ; sinon FormPlus la crée pour vous.</p>
+        <button id="scratchCreate" type="button" class="primary" style="margin-top:10px">Créer un formulaire natif vide</button>
+        <p id="scratch-msg" class="muted"></p>
+      </div>
+
+      <div id="start-panel-link" class="hidden">
+        <button type="button" class="qf-link start-back" data-startgo="choices">‹ Changer de méthode</button>
+        <label for="link">Lien du formulaire (bouton « Copier le lien » du formulaire)</label>
+        <div class="row">
+          <input id="link" type="url" placeholder="https://grist.numerique.gouv.fr/o/mon-equipe/forms/CLE/12">
+          <button id="paste" type="button" title="Lire le presse-papiers">Coller</button>
+          <button id="generate" type="button" class="primary">Générer l'adresse</button>
+        </div>
+        <p id="cfg-msg" class="muted"></p>
       </div>
     </div>
 
