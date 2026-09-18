@@ -69,62 +69,73 @@
       </div>
     </div>
 
-    <div class="card hidden" id="result">
-      <h2>Adresse à diffuser</h2>
-      <p class="muted">Sur le domaine Grist, sans compte, sans règle d'accès. Le répondant ne peut lire aucune réponse.
-        <button type="button" class="qf-link" id="change-source-btn" style="margin-left:4px">Changer de formulaire source</button>
-      </p>
-      <div class="url" id="public-url"></div>
-      <div class="row" style="margin-top:10px">
-        <button id="copy" type="button" class="primary">Copier l'adresse</button>
-        <button id="open" type="button">Ouvrir dans un nouvel onglet</button>
-        <button id="done" type="button">Voir le formulaire</button>
-        <button id="qrToggle" type="button" class="icon-btn" title="QR code"></button>
+    <div class="card hidden" id="editor">
+      <div class="tabbar">
+        <button type="button" class="tabbtn" data-etab="questions">Questions</button>
+        <button type="button" class="tabbtn" data-etab="responses">Réponses</button>
+        <button type="button" class="tabbtn" data-etab="settings">Paramètres</button>
       </div>
-      <div id="qrPanel" class="hidden" style="margin-top:12px">
-        <div id="qrCanvas"></div>
+
+      <div id="tab-questions" class="tabpanel">
+        <p class="muted">En plus des champs du formulaire natif. Cliquez une question pour la régler.</p>
+        <div id="qlist"></div>
+        <p id="qlist-empty" class="empty-hint hidden">Aucune question supplémentaire pour l'instant.</p>
+        <button id="qadd" type="button" class="add-question-btn"></button>
         <div class="row" style="margin-top:10px">
-          <button id="qrDownload" type="button">Télécharger le QR code</button>
+          <button id="qimport" type="button" class="qf-link"></button>
+          <button id="qreset" type="button" class="qf-link"></button>
         </div>
+        <p id="import-msg" class="muted"></p>
       </div>
-      <p id="page-check" class="muted" style="margin-top:10px"></p>
-    </div>
 
-    <div class="card hidden" id="questions-card">
-      <h2>Questions supplémentaires</h2>
-      <p class="muted">En plus des champs du formulaire natif. Cliquez une question pour la régler.</p>
-      <div id="qlist"></div>
-      <p id="qlist-empty" class="empty-hint hidden">Aucune question supplémentaire pour l'instant.</p>
-      <button id="qadd" type="button" class="add-question-btn"></button>
-      <div class="row" style="margin-top:10px">
-        <button id="qimport" type="button" class="qf-link"></button>
-        <button id="qreset" type="button" class="qf-link"></button>
+      <div id="tab-responses" class="tabpanel hidden">
+        <div id="responses-summary" class="muted">Chargement…</div>
       </div>
-      <p id="import-msg" class="muted"></p>
-    </div>
 
-    <div class="card hidden" id="appearance-card">
-      <h2>Apparence et personnalisation</h2>
-      <p class="muted">Facultatif. Sans réglage, le formulaire garde le titre du formulaire natif et le thème sobre par défaut.</p>
-      <label for="opt-title">Titre du formulaire</label>
-      <input id="opt-title" type="text" placeholder="Repris du formulaire natif si laissé vide">
-      <label for="opt-desc">Description</label>
-      <input id="opt-desc" type="text" placeholder="Facultatif">
-      <label for="opt-logo">Logo ou image d'en-tête (URL)</label>
-      <input id="opt-logo" type="url" placeholder="https://…">
-      <label for="opt-accent">Couleur d'accent</label>
-      <div class="row">
-        <input id="opt-accent" type="color" value="#000091" style="flex:0 0 60px;padding:4px;height:38px">
-        <button id="opt-accent-reset" type="button">Réinitialiser la couleur</button>
+      <div id="tab-settings" class="tabpanel hidden">
+        <h3>Adresse à diffuser</h3>
+        <p class="muted">Sur le domaine Grist, sans compte, sans règle d'accès. Le répondant ne peut lire aucune réponse.
+          <button type="button" class="qf-link" id="change-source-btn" style="margin-left:4px">Changer de formulaire source</button>
+        </p>
+        <div class="url" id="public-url"></div>
+        <div class="row" style="margin-top:10px">
+          <button id="copy" type="button" class="primary">Copier l'adresse</button>
+          <button id="open" type="button">Ouvrir dans un nouvel onglet</button>
+          <button id="done" type="button">Voir le formulaire</button>
+          <button id="qrToggle" type="button" class="icon-btn" title="QR code"></button>
+        </div>
+        <div id="qrPanel" class="hidden" style="margin-top:12px">
+          <div id="qrCanvas"></div>
+          <div class="row" style="margin-top:10px">
+            <button id="qrDownload" type="button">Télécharger le QR code</button>
+          </div>
+        </div>
+        <p id="page-check" class="muted" style="margin-top:10px"></p>
+
+        <hr class="divider">
+
+        <h3>Apparence et personnalisation</h3>
+        <p class="muted">Facultatif. Sans réglage, le formulaire garde le titre du formulaire natif et le thème sobre par défaut.</p>
+        <label for="opt-title">Titre du formulaire</label>
+        <input id="opt-title" type="text" placeholder="Repris du formulaire natif si laissé vide">
+        <label for="opt-desc">Description</label>
+        <input id="opt-desc" type="text" placeholder="Facultatif">
+        <label for="opt-logo">Logo ou image d'en-tête (URL)</label>
+        <input id="opt-logo" type="url" placeholder="https://…">
+        <label for="opt-accent">Couleur d'accent</label>
+        <div class="row">
+          <input id="opt-accent" type="color" value="#3452e1" style="flex:0 0 60px;padding:4px;height:38px">
+          <button id="opt-accent-reset" type="button">Réinitialiser la couleur</button>
+        </div>
+        <label class="toggle" style="margin-top:16px"><input type="checkbox" id="opt-progress"><span class="toggle-track"><span class="toggle-thumb"></span></span><span>Afficher une barre de progression</span></label>
+        <label for="opt-submit" style="margin-top:16px">Texte du bouton d'envoi</label>
+        <input id="opt-submit" type="text" placeholder="Envoyer">
+        <label for="opt-endmsg">Message affiché après l'envoi</label>
+        <input id="opt-endmsg" type="text" placeholder="Merci, votre réponse a bien été enregistrée.">
+        <label for="opt-redirect">Redirection après l'envoi (URL, facultatif)</label>
+        <input id="opt-redirect" type="url" placeholder="https://…">
+        <p id="appearance-msg" class="muted"></p>
       </div>
-      <label class="toggle" style="margin-top:16px"><input type="checkbox" id="opt-progress"><span class="toggle-track"><span class="toggle-thumb"></span></span><span>Afficher une barre de progression</span></label>
-      <label for="opt-submit" style="margin-top:16px">Texte du bouton d'envoi</label>
-      <input id="opt-submit" type="text" placeholder="Envoyer">
-      <label for="opt-endmsg">Message affiché après l'envoi</label>
-      <input id="opt-endmsg" type="text" placeholder="Merci, votre réponse a bien été enregistrée.">
-      <label for="opt-redirect">Redirection après l'envoi (URL, facultatif)</label>
-      <input id="opt-redirect" type="url" placeholder="https://…">
-      <p id="appearance-msg" class="muted"></p>
     </div>
 
     <details class="muted" style="margin-top:4px"><summary>Diagnostic</summary><pre id="diag" style="white-space:pre-wrap;font-size:.8rem">…</pre></details>

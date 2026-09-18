@@ -97,7 +97,6 @@ export async function generate() {
     ? `<span class="ok">${dupNote}Configuration enregistrée dans le document.</span>`
     : `<span class="err">${dupNote}Configuration posée dans cette session seulement : cliquez sur <strong>Enregistrer</strong> dans la barre du widget pour la conserver.</span>`;
   $('public-url').textContent = publicUrl;
-  $('result').classList.remove('hidden');
   $('qrPanel').classList.add('hidden'); // évite d'afficher un QR code périmé après une nouvelle adresse
   if (!self && ambiguous) {
     $('page-check').innerHTML = `<span class="err">Plusieurs widgets personnalisés utilisant ce même fichier existent sur la page ${widgetPage} : impossible de savoir lequel enregistrer. Supprimez les widgets FormPlus superflus laissés par d'anciens essais sur cette page, ne gardez que celui-ci, puis cliquez de nouveau sur Générer l'adresse.</span>`;
@@ -108,9 +107,9 @@ export async function generate() {
   } else {
     $('page-check').innerHTML = `<span class="ok">Le widget est seul sur la page ${widgetPage}, distincte de la page ${formPage} qui porte le formulaire natif. L'adresse n'affichera que ce widget : c'est la configuration la plus propre.</span>`;
   }
-  $('questions-card').classList.remove('hidden');
-  $('appearance-card').classList.remove('hidden');
+  $('editor').classList.remove('hidden');
   renderQuestionList();
+  showEditorTab('questions');
 }
 
 $('generate').addEventListener('click', generate);
@@ -125,7 +124,7 @@ $('link').addEventListener('keydown', (e) => { if (e.key === 'Enter') generate()
   });
 });
 $('opt-accent-reset').addEventListener('click', async () => {
-  $('opt-accent').value = '#000091';
+  $('opt-accent').value = '#3452e1';
   if (!state.currentFormSection) return;
   await saveConfig(state.options.publicUrl, state.options.viewRef);
   $('appearance-msg').innerHTML = '<span class="ok">Couleur réinitialisée.</span>';
@@ -240,6 +239,37 @@ export async function createEmptyForm() {
     $('scratchTable').value = '';
   } catch (e) {
     msg.innerHTML = `<span class="err">Erreur : ${esc(e.message)}</span>`;
+  }
+}
+
+// ───────────────────────── Éditeur : onglets Questions / Réponses / Paramètres ─────────────────────────
+const EDITOR_TABS = { questions: 'tab-questions', responses: 'tab-responses', settings: 'tab-settings' };
+export function showEditorTab(tab) {
+  state.editorTab = tab;
+  $('editor').querySelectorAll('.tabbtn').forEach(b => b.classList.toggle('active', b.dataset.etab === tab));
+  Object.entries(EDITOR_TABS).forEach(([t, id]) => $(id).classList.toggle('hidden', t !== tab));
+  if (tab === 'responses') loadResponsesSummary();
+}
+$('editor').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-etab]');
+  if (btn) showEditorTab(btn.dataset.etab);
+});
+
+// Compte réel des réponses déjà enregistrées (fetchMeta renvoie des tableaux parallèles ;
+// data.id est la liste des id de ligne, sa longueur est donc le nombre de réponses). Jamais de
+// contenu décoratif : si la table n'est pas encore connue, l'onglet le dit plutôt que d'afficher
+// un faux chiffre.
+export async function loadResponsesSummary() {
+  const el = $('responses-summary');
+  if (!state.mainTableIdCache) { el.textContent = "Aucun formulaire lié pour l'instant."; return; }
+  el.textContent = 'Chargement…';
+  try {
+    const data = await fetchMeta(state.mainTableIdCache);
+    const count = (data.id || []).length;
+    el.innerHTML = `<p>${count} réponse${count > 1 ? 's' : ''} enregistrée${count > 1 ? 's' : ''} dans la table « ${esc(state.mainTableIdCache)} ».</p>
+      <p class="muted">Pour consulter le détail de chaque réponse, ouvrez cette table dans Grist.</p>`;
+  } catch (e) {
+    el.innerHTML = `<span class="err">Impossible de lire les réponses (${esc(e.message)}).</span>`;
   }
 }
 
@@ -804,7 +834,7 @@ export function fillAppearanceFields(opts) {
   $('opt-title').value = opts?.formTitle || '';
   $('opt-desc').value = opts?.formDescription || '';
   $('opt-logo').value = opts?.logoUrl || '';
-  $('opt-accent').value = opts?.accentColor || '#000091';
+  $('opt-accent').value = opts?.accentColor || '#3452e1';
   $('opt-progress').checked = !!opts?.showProgress;
   $('opt-submit').value = opts?.submitLabel || '';
   $('opt-endmsg').value = opts?.endMessage || '';
@@ -818,9 +848,7 @@ export function fillAppearanceFields(opts) {
 $('change-source-btn').addEventListener('click', () => {
   $('step1').classList.remove('hidden');
   showStartView('choices');
-  $('result').classList.add('hidden');
-  $('questions-card').classList.add('hidden');
-  $('appearance-card').classList.add('hidden');
+  $('editor').classList.add('hidden');
 });
 
 export async function showConfig() {
@@ -839,16 +867,16 @@ export async function showConfig() {
     state.currentLink = parsed ? { ...parsed, vsId: state.options.vsId, sourceVsId: state.options.sourceVsId ?? state.options.vsId } : null;
     state.cfgQuestions = migrateLegacy(state.options);
     fillAppearanceFields(state.options);
-    if (state.options.publicUrl) { $('public-url').textContent = state.options.publicUrl; $('result').classList.remove('hidden'); }
+    if (state.options.publicUrl) { $('public-url').textContent = state.options.publicUrl; }
     if (state.currentLink?.vsId != null) {
       const sections = await fetchMeta('_grist_Views_section');
       const idx = sections.id.indexOf(state.currentLink.vsId);
       if (idx >= 0) {
         state.currentFormSection = { id: state.currentLink.vsId, viewRef: sections.parentId[idx], tableRef: sections.tableRef[idx] };
         state.mainTableIdCache = await tableIdOfRef(state.currentFormSection.tableRef);
-        $('questions-card').classList.remove('hidden');
-        $('appearance-card').classList.remove('hidden');
+        $('editor').classList.remove('hidden');
         renderQuestionList();
+        showEditorTab('questions');
       }
     }
   }
