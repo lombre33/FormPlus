@@ -37,8 +37,12 @@ applyTheme(getStoredTheme());
     state.options = opts || {};
     diag({ event: 'onOptions', optionKeys: Object.keys(state.options), hasFormLink: !!state.options.formLink, settings });
     if (hashParams.has('repair')) { if (!state.stayOnConfig) { state.stayOnConfig = true; runRepair(); } return; }
-    const formLink = state.options.formLink || fragmentFormLink;
-    if (formLink && !state.stayOnConfig) {
+    // #form=<lien> dans l'URL du widget est le mode répondant explicite (secours quand l'adresse
+    // publique habituelle ne fonctionne pas, voir l'écran standalone) : on y répond directement.
+    // Sans cette URL spéciale, ouvrir ce widget (accès complet requis) affiche toujours la
+    // configuration au concepteur, jamais le formulaire à remplir, même une fois un formulaire
+    // déjà lié — voir #result pour "Voir le formulaire", le moyen explicite d'aller y répondre.
+    if (fragmentFormLink && !state.stayOnConfig) {
       await renderFill();
     } else if (!state.stayOnConfig) {
       await showConfig();

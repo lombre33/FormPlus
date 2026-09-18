@@ -811,12 +811,26 @@ export function fillAppearanceFields(opts) {
   $('opt-redirect').value = opts?.redirectUrl || '';
 }
 
+// Une fois un formulaire lié, l'écran de démarrage (tuiles + panneaux) n'a plus rien à faire à
+// l'écran en même temps que l'adresse/les questions/l'apparence : il se cache, remplacé par ces
+// trois cartes. « Changer de formulaire source » le fait réapparaître (rien n'est modifié tant
+// qu'un nouveau formulaire n'a pas été choisi via generate()/createEmptyForm()).
+$('change-source-btn').addEventListener('click', () => {
+  $('step1').classList.remove('hidden');
+  showStartView('choices');
+  $('result').classList.add('hidden');
+  $('questions-card').classList.add('hidden');
+  $('appearance-card').classList.add('hidden');
+});
+
 export async function showConfig() {
   show('config');
   showStartView('choices');
   setScratchMode('new');
   populateFormPicker();
-  if (state.options?.formLink) {
+  const configured = !!state.options?.formLink;
+  $('step1').classList.toggle('hidden', configured);
+  if (configured) {
     $('link').value = state.options.formLink;
     // state.options.vsId est la section que FormPlus gère réellement (sa copie, voir generate()
     // dans grist-meta.js) : jamais ré-déduite du lien collé, qui pointe vers le formulaire
