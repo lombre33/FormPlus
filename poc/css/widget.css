@@ -1,0 +1,144 @@
+  :root {
+    --bg: #f6f7fb; --card: #fff; --text: #1c1d21; --muted: #6b6f76; --border: #e2e4ea;
+    --border-soft: #edeef2; --accent: #000091; --accent-soft: #ecebfb; --accent-text: #fff;
+    --ok: #18753c; --error: #ce0500; --radius: 10px; --shadow: 0 1px 2px rgba(20,20,30,.04), 0 1px 8px rgba(20,20,30,.03);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #131316; --card: #1c1d21; --text: #f1f1f3; --muted: #9a9ca3; --border: #34363c;
+      --border-soft: #2a2b30; --accent: #8585f6; --accent-soft: #24243e; --accent-text: #0b0b3b;
+      --ok: #6ee7a0; --error: #ff7a70; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 1px 8px rgba(0,0,0,.25);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 20px 16px 60px; }
+  .card { background: var(--card); border: 1px solid var(--border-soft); border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px; margin-bottom: 14px; }
+  h1 { font-size: 1.25rem; margin: 0 0 4px; font-weight: 700; }
+  h2 { font-size: 1rem; margin: 0 0 6px; font-weight: 700; }
+  h3 { font-size: .95rem; margin: 0; font-weight: 700; }
+  p { margin: 0 0 10px; }
+  .muted { color: var(--muted); font-size: .85rem; }
+  label { display: block; font-weight: 600; font-size: .85rem; margin: 12px 0 6px; }
+  label:first-child { margin-top: 0; }
+  .req::after { content: " *"; color: var(--error); }
+  .desc { color: var(--muted); font-size: .85rem; margin: -4px 0 8px; font-weight: 400; }
+  input[type=url], input[type=text], input[type=number], input[type=date], input[type=datetime-local], input[type=email], textarea, select {
+    width: 100%; padding: 9px 11px; font: inherit; color: inherit; background: var(--card); border: 1px solid var(--border); border-radius: 7px;
+  }
+  input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+  select { background-color: var(--card); }
+  select option { color: #1e1e1e; background-color: #fff; }
+  input[type=color] { border: 1px solid var(--border); border-radius: 7px; background: var(--card); cursor: pointer; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+  .row > div { flex: 1; min-width: 150px; }
+  .row input, .row select { flex: 1; min-width: 150px; }
+  button { font: inherit; font-weight: 600; padding: 9px 14px; border-radius: 7px; border: 1px solid var(--border); cursor: pointer; background: var(--card); color: var(--text); transition: background .12s, border-color .12s; }
+  button:hover { background: var(--bg); }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: transparent; }
+  button.primary:hover { filter: brightness(1.08); }
+  button:disabled { opacity: .45; cursor: default; }
+  .ok { color: var(--ok); }
+  .err { color: var(--error); }
+  .url { font-family: ui-monospace, Consolas, monospace; font-size: .85rem; overflow-wrap: anywhere; word-break: break-all; background: var(--bg); padding: 10px 12px; border-radius: 7px; border: 1px solid var(--border-soft); }
+  .toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 8px; }
+  .hidden { display: none !important; }
+  .center { text-align: center; }
+  .divider { border: 0; border-top: 1px solid var(--border-soft); margin: 22px 0; }
+  code { font-size: .85em; background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: .8rem; }
+
+  /* Icônes et boutons discrets */
+  .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--muted); }
+  .icon-btn:hover { background: var(--bg); color: var(--text); }
+  .icon-btn.danger:hover { background: #fde8e8; color: var(--error); }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .icon-btn.danger:hover { background: #3a1f1f; } }
+  .qf-link { display: inline-flex; align-items: center; gap: 7px; border: none; background: none; padding: 6px 2px; color: var(--muted); font-weight: 600; font-size: .85rem; }
+  .qf-link:hover { color: var(--accent); background: none; }
+  .qf-link svg { flex-shrink: 0; }
+
+  /* Interrupteur "Obligatoire" */
+  .toggle { display: flex; align-items: center; gap: 9px; cursor: pointer; user-select: none; font-weight: 400; font-size: .9rem; margin: 12px 0 4px; }
+  .toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .toggle-track { width: 34px; height: 20px; background: var(--border); border-radius: 999px; position: relative; flex-shrink: 0; transition: background .15s; }
+  .toggle-thumb { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: transform .15s; box-shadow: 0 1px 2px rgba(0,0,0,.35); }
+  .toggle input:checked + .toggle-track { background: var(--accent); }
+  .toggle input:checked + .toggle-track .toggle-thumb { transform: translateX(14px); }
+  .toggle input:focus-visible + .toggle-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Sélecteur de type de question, deux boutons */
+  .qtype-toggle { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+  .qtype-btn { flex: 1 1 calc(33.333% - 6px); min-width: 88px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 10px 6px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--muted); font-size: .78rem; text-align: center; line-height: 1.15; }
+  .qtype-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+
+  /* Liste et cartes de questions */
+  #qlist { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+  .qcard { border: 1px solid var(--border-soft); border-radius: var(--radius); background: var(--card); overflow: hidden; transition: border-color .12s; }
+  .qcard.expanded { border-color: var(--accent); }
+  .qcard-row { display: flex; align-items: center; gap: 10px; padding: 12px 14px; cursor: pointer; }
+  .qicon { flex-shrink: 0; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 8px; background: var(--bg); color: var(--muted); }
+  .qcard.expanded .qicon { background: var(--accent-soft); color: var(--accent); }
+  .qcard-main { flex: 1; min-width: 0; }
+  .qcard-label { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .qcard-meta { color: var(--muted); font-size: .8rem; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .qcard-order { display: flex; gap: 2px; flex-shrink: 0; }
+  .qcard-order .icon-btn { width: 26px; height: 26px; }
+  .qcard-chevron { flex-shrink: 0; color: var(--muted); display: flex; transition: transform .15s; }
+  .qcard.expanded .qcard-chevron { transform: rotate(180deg); }
+  .qcard-body { padding: 4px 14px 16px; border-top: 1px solid var(--border-soft); }
+  .qf-choice-fields, .qf-text-fields, .qf-table-override, .qf-condition, .qf-fixed-options, .qf-display-mode { margin-top: 8px; padding-top: 4px; }
+  .qf-table-override { margin-top: 10px; }
+  .qgrip { cursor: grab; display: flex; align-items: center; color: var(--muted); flex-shrink: 0; touch-action: none; }
+  .qgrip:active { cursor: grabbing; }
+  .qcard.drag-over { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .qcard[data-kind="section"] .qicon, .qcard[data-kind="info"] .qicon { background: var(--accent-soft); color: var(--accent); }
+  .qf-display-mode { display: flex; gap: 8px; }
+  .qf-display-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--muted); font-size: .82rem; }
+  .qf-display-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+
+  /* Théme du répondant (clair/sombre, indépendant du réglage du concepteur) */
+  .theme-row { display: flex; justify-content: flex-end; margin-bottom: 4px; }
+
+  /* Barre de progression */
+  #progress { margin-bottom: 10px; }
+  .progress-track { height: 6px; border-radius: 999px; background: var(--border-soft); overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width .2s; border-radius: 999px; }
+  #progress-text { margin: 6px 0 0; font-size: .8rem; }
+
+  /* Sections et blocs d'info dans le rendu répondant */
+  .q-section { margin: 28px 0 18px; }
+  .q-section:first-child { margin-top: 0; }
+  .q-section h2 { font-size: 1.05rem; }
+  .q-info { margin: 0 0 22px; border: 1px solid var(--border-soft); border-radius: 8px; padding: 4px 12px; background: var(--bg); }
+  .q-info summary { font-weight: 600; color: var(--text); font-size: .95rem; padding: 8px 0; }
+  .q-info .info-body { padding: 0 0 12px; color: var(--muted); font-size: .9rem; white-space: pre-wrap; }
+  .fill-logo { max-height: 64px; max-width: 100%; display: block; margin: 0 0 14px; object-fit: contain; }
+
+  /* Combobox de recherche pour les tables et colonnes */
+  .combo { position: relative; }
+  .combo-list { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; max-height: 220px; overflow-y: auto; background: var(--card); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); padding: 4px; }
+  .combo-opt { padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: .9rem; }
+  .combo-opt:hover { background: var(--accent-soft); }
+  .combo-empty { padding: 8px 10px; color: var(--muted); font-size: .85rem; }
+  .qcard-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-soft); }
+  .qcard-footer-left { display: flex; gap: 2px; }
+  .qcard-footer-right { display: flex; gap: 8px; }
+  .empty-hint { color: var(--muted); font-size: .9rem; padding: 4px 0 12px; }
+  .add-question-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px; border: 1.5px dashed var(--border); border-radius: var(--radius); background: transparent; color: var(--muted); font-weight: 600; }
+  .add-question-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+
+  /* Rendu répondant */
+  .q { margin: 0 0 22px; }
+  .q:last-child { margin-bottom: 0; }
+  .q.cond-hidden { display: none; }
+  label.title { font-weight: 600; font-size: 1rem; margin: 0 0 6px; }
+  .opt { display: flex; gap: 10px; align-items: center; padding: 5px 0; font-weight: 400; }
+  .opt input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .switch { display: flex; gap: 10px; align-items: center; font-weight: 400; }
+  .err-msg { color: var(--error); font-size: .85rem; margin-top: 6px; display: none; }
+  .q.invalid .err-msg { display: block; }
+  .q.invalid input, .q.invalid select, .q.invalid textarea { border-color: var(--error); }
+  .actions { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+  .hp { position: absolute; left: -9999px; }
+  #qrCanvas { display: inline-block; background: #fff; padding: 12px; border-radius: 8px; border: 1px solid var(--border-soft); line-height: 0; }

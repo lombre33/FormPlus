@@ -17,9 +17,16 @@ Objectif : dépasser les limites du formulaire natif de Grist avec une interface
 |---|---|
 | `docs/01-etude-comparative.md` | Comparatif Grist natif / widget isaytoo / FormPlus, et les 4 options de lien dédié |
 | `docs/02-poc-transport1-resultats.md` | Résultats de la preuve de concept du lien public |
-| `docs/03-roadmap-priorites.md` | Principes d'interface, architecture, backlog V1 / V2 / V3 |
-| `poc/` | Widget consolidé `widget.html` (configuration + rendu répondant, natif et multi-tables), script de test `poc_transport1.py`, page de secours hors-Grist `public-form.html`, mode d'emploi `README-poc.md` |
+| `docs/03-roadmap-priorites.md` | Principes d'interface, backlog V1 / V2 / V3 |
+| `docs/04-architecture.md` | Architecture réelle du code : modules, où vit la configuration, suite de tests |
+| `poc/widget.html` + `poc/js/` + `poc/css/` | Le widget : point d'entrée HTML, modules JavaScript (un rôle par fichier), feuille de style |
+| `poc/poc_transport1.py`, `poc/public-form.html`, `poc/README-poc.md` | Script de test en ligne de commande, page de secours hors-Grist, mode d'emploi |
 | `index.html` | Page d'accueil GitHub Pages avec accès à la page de test |
+| `.github/workflows/tests.yml` | Relance la suite de tests du widget (181+ vérifications) à chaque push, voir plus bas |
+
+Le widget lui-même n'a ni build ni dépendance à installer : `poc/js/` est chargé par le
+navigateur en modules ES natifs (`<script type="module">`), servis tels quels par GitHub Pages.
+Détails dans `docs/04-architecture.md`.
 
 ## Tester la preuve de concept
 
@@ -57,9 +64,19 @@ python poc/poc_transport1.py "<lien du formulaire publié>" --write
 
 Toutes les options sont décrites dans `poc/README-poc.md`.
 
+## Suite de tests
+
+`poc/js/tests.js` couvre les fonctions du widget hors ligne (`grist.docApi` et `fetch()` simulés,
+aucun document Grist réel touché). Deux façons de la lancer :
+
+- Dans un navigateur : ouvrir `poc/widget.html#test`.
+- En ligne de commande (Chromium headless via Playwright) : `.github/workflows/tests.yml` la
+  relance à chaque push et pull request. Pour la lancer en local, `npm install` dans
+  `.github/scripts/` puis `node .github/scripts/run-widget-tests.js` depuis la racine du dépôt.
+
 ## Licence
 
-À définir. Une licence libre (Apache-2.0 ou MIT) est recommandée pour permettre une revue et une inscription dans la galerie de widgets des instances DINUM et ANCT.
+Apache License 2.0, voir `LICENSE`.
 
 ## Dépendances tierces
 

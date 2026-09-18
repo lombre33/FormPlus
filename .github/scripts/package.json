@@ -1,0 +1,8 @@
+{
+  "name": "formplus-widget-tests",
+  "private": true,
+  "description": "Outillage de CI uniquement : lance la suite de tests interne du widget (poc/widget.html#test) dans Chromium headless. N'affecte ni l'exécution ni l'hébergement du widget lui-même, qui reste sans dépendance.",
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

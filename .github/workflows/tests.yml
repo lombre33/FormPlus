@@ -1,0 +1,27 @@
+name: Tests du widget
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  widget-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: .github/scripts/package-lock.json
+
+      - name: Installer Playwright (outillage de CI, sans lien avec le widget)
+        working-directory: .github/scripts
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+
+      - name: Servir le dépôt et lancer la suite de tests du widget (#test)
+        run: node .github/scripts/run-widget-tests.js

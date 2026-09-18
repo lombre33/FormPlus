@@ -19,6 +19,18 @@ Le POC (jalon J1) est allé plus loin que prévu : il a aussi validé une bonne 
 
 **Mise à jour du 16 septembre 2026 (encore) : personnalisation, sections/blocs d'info, glisser-déposer, choix de formulaire dans une liste.** Nouveaux types de bloc dans la même liste de questions, sans collecter de réponse : « Titre de section » et « Bloc d'info repliable » (fermé par défaut), tous deux réordonnables et conditionnables comme une question normale. Glisser-déposer sur une poignée dédiée pour réordonner, en plus des flèches (gardées pour le clavier). Les questions « choix » (liste fixe ou depuis une table) peuvent s'afficher en menu déroulant ou en boutons radio, réglage repris automatiquement à l'import si le formulaire natif l'utilisait déjà. Nouvelle carte « Apparence et personnalisation » : titre et description du formulaire (sinon repris du natif), logo ou image d'en-tête, couleur d'accent (recalcule un fond adouci et un texte de bouton lisible automatiquement, jamais appliquée à l'écran de configuration lui-même), texte du bouton d'envoi, message de fin personnalisé, redirection différée après l'envoi, barre de progression optionnelle. Thème clair/sombre au choix du répondant (bouton dédié, mémorisé par navigateur via `localStorage`, jamais écrit dans le document — indépendant du réglage du concepteur). Étape 1 enrichie d'une liste déroulante des formulaires natifs déjà présents dans le document : un formulaire déjà publié voit sa clé de partage retrouvée automatiquement (`_grist_Pages.shareRef` → `_grist_Shares.linkId`, terrain non exposé par l'API plugin mais lisible comme n'importe quelle métadonnée) et son adresse générée sans copier-coller ; un formulaire non publié affiche une consigne précise (Publier, puis Copier le lien) plutôt qu'une tentative de publication automatique, qui resterait hors de portée pour la même raison que le point précédent. Le champ de collage manuel reste toujours disponible en repli. Couverte par une suite de 181 tests hors ligne (`widget.html#test`, voir `poc/README-poc.md`).
 
+**Nettoyage du 18 septembre 2026, avant reprise des fonctionnalités.** `widget.html` (alors un
+seul fichier de 2437 lignes) a été découpé en modules ES sous `poc/js/` et sa feuille de style
+sous `poc/css/`, sans changement de comportement (suite de tests intégrale, désormais 184
+vérifications, toujours au vert et rejouée automatiquement par une intégration continue GitHub
+Actions). `poc/multi-table-test.html`, fusionné dans `widget.html` le 16 septembre mais jamais
+retiré, a été supprimé. Une licence Apache-2.0 a été ajoutée (`LICENSE`), condition posée par ce
+même document pour une inscription dans la galerie de widgets. Un bug de fond corrigé au passage :
+un envoi dont l'écriture dans une table secondaire échouait s'affichait comme un succès complet
+au répondant, sans aucun indice visible. Détails dans `docs/04-architecture.md`, qui décrit
+l'architecture réelle du code et remplace la section 2 ci-dessous sur ce point (TypeScript/Vite/
+`FormBuilder_Forms` n'ont jamais été mis en œuvre).
+
 ## 1. Principes d'interface
 
 Le différenciateur n'est pas technique, c'est la simplicité. Référence : Google Forms.
@@ -32,6 +44,11 @@ Le différenciateur n'est pas technique, c'est la simplicité. Référence : Goo
 7. **L'aperçu est le vrai rendu.** Le même moteur affiche l'aperçu du concepteur, le widget interne et la page publique.
 
 ## 2. Décisions d'architecture
+
+*Section d'intention, écrite avant le code. L'architecture réellement en place — modules ES sous
+`poc/js/`, définition stockée dans les options de la section du widget, aucune dépendance
+d'exécution — est décrite dans `docs/04-architecture.md`, à lire en priorité sur les points où
+les deux divergent (stockage de la définition, TypeScript/Vite jamais introduits).*
 
 - **Un moteur de rendu unique** : définition JSON vers DOM, avec évaluation des conditions. Testé unitairement.
 - **Définition JSON versionnée**, stockée dans une table `FormBuilder_Forms` du document, sans secret. Le formulaire natif publié sert de contrat de données et de clé pour le lien public.
