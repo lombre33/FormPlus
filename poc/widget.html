@@ -38,9 +38,21 @@
 
       <div id="start-panel-scratch" class="hidden">
         <button type="button" class="qf-link start-back" data-startgo="choices">‹ Changer de méthode</button>
-        <label for="scratchTable">Nom de la table de réponses par défaut</label>
-        <input id="scratchTable" type="text" value="Réponses" placeholder="Réponses">
-        <p class="muted" style="margin-top:4px">C'est la table qui recevra les réponses de ce formulaire. Si une table de ce nom existe déjà, elle est réutilisée ; sinon FormPlus la crée pour vous.</p>
+        <label>Table qui recevra les réponses</label>
+        <div class="qf-display-mode">
+          <button type="button" class="qf-display-btn" data-scratchmode="new">Nouvelle table (vide)</button>
+          <button type="button" class="qf-display-btn" data-scratchmode="existing">Table existante</button>
+        </div>
+        <div id="scratch-new-fields" style="margin-top:10px">
+          <label for="scratchTable">Nom de la nouvelle table, réponses par défaut</label>
+          <input id="scratchTable" type="text" value="Réponses" placeholder="Réponses">
+          <p class="muted" style="margin-top:4px">Si une table de ce nom existe déjà, elle est réutilisée ; sinon FormPlus la crée pour vous.</p>
+        </div>
+        <div id="scratch-existing-fields" class="hidden" style="margin-top:10px">
+          <label>Table à utiliser</label>
+          <div class="combo-host" data-combo="scratchExisting"></div>
+          <p class="muted" style="margin-top:4px">FormPlus crée un formulaire natif vide sur cette page, relié à cette table existante.</p>
+        </div>
         <button id="scratchCreate" type="button" class="primary" style="margin-top:10px">Créer un formulaire natif vide</button>
         <p id="scratch-msg" class="muted"></p>
       </div>

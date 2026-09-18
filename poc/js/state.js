@@ -14,4 +14,5 @@ export const state = {
   formPickerItems: [],
   dragQId: null,
   startView: 'choices', // vue affichée sur l'écran de démarrage : choices | existing | scratch | link
+  scratchMode: 'new',   // dans le panneau "Partir de zéro" : new (table à créer) | existing (table déjà là)
 };

@@ -177,17 +177,52 @@ $('step1').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-startgo]');
   if (btn) showStartView(btn.dataset.startgo);
 });
+
+// « Partir de zéro » : l'utilisateur choisit explicitement entre créer une table vide et
+// repartir d'une table déjà présente dans le document (au lieu de le déduire d'un nom tapé
+// à l'aveugle, qui peut ou non correspondre à une table existante).
+const scratchExistingCombo = mountCombo($('scratch-existing-fields').querySelector('.combo-host'), 'Choisir une table…');
+export async function setScratchMode(mode) {
+  state.scratchMode = mode;
+  $('step1').querySelectorAll('[data-scratchmode]').forEach(b => b.classList.toggle('active', b.dataset.scratchmode === mode));
+  $('scratch-new-fields').classList.toggle('hidden', mode !== 'new');
+  $('scratch-existing-fields').classList.toggle('hidden', mode !== 'existing');
+  if (mode === 'existing') {
+    const tables = await grist.docApi.listTables();
+    scratchExistingCombo.setOptions(tables.map(t => ({ value: t, label: t })));
+  }
+}
+$('step1').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-scratchmode]');
+  if (b) setScratchMode(b.dataset.scratchmode);
+});
+setScratchMode('new');
 $('scratchCreate').addEventListener('click', createEmptyForm);
 
 export async function createEmptyForm() {
   const msg = $('scratch-msg');
-  const name = $('scratchTable').value.trim();
-  if (!name) { msg.innerHTML = '<span class="err">Indiquez un nom de table.</span>'; return; }
   const widgetPage = myPageFromReferrer();
   if (!widgetPage) {
     msg.innerHTML = '<span class="err">Impossible de déterminer la page de ce widget (adresse de la page Grist illisible). Créez le formulaire manuellement depuis Grist : Ajouter une page → Formulaire.</span>';
     return;
   }
+
+  if (state.scratchMode === 'existing') {
+    const tableId = scratchExistingCombo.value;
+    if (!tableId) { msg.innerHTML = '<span class="err">Choisissez une table.</span>'; return; }
+    msg.textContent = 'Création en cours…';
+    try {
+      const tref = await getTableRef(tableId);
+      await grist.docApi.applyUserActions([['CreateViewSection', tref, widgetPage, 'form', null, tableId]]);
+      msg.innerHTML = `<span class="ok">Formulaire natif vide créé sur cette page pour la table « ${esc(tableId)} ». Cliquez sur <strong>Publier</strong> dans ce nouveau formulaire (repliez-le une fois publié), puis <strong>Copier le lien</strong>, et collez-le ci-dessus.</span>`;
+    } catch (e) {
+      msg.innerHTML = `<span class="err">Erreur : ${esc(e.message)}</span>`;
+    }
+    return;
+  }
+
+  const name = $('scratchTable').value.trim();
+  if (!name) { msg.innerHTML = '<span class="err">Indiquez un nom de table.</span>'; return; }
   msg.textContent = 'Création en cours…';
   try {
     const existingRef = await getTableRef(name);
@@ -779,6 +814,7 @@ export function fillAppearanceFields(opts) {
 export async function showConfig() {
   show('config');
   showStartView('choices');
+  setScratchMode('new');
   populateFormPicker();
   if (state.options?.formLink) {
     $('link').value = state.options.formLink;
