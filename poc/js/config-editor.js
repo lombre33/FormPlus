@@ -40,7 +40,10 @@ export async function saveConfig(publicUrl, widgetPage) {
     formTitle: $('opt-title').value.trim(),
     formDescription: $('opt-desc').value.trim(),
     logoUrl: $('opt-logo').value.trim(),
+    headerEmoji: $('opt-emoji').value.trim(),
     accentColor: $('opt-accent').value || '',
+    cornerStyle: state.cornerStyle === 'bold' ? 'bold' : 'soft',
+    bgMood: state.bgMood === 'tinted' ? 'tinted' : 'flat',
     showProgress: $('opt-progress').checked,
     submitLabel: $('opt-submit').value.trim(),
     endMessage: $('opt-endmsg').value.trim(),
@@ -116,7 +119,7 @@ $('generate').addEventListener('click', generate);
 $('link').addEventListener('keydown', (e) => { if (e.key === 'Enter') generate(); });
 
 // ───────────────────────── Apparence et personnalisation ─────────────────────────
-['opt-title', 'opt-desc', 'opt-logo', 'opt-accent', 'opt-progress', 'opt-submit', 'opt-endmsg', 'opt-redirect'].forEach(id => {
+['opt-title', 'opt-desc', 'opt-logo', 'opt-emoji', 'opt-accent', 'opt-progress', 'opt-submit', 'opt-endmsg', 'opt-redirect'].forEach(id => {
   $(id).addEventListener('change', async () => {
     if (!state.currentFormSection) return; // rien à sauvegarder tant qu'aucun formulaire n'est lié
     await saveConfig(state.options.publicUrl, state.options.viewRef);
@@ -128,6 +131,29 @@ $('opt-accent-reset').addEventListener('click', async () => {
   if (!state.currentFormSection) return;
   await saveConfig(state.options.publicUrl, state.options.viewRef);
   $('appearance-msg').innerHTML = '<span class="ok">Couleur réinitialisée.</span>';
+});
+
+// Forme des coins / ambiance de fond de la page répondant : dérivées uniquement de --accent
+// (voir widget.css, "Page publique"), jamais une couleur figée séparée.
+function setCornerStyle(v) {
+  state.cornerStyle = v;
+  $('editor').querySelectorAll('[data-corner]').forEach(b => b.classList.toggle('active', b.dataset.corner === v));
+}
+function setBgMood(v) {
+  state.bgMood = v;
+  $('editor').querySelectorAll('[data-mood]').forEach(b => b.classList.toggle('active', b.dataset.mood === v));
+}
+setCornerStyle('soft');
+setBgMood('flat');
+$('editor').addEventListener('click', async (e) => {
+  const cornerBtn = e.target.closest('[data-corner]');
+  const moodBtn = e.target.closest('[data-mood]');
+  if (!cornerBtn && !moodBtn) return;
+  if (cornerBtn) setCornerStyle(cornerBtn.dataset.corner);
+  if (moodBtn) setBgMood(moodBtn.dataset.mood);
+  if (!state.currentFormSection) return;
+  await saveConfig(state.options.publicUrl, state.options.viewRef);
+  $('appearance-msg').innerHTML = '<span class="ok">Enregistré.</span>';
 });
 $('paste').addEventListener('click', async () => {
   try { $('link').value = (await navigator.clipboard.readText()).trim(); generate(); }
@@ -834,7 +860,10 @@ export function fillAppearanceFields(opts) {
   $('opt-title').value = opts?.formTitle || '';
   $('opt-desc').value = opts?.formDescription || '';
   $('opt-logo').value = opts?.logoUrl || '';
+  $('opt-emoji').value = opts?.headerEmoji || '';
   $('opt-accent').value = opts?.accentColor || '#3452e1';
+  setCornerStyle(opts?.cornerStyle === 'bold' ? 'bold' : 'soft');
+  setBgMood(opts?.bgMood === 'tinted' ? 'tinted' : 'flat');
   $('opt-progress').checked = !!opts?.showProgress;
   $('opt-submit').value = opts?.submitLabel || '';
   $('opt-endmsg').value = opts?.endMessage || '';

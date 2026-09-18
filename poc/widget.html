@@ -122,10 +122,22 @@
         <input id="opt-desc" type="text" placeholder="Facultatif">
         <label for="opt-logo">Logo ou image d'en-tête (URL)</label>
         <input id="opt-logo" type="url" placeholder="https://…">
+        <label for="opt-emoji">Icône d'en-tête (emoji, facultatif, remplace le logo)</label>
+        <input id="opt-emoji" type="text" maxlength="4" style="width:76px;text-align:center;font-size:1.1rem" placeholder="📝">
         <label for="opt-accent">Couleur d'accent</label>
         <div class="row">
           <input id="opt-accent" type="color" value="#3452e1" style="flex:0 0 60px;padding:4px;height:38px">
           <button id="opt-accent-reset" type="button">Réinitialiser la couleur</button>
+        </div>
+        <label>Forme des coins (page du répondant)</label>
+        <div class="qf-display-mode">
+          <button type="button" class="qf-display-btn" data-corner="soft">Arrondi doux</button>
+          <button type="button" class="qf-display-btn" data-corner="bold">Arrondi prononcé</button>
+        </div>
+        <label style="margin-top:16px">Ambiance de fond (page du répondant)</label>
+        <div class="qf-display-mode">
+          <button type="button" class="qf-display-btn" data-mood="flat">Neutre</button>
+          <button type="button" class="qf-display-btn" data-mood="tinted">Bandeau teinté</button>
         </div>
         <label class="toggle" style="margin-top:16px"><input type="checkbox" id="opt-progress"><span class="toggle-track"><span class="toggle-thumb"></span></span><span>Afficher une barre de progression</span></label>
         <label for="opt-submit" style="margin-top:16px">Texte du bouton d'envoi</label>

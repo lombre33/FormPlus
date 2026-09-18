@@ -15,4 +15,7 @@ export const state = {
   dragQId: null,
   startView: 'choices', // vue affichée sur l'écran de démarrage : choices | existing | scratch | link
   scratchMode: 'new',   // dans le panneau "Partir de zéro" : new (table à créer) | existing (table déjà là)
+  editorTab: 'questions', // onglet affiché dans l'éditeur : questions | responses | settings
+  cornerStyle: 'soft',  // forme des coins de la page répondant : soft | bold
+  bgMood: 'flat',       // ambiance de fond de la page répondant : flat | tinted
 };

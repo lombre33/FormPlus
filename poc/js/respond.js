@@ -1,4 +1,5 @@
 import { $, esc, show } from './dom.js';
+import { ICONS } from './icons.js';
 import { LAYOUT_KINDS, SINGLE_CHOICE_KINDS } from './kinds.js';
 import { parseFormLink, migrateLegacy, normalizeCondition } from './links.js';
 import { applyBranding } from './theme.js';
@@ -42,7 +43,7 @@ export function renderNativeField(id, fl, prefillParams) {
     case 'Ref': {
       const opts = fl.type === 'Choice' ? choices.map(c => [c, c]) : refs.map(([rid, v]) => [rid, v]);
       if (o.formSelectFormat === 'radio') {
-        input = opts.map(([v, l]) => `<label class="opt"><input type="radio" name="${name}" value="${esc(v)}" ${String(v) === prefill ? 'checked' : ''}> ${esc(l)}</label>`).join('');
+        input = `<div class="pv-pill-group">${opts.map(([v, l]) => `<label class="pv-pill"><input type="radio" name="${name}" value="${esc(v)}" ${String(v) === prefill ? 'checked' : ''}><span>${esc(l)}</span></label>`).join('')}</div>`;
       } else {
         input = `<select id="i${id}" name="${name}"><option value="">Choisir…</option>` +
           opts.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === prefill ? 'selected' : ''}>${esc(l)}</option>`).join('') + `</select>`;
@@ -52,7 +53,7 @@ export function renderNativeField(id, fl, prefillParams) {
     case 'ChoiceList':
     case 'RefList': {
       const opts = fl.type === 'ChoiceList' ? choices.map(c => [c, c]) : refs.map(([rid, v]) => [rid, v]);
-      input = opts.map(([v, l]) => `<label class="opt"><input type="checkbox" name="${name}[]" value="${esc(v)}"> ${esc(l)}</label>`).join('');
+      input = `<div class="pv-pill-group">${opts.map(([v, l]) => `<label class="pv-pill"><input type="checkbox" name="${name}[]" value="${esc(v)}"><span>${esc(l)}</span></label>`).join('')}</div>`;
       break;
     }
     case 'Attachments':
@@ -62,7 +63,7 @@ export function renderNativeField(id, fl, prefillParams) {
         ? `<textarea id="i${id}" name="${name}" rows="${o.formTextLineCount || 3}">${esc(prefill ?? '')}</textarea>`
         : `<input id="i${id}" type="text" name="${name}" value="${esc(prefill ?? '')}" ${o.formTextMaximumLength ? `maxlength="${o.formTextMaximumLength}"` : ''}>`;
   }
-  return `<div class="q" data-native="1" data-type="${fl.type}" data-col="${name}" data-required="${o.formRequired ? 1 : 0}" ${hidden ? 'hidden' : ''}>${head}${input}<div class="err-msg">Ce champ est obligatoire.</div></div>`;
+  return `<div class="q pv-q" data-native="1" data-type="${fl.type}" data-col="${name}" data-required="${o.formRequired ? 1 : 0}" ${hidden ? 'hidden' : ''}>${head}${input}<div class="err-msg">Ce champ est obligatoire.</div></div>`;
 }
 
 // Lit la valeur courante d'un champ à choix unique, qu'il s'affiche en menu déroulant (élément
@@ -80,7 +81,7 @@ export function singleValueOf(container) {
 }
 
 export function radioGroup(name, choices) {
-  return choices.map(c => `<label class="opt"><input type="radio" name="${name}" value="${esc(c)}" data-label="${esc(c)}"> ${esc(c)}</label>`).join('');
+  return `<div class="pv-pill-group">${choices.map(c => `<label class="pv-pill"><input type="radio" name="${name}" value="${esc(c)}" data-label="${esc(c)}"><span>${esc(c)}</span></label>`).join('')}</div>`;
 }
 
 // Une condition d'affichage combine N critères (question source = valeur) en ET (toutes vraies)
@@ -96,13 +97,14 @@ export function conditionMet(condition) {
 
 export function renderExtraQuestion(q) {
   if (q.kind === 'section') {
-    return `<div class="q q-section" data-extra="${q.id}" data-kind="section">
-      <h2>${esc(q.label)}</h2>
+    return `<div class="q q-section pv-section" data-extra="${q.id}" data-kind="section">
+      <span class="pv-section-icon" aria-hidden="true">${ICONS.heading}</span>
+      <h2>${esc(q.label)}</h2><hr>
       ${q.description ? `<p class="muted">${esc(q.description)}</p>` : ''}
     </div>`;
   }
   if (q.kind === 'info') {
-    return `<details class="q q-info" data-extra="${q.id}" data-kind="info">
+    return `<details class="q q-info pv-info" data-extra="${q.id}" data-kind="info">
       <summary>${esc(q.label)}</summary>
       <div class="info-body">${esc(q.description)}</div>
     </details>`;
@@ -121,8 +123,8 @@ export function renderExtraQuestion(q) {
         : `<select id="eq-${q.id}"><option value="">Choisir…</option>${(q.choices || []).map(c => `<option value="${esc(c)}" data-label="${esc(c)}">${esc(c)}</option>`).join('')}</select>`;
       break;
     case 'multiselect':
-      input = `<div id="eq-${q.id}">` +
-        (q.choices || []).map(c => `<label class="opt"><input type="checkbox" name="eqm-${q.id}" value="${esc(c)}"> ${esc(c)}</label>`).join('') +
+      input = `<div id="eq-${q.id}" class="pv-pill-group">` +
+        (q.choices || []).map(c => `<label class="pv-pill"><input type="checkbox" name="eqm-${q.id}" value="${esc(c)}"><span>${esc(c)}</span></label>`).join('') +
         `</div>`;
       break;
     case 'number':
@@ -143,9 +145,9 @@ export function renderExtraQuestion(q) {
     default:
       input = `<input id="eq-${q.id}" type="text">`;
   }
-  return `<div class="q" data-extra="${q.id}" data-kind="${q.kind}" data-required="${q.required ? 1 : 0}">
+  return `<div class="q pv-q" data-extra="${q.id}" data-kind="${q.kind}" data-required="${q.required ? 1 : 0}">
     <label class="title ${req}" for="eq-${q.id}">${esc(q.label)}</label>
-    ${q.description ? `<p class="desc">${esc(q.description)}</p>` : ''}
+    ${q.description ? `<p class="desc pv-hint">${esc(q.description)}</p>` : ''}
     ${input}<div class="err-msg">Ce champ est obligatoire.</div></div>`;
 }
 
@@ -176,6 +178,7 @@ export function updateProgress(formEl) {
 export async function renderFill() {
   show('fill');
   const card = $('fill-card');
+  card.classList.remove('respond-card-shell');
   card.innerHTML = '<p class="muted">Chargement…</p>';
   $('progress').classList.add('hidden');
 
@@ -206,21 +209,30 @@ export async function renderFill() {
   const title = state.options?.formTitle || form.formTitle;
   const description = state.options?.formDescription || '';
   const submitLabel = state.options?.submitLabel || 'Envoyer';
+  const headerEmoji = state.options?.headerEmoji || '';
+  const moodTinted = state.options?.bgMood === 'tinted';
 
+  $('fill').dataset.corner = state.options?.cornerStyle === 'bold' ? 'bold' : 'soft';
+  card.classList.add('respond-card-shell');
   card.innerHTML = `
-    ${state.options?.logoUrl ? `<img class="fill-logo" src="${esc(state.options.logoUrl)}" alt="">` : ''}
-    <h1>${esc(title)}</h1>
-    ${description ? `<p class="muted">${esc(description)}</p>` : ''}
-    <p class="muted">Les champs marqués * sont obligatoires.</p>
-    <form id="f" novalidate>
-      ${nativeRows}
-      ${extraRows ? `<hr class="divider">${extraRows}` : ''}
-      <label class="hp">Ne pas remplir <input type="text" name="_website" tabindex="-1" autocomplete="off"></label>
-      <div class="actions">
-        <span id="fill-status" class="muted"></span>
-        <button type="submit" class="primary">${esc(submitLabel)}</button>
-      </div>
-    </form>`;
+    <div class="respond-band"></div>
+    <div class="respond-head-wrap${moodTinted ? ' mood-tinted' : ''}">
+      ${headerEmoji ? `<div class="respond-avatar" aria-hidden="true">${esc(headerEmoji)}</div>` : (state.options?.logoUrl ? `<img class="fill-logo" src="${esc(state.options.logoUrl)}" alt="">` : '')}
+      <h1>${esc(title)}</h1>
+      ${description ? `<p class="muted">${esc(description)}</p>` : ''}
+    </div>
+    <div class="respond-body">
+      <p class="muted">Les champs marqués * sont obligatoires.</p>
+      <form id="f" novalidate>
+        ${nativeRows}
+        ${extraRows ? `<hr class="divider">${extraRows}` : ''}
+        <label class="hp">Ne pas remplir <input type="text" name="_website" tabindex="-1" autocomplete="off"></label>
+        <div class="actions">
+          <span id="fill-status" class="muted"></span>
+          <button type="submit" class="primary">${esc(submitLabel)}</button>
+        </div>
+      </form>
+    </div>`;
 
   // Charge les options de chaque question "choix depuis une table", en menu déroulant ou en
   // radios selon q.displayMode, et relie chaque condition à sa question source (qui doit être
@@ -385,6 +397,7 @@ export async function onSubmit(ev, form, link, extraQuestions) {
     const warning = failedTables.length
       ? `<p class="err">Une partie de la réponse n'a pas pu être enregistrée (table${failedTables.length > 1 ? 's' : ''} : ${failedTables.map(esc).join(', ')}). Le reste a bien été pris en compte ; contactez le responsable du formulaire pour signaler ce message.</p>`
       : '';
+    $('fill-card').classList.remove('respond-card-shell'); // ce message tient dans le padding normal de .card, plus de bandeau/en-tête à afficher
     $('fill-card').innerHTML = `<div class="center"><h1 class="ok">${esc(endMessage)}</h1>
       <p class="muted">Identifiant : ${esc(j.records?.[0]?.id)}</p>
       ${warning}
