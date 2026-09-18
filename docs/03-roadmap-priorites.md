@@ -61,23 +61,27 @@ les deux divergent (stockage de la définition, TypeScript/Vite jamais introduit
 
 ### V1, le socle : indispensable et à forte valeur
 
-**L'éditeur, la vraie priorité maintenant.**
-- ~~Constructeur à N questions~~ fait le 16 septembre 2026 (voir bilan ci-dessus).
-- Fusionner la question native (colonne du formulaire natif) et la question supplémentaire (lecture ou écriture croisée) en une seule liste homogène côté interface, au lieu de deux blocs visuellement distincts aujourd'hui.
+**Priorité immédiate (ce qui ferme le jalon J2), dans cet ordre :**
+1. Fusionner la question native (colonne du formulaire natif) et la question supplémentaire (lecture ou écriture croisée) en une seule liste homogène côté interface, au lieu de deux blocs visuellement distincts aujourd'hui. C'est le plus gros chantier restant de V1 : tant que ce n'est pas fait, le widget viole son propre principe n°1 (« le formulaire est l'éditeur »), et c'est le vrai obstacle à la sortie de J2 (« un agent crée et remplit un formulaire sans lire de doc »).
+2. Dans la foulée, passer du style « panneau de configuration technique » (étiquettes, badges, encarts) à des cartes sobres, une question visible à la fois en édition — la fusion ci-dessus oblige de toute façon à redessiner ces cartes, autant faire les deux dans le même chantier.
+3. Généraliser les conditions à plusieurs critères combinés en ET/OU, au lieu d'un seul critère d'égalité aujourd'hui.
+4. Types de questions restants à forte valeur : pièces jointes, texte long multi-lignes. Moins urgents : date+heure, liste de références.
+5. Jeu de couleurs DSFR proposé en présélection plutôt qu'un simple sélecteur libre (petit chantier, cosmétique — à caser dès qu'il y a un créneau court).
+
+**Déjà fait — corrections apportées à cette feuille de route le 18 septembre 2026, après relecture du code (elle donnait encore ces points comme ouverts, à tort) :**
+- ~~Constructeur à N questions~~ fait le 16 septembre 2026.
 - ~~Glisser-déposer pour réordonner~~ fait le 16 septembre 2026, flèches gardées en complément (clavier, lecteurs d'écran).
-- Titre et description du formulaire, éditables depuis l'interface (repris du formulaire natif pour l'instant).
-- Passer du style « panneau de configuration technique » (étiquettes, badges, encarts) à des cartes sobres, une question visible à la fois en édition.
-
-**Fonctionnel, déjà prouvé au niveau technique, à exposer dans l'éditeur :**
-- ~~Types de questions~~ étendus le 16 septembre 2026 : texte, nombre, date, oui/non, choix (liste fixe), choix multiples (liste fixe), choix depuis une table (référence). Restent à couvrir, moins prioritaires : texte long multi-lignes, date+heure, liste de références, pièces jointes.
-- Obligatoire ✅ et condition ✅ faits pour les questions supplémentaires. Texte d'aide, sections avec titre, blocs d'information repliables — pas encore développés.
-- Conditions avec ET/OU sur plusieurs critères combinés, pas seulement un seul critère d'égalité (fait) — à généraliser.
+- ~~Titre et description du formulaire éditables depuis l'interface~~ fait le 16 septembre 2026 (carte « Apparence et personnalisation », champs `opt-title`/`opt-desc`).
+- ~~Types de questions étendus~~ : texte, nombre, date, oui/non, choix (liste fixe), choix multiples (liste fixe), choix depuis une table (référence).
+- ~~Obligatoire, condition (un seul critère), texte d'aide (champ description sous chaque question), sections avec titre, blocs d'information repliables~~ faits le 16 septembre 2026 (types `section` et `info` de `kinds.js`).
 - ~~Ouverture automatique des accès multi-tables~~ faite et généralisée à toute question (`ensureTableGate`, `ensureChoiceField`), plus liée aux étapes fixes.
+- ~~Thème clair/sombre côté répondant, couleur d'accent personnalisable~~ faits.
+- ~~Message de fin personnalisé, redirection après envoi, réinitialisation des questions~~ faits le 16 septembre 2026.
+- ~~Assistant « Publier »~~ partiellement fait le 16 septembre 2026 : bouton « Créer un formulaire natif vide » qui prépare la table et la section Formulaire, ne laissant plus que Publier + Copier le lien à la charge du concepteur (ces deux clics restent hors de portée de l'API plugin, voir V2 pour l'automatisation complète).
 
-**Présentation :**
-- Thème sobre, responsive complet, mode sombre propre sur l'ensemble de l'interface, couleur d'accent personnalisable côté répondant ✅. Reste : jeu de couleurs DSFR proposé en présélection plutôt qu'un simple sélecteur libre.
-- ~~Message de fin personnalisé, redirection après envoi~~ fait le 16 septembre 2026. Réinitialisation des questions faite le même jour (bouton dédié, distinct d'une remise à zéro de l'apparence).
-- ~~Assistant « Publier »~~ partiellement fait le 16 septembre 2026 : bouton « Créer un formulaire natif vide » qui prépare la table et la section Formulaire, ne laissant plus que Publier + Copier le lien à la charge du concepteur (ces deux clics restent hors de portée de l'API plugin, voir V2).
+**Qualité, à ne pas laisser de côté avant de considérer V1 vraiment fini :**
+- Vérification d'accessibilité réelle (lecteur d'écran) sur l'écran répondant : le principe RGAA est posé depuis le début mais n'a encore été vérifié qu'à l'œil, jamais avec un lecteur d'écran.
+- Checklist concrète pour l'inscription au catalogue `gristgouv/widgets-config` (README au format attendu par ce dépôt, captures d'écran, ouverture de la pull request) : objectif mentionné depuis le POC, jamais détaillé en tâche actionnable.
 
 ### V2, forte valeur, plus technique
 
