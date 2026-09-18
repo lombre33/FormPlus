@@ -97,6 +97,15 @@
   .qf-display-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--muted); font-size: .82rem; }
   .qf-display-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 
+  /* Conditions combinées (ET/OU) : une ligne par critère, séparateur entre chaque */
+  .qf-cond-mode { display: flex; gap: 8px; margin: 4px 0 10px; }
+  .qf-cond-mode-btn { flex: 1; padding: 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--muted); font-size: .82rem; }
+  .qf-cond-mode-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .qf-cond-rule { padding: 10px 0; border-top: 1px solid var(--border-soft); }
+  .qf-cond-rule:first-child { border-top: none; padding-top: 0; }
+  .qf-cond-rule-head { display: flex; justify-content: space-between; align-items: center; }
+  .qf-cond-rule-head label { margin: 0; }
+
   /* Théme du répondant (clair/sombre, indépendant du réglage du concepteur) */
   .theme-row { display: flex; justify-content: flex-end; margin-bottom: 4px; }
 

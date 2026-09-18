@@ -31,6 +31,19 @@ au répondant, sans aucun indice visible. Détails dans `docs/04-architecture.md
 l'architecture réelle du code et remplace la section 2 ci-dessous sur ce point (TypeScript/Vite/
 `FormBuilder_Forms` n'ont jamais été mis en œuvre).
 
+**Mise à jour du 18 septembre 2026 (suite) : conditions combinées ET/OU, pièces jointes et texte
+long.** Les deux points fonctionnels laissés à ce fil de priorisation après la refonte UI (voir
+section 3) sont faits. Une condition d'affichage peut désormais combiner plusieurs critères, en
+ET (toutes vraies) ou en OU (au moins une), au lieu d'un seul critère d'égalité ; éditeur et rendu
+répondant lisent un même format normalisé (`normalizeCondition`, `links.js`), l'ancien format à un
+seul critère continue de fonctionner sans migration à faire à la main. Deux types de question
+supplémentaires : « Texte long » (zone multi-lignes) et « Pièces jointes » (upload vers
+`/attachments`, comme un champ natif Attachments, y compris quand la question écrit dans une table
+différente de la principale). L'import des champs natifs suit : un champ Texte natif marqué
+multiligne devient une question « Texte long », un champ Attachments natif devient une question
+« Pièces jointes » ; seuls DateTime et Liste de références restent hors périmètre côté types de
+question. Suite de tests étendue à 238 vérifications (`poc/js/tests.js`), toutes au vert.
+
 ## 1. Principes d'interface
 
 Le différenciateur n'est pas technique, c'est la simplicité. Référence : Google Forms.
@@ -61,11 +74,7 @@ les deux divergent (stockage de la définition, TypeScript/Vite jamais introduit
 
 ### V1, le socle : indispensable et à forte valeur
 
-**Fusion visuelle des champs natifs et des questions supplémentaires, et passage à des cartes sobres** (ce qui viole aujourd'hui le principe n°1 ci-dessus et bloque la sortie du jalon J2) : repris par le chantier de refonte de l'UI qu'Antoine a demandé séparément le 18 septembre 2026 (deux maquettes proposées, façon Google Forms), pas par ce point de la feuille de route — voir ce fil-là pour l'avancement.
-
-**Priorité immédiate de ce chantier fonctionnel, dans cet ordre :**
-1. Généraliser les conditions à plusieurs critères combinés en ET/OU, au lieu d'un seul critère d'égalité aujourd'hui.
-2. Types de questions restants à forte valeur : pièces jointes, texte long multi-lignes. Moins urgents : date+heure, liste de références.
+**Fusion visuelle des champs natifs et des questions supplémentaires, et passage à des cartes sobres** (ce qui viole aujourd'hui le principe n°1 ci-dessus et bloque la sortie du jalon J2) : repris par le chantier de refonte de l'UI qu'Antoine a demandé séparément le 18 septembre 2026 (deux maquettes proposées, façon Google Forms), pas par ce point de la feuille de route — voir ce fil-là pour l'avancement. C'est désormais le seul point qui reste à faire pour fermer J2 : le reste du socle fonctionnel de V1 est fait (conditions ET/OU et types de question compris, voir « Déjà fait » ci-dessous).
 
 **Explicitement hors de portée : toute charte DSFR.** Antoine l'a rappelé le 18 septembre 2026 : FormPlus n'a pas le droit d'utiliser la charte graphique DSFR, réservée aux services de l'État — ce n'est pas un ministère. Le principe n°6 ci-dessus et la personnalisation de couleur restent sur une palette libre, jamais une présélection DSFR.
 
@@ -79,6 +88,7 @@ les deux divergent (stockage de la définition, TypeScript/Vite jamais introduit
 - ~~Thème clair/sombre côté répondant, couleur d'accent personnalisable~~ faits.
 - ~~Message de fin personnalisé, redirection après envoi, réinitialisation des questions~~ faits le 16 septembre 2026.
 - ~~Assistant « Publier »~~ partiellement fait le 16 septembre 2026 : bouton « Créer un formulaire natif vide » qui prépare la table et la section Formulaire, ne laissant plus que Publier + Copier le lien à la charge du concepteur (ces deux clics restent hors de portée de l'API plugin, voir V2 pour l'automatisation complète).
+- ~~Conditions combinées en ET/OU~~ et ~~types de question « Texte long » et « Pièces jointes »~~ faits le 18 septembre 2026 (voir bilan ci-dessus) : ne restent hors périmètre, côté types de question, que date+heure et liste de références.
 
 **Qualité, à ne pas laisser de côté avant de considérer V1 vraiment fini :**
 - Vérification d'accessibilité réelle (lecteur d'écran) sur l'écran répondant : le principe RGAA est posé depuis le début mais n'a encore été vérifié qu'à l'œil, jamais avec un lecteur d'écran.

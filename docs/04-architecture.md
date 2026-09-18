@@ -83,9 +83,10 @@ avertissement pour leurs concepteurs. Le nom reste pour cette raison, pas par ou
 
 Suite hors ligne, sans document Grist réel : `grist.docApi` et `fetch()` sont simulés à
 l'intérieur même du test, jamais de vraie requête réseau. Ouvrir `widget.html#test` (ou lancer
-`.github/workflows/tests.yml`, voir plus bas) exécute environ 184 vérifications couvrant les
-fonctions pures, chaque type de question, l'import des champs natifs, la réinitialisation, la
-création d'un formulaire vide et la construction des champs envoyés à l'API à la soumission.
+`.github/workflows/tests.yml`, voir plus bas) exécute environ 238 vérifications couvrant les
+fonctions pures, chaque type de question, les conditions d'affichage combinées en ET/OU, l'import
+des champs natifs, la réinitialisation, la création d'un formulaire vide et la construction des
+champs envoyés à l'API à la soumission (y compris l'envoi de pièces jointes).
 
 Le fichier exécute les fonctions des autres modules directement (imports ES), plutôt que de
 compter sur une portée de script partagée comme dans l'ancien fichier unique : chaque fonction

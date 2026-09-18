@@ -36,8 +36,24 @@ export function parseCustomView(o) {
   return {};
 }
 
-// Convertit l'ancien format {fields:[q1,q2]} vers le modèle {questions:[...]} à N entrées, et
-// garantit un champ "description" (vide par défaut) sur chaque question, y compris anciennes.
+// Une condition d'affichage a deux formes possibles en mémoire : l'ancienne, un seul critère
+// {questionId, op, value}, et l'actuelle, plusieurs critères combinés {mode: 'all'|'any', rules:
+// [{questionId, op, value}, ...]} ('all' = ET, 'any' = OU). Cette fonction ramène les deux vers
+// la forme actuelle, pour n'avoir qu'un seul format à lire partout ailleurs dans le widget.
+export function normalizeCondition(condition) {
+  if (!condition) return null;
+  if (Array.isArray(condition.rules)) {
+    return { mode: condition.mode === 'any' ? 'any' : 'all', rules: condition.rules };
+  }
+  if (condition.questionId) {
+    return { mode: 'all', rules: [{ questionId: condition.questionId, op: condition.op || 'equals', value: condition.value }] };
+  }
+  return null;
+}
+
+// Convertit l'ancien format {fields:[q1,q2]} vers le modèle {questions:[...]} à N entrées,
+// garantit un champ "description" (vide par défaut) sur chaque question, y compris anciennes,
+// et normalise la condition de chacune (voir normalizeCondition ci-dessus).
 export function migrateLegacy(opts) {
   let list;
   if (Array.isArray(opts?.questions)) list = opts.questions;
@@ -51,7 +67,7 @@ export function migrateLegacy(opts) {
         condition: f.condition ? { questionId: f.condition.field, op: f.condition.op, value: f.condition.value } : null };
     });
   } else list = [];
-  return list.map(q => ({ description: '', ...q }));
+  return list.map(q => ({ description: '', ...q, condition: normalizeCondition(q.condition) }));
 }
 
 // Le référent (adresse de la page Grist qui charge ce widget dans son iframe) contient le

@@ -1,8 +1,8 @@
 import { $, show } from './dom.js';
-import { parseFormLink, buildPublicUrl, parseCustomView, migrateLegacy, hostOrgFromReferrer } from './links.js';
+import { parseFormLink, buildPublicUrl, parseCustomView, migrateLegacy, hostOrgFromReferrer, normalizeCondition } from './links.js';
 import { hexToRgb, softenColor, contrastText } from './theme.js';
 import { KINDS } from './kinds.js';
-import { singleValueOf, isAnswered, renderExtraQuestion, onSubmit } from './respond.js';
+import { singleValueOf, isAnswered, renderExtraQuestion, onSubmit, conditionMet } from './respond.js';
 import {
   questionSummary, choiceQuestionsBefore, renderCardBody,
   importNativeFields, resetQuestions, createEmptyForm, populateFormPicker,
@@ -81,10 +81,24 @@ export async function runTests() {
   });
 
   await group('migrateLegacy', () => {
-    assertEqual('format à jour, description par défaut', migrateLegacy({ questions: [{ id: 'q1', kind: 'text' }] }), [{ id: 'q1', kind: 'text', description: '' }]);
+    assertEqual('format à jour, description par défaut', migrateLegacy({ questions: [{ id: 'q1', kind: 'text' }] }), [{ id: 'q1', kind: 'text', description: '', condition: null }]);
     const legacy = migrateLegacy({ fields: [{ id: 'q1', type: 'choice-table', label: 'L', sourceTable: 'T', sourceCol: 'c', writeTable: 'T', writeCol: 'c' }] });
     assertEqual('ancien format choice-table -> kind choice', legacy[0]?.kind, 'choice');
     assertEqual('aucune donnée -> []', migrateLegacy({}), []);
+    const withOldCond = migrateLegacy({ questions: [{ id: 'q1', kind: 'text', condition: { questionId: 'x', value: 'V' } }] });
+    assertEqual('condition ancien format (un seul critère) normalisée en {mode, rules}', withOldCond[0].condition,
+      { mode: 'all', rules: [{ questionId: 'x', op: 'equals', value: 'V' }] });
+    const withNewCond = migrateLegacy({ questions: [{ id: 'q1', kind: 'text', condition: { mode: 'any', rules: [{ questionId: 'x', op: 'equals', value: 'V' }] } }] });
+    assertEqual('condition déjà au nouveau format conservée', withNewCond[0].condition, { mode: 'any', rules: [{ questionId: 'x', op: 'equals', value: 'V' }] });
+  });
+
+  await group('normalizeCondition', () => {
+    assertEqual('rien -> null', normalizeCondition(null), null);
+    assertEqual('ancien format -> une règle, mode ET', normalizeCondition({ questionId: 'a', op: 'equals', value: 'V' }),
+      { mode: 'all', rules: [{ questionId: 'a', op: 'equals', value: 'V' }] });
+    assertEqual('nouveau format OU conservé', normalizeCondition({ mode: 'any', rules: [{ questionId: 'a', value: 'V' }] }),
+      { mode: 'any', rules: [{ questionId: 'a', value: 'V' }] });
+    assertEqual('mode absent -> ET par défaut', normalizeCondition({ rules: [{ questionId: 'a', value: 'V' }] }).mode, 'all');
   });
 
   await group('couleurs (hexToRgb / softenColor / contrastText)', () => {
@@ -111,6 +125,9 @@ export async function runTests() {
     assertEqual('select -> nombre d’options', questionSummary({ kind: 'select', choices: ['a', 'b'] }), '2 option(s)');
     assertEqual('choice en radio', questionSummary({ kind: 'choice', sourceTable: 'T', displayMode: 'radio' }), 'Depuis « T » · en radio');
     assertEqual('écrit ailleurs + condition', questionSummary({ kind: 'text', writeTable: 'Autre', condition: { questionId: 'zzz', value: 'X' } }), 'écrit dans « Autre » · si « ? » = « X »');
+    assertEqual('condition à plusieurs règles combinées en OU',
+      questionSummary({ kind: 'text', condition: { mode: 'any', rules: [{ questionId: 'a', value: 'X' }, { questionId: 'b', value: 'Y' }] } }),
+      'si « ? » = « X » ou « ? » = « Y »');
   });
 
   await group('singleValueOf', () => {
@@ -134,6 +151,22 @@ export async function runTests() {
     plain.value = 'texte';
     assertEqual('repli sur un champ simple', singleValueOf(plain), { value: 'texte', label: 'texte' });
     assertEqual('conteneur nul', singleValueOf(null), { value: '', label: '' });
+  });
+
+  await group('conditionMet : combinaisons ET/OU', () => {
+    const host = mount(document.createElement('div'));
+    host.innerHTML = `
+      <select id="eq-a"><option value=""></option><option value="x" data-label="X">X</option><option value="y" data-label="Y">Y</option></select>
+      <select id="eq-b"><option value=""></option><option value="p" data-label="P">P</option><option value="q" data-label="Q">Q</option></select>`;
+    $('eq-a').value = 'x';
+    $('eq-b').value = 'p';
+    assert('ET : toutes les règles vraies -> true', conditionMet({ mode: 'all', rules: [{ questionId: 'a', value: 'X' }, { questionId: 'b', value: 'P' }] }));
+    assert('ET : une règle fausse -> false', !conditionMet({ mode: 'all', rules: [{ questionId: 'a', value: 'X' }, { questionId: 'b', value: 'Q' }] }));
+    assert('OU : une règle vraie -> true', conditionMet({ mode: 'any', rules: [{ questionId: 'a', value: 'Y' }, { questionId: 'b', value: 'P' }] }));
+    assert('OU : aucune règle vraie -> false', !conditionMet({ mode: 'any', rules: [{ questionId: 'a', value: 'Y' }, { questionId: 'b', value: 'Q' }] }));
+    assert('aucune condition -> toujours affiché (true)', conditionMet(null));
+    assert('ancien format à un seul critère -> normalisé et évalué', conditionMet({ questionId: 'a', value: 'X' }));
+    assert('ancien format, valeur différente -> false', !conditionMet({ questionId: 'a', value: 'Y' }));
   });
 
   await group('isAnswered', () => {
@@ -172,6 +205,12 @@ export async function runTests() {
 
     host.innerHTML = renderExtraQuestion({ id: 'q4', kind: 'bool', label: 'B' });
     assert('oui/non : checkbox', !!host.querySelector('input[type=checkbox]#eq-q4'));
+
+    host.innerHTML = renderExtraQuestion({ id: 'q4b', kind: 'longtext', label: 'LT' });
+    assert('texte long : textarea', host.querySelector('textarea#eq-q4b') != null);
+
+    host.innerHTML = renderExtraQuestion({ id: 'q4c', kind: 'attachments', label: 'PJ' });
+    assert('pièces jointes : input file multiple', host.querySelector('input[type=file]#eq-q4c')?.multiple === true);
 
     host.innerHTML = renderExtraQuestion({ id: 'q5', kind: 'select', label: 'S', choices: ['A', 'B'] });
     const sel = host.querySelector('#eq-q5');
@@ -213,7 +252,7 @@ export async function runTests() {
   });
 
   await group('saveQuestionFromCard : réponses simples, colonne par défaut', async () => {
-    for (const k of ['text', 'number', 'date', 'bool', 'select', 'multiselect']) {
+    for (const k of ['text', 'longtext', 'number', 'date', 'bool', 'select', 'multiselect', 'attachments']) {
       state.cfgQuestions = [];
       state.mainTableIdCache = 'Main';
       state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
@@ -257,6 +296,53 @@ export async function runTests() {
     body.querySelector('.qf-save').click();
     await tick();
     assertEqual('displayMode=radio enregistré', state.cfgQuestions[0]?.displayMode, 'radio');
+  });
+
+  await group('renderCardBody : condition, ajouter/retirer une règle fait apparaître/disparaître le choix ET/OU', async () => {
+    state.cfgQuestions = [{ id: 'src1', kind: 'select', label: 'Statut', choices: ['Ouvert', 'Fermé'] }];
+    state.mainTableIdCache = 'Main';
+    state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+    window.grist = { docApi: { listTables: async () => ['Main'], fetchTable: async (t) => t === '_grist_Tables' ? { id: [1], tableId: ['Main'] } : { id: [10], colA: ['x'] } } };
+    const body = mount(document.createElement('div'));
+    await renderCardBody('__new__', body);
+    body.querySelector('[data-reveal="condition"]').click();
+    assertEqual('une seule ligne de condition au départ', body.querySelectorAll('.qf-cond-rule').length, 1);
+    assert('bascule ET/OU masquée avec une seule règle', body.querySelector('.qf-cond-mode').classList.contains('hidden'));
+    assert('pas de bouton "retirer" sur la seule ligne', body.querySelector('.qf-cond-remove') == null);
+    body.querySelector('.qf-cond-add').click();
+    await tick();
+    assertEqual('deux lignes après ajout', body.querySelectorAll('.qf-cond-rule').length, 2);
+    assert('bascule ET/OU visible à partir de 2 règles', !body.querySelector('.qf-cond-mode').classList.contains('hidden'));
+    assertEqual('un bouton "retirer" par ligne', body.querySelectorAll('.qf-cond-remove').length, 2);
+    body.querySelector('.qf-cond-remove[data-idx="1"]').click();
+    await tick();
+    assertEqual('retour à une ligne après suppression', body.querySelectorAll('.qf-cond-rule').length, 1);
+    assert('bascule ET/OU de nouveau masquée', body.querySelector('.qf-cond-mode').classList.contains('hidden'));
+  });
+
+  await group('renderCardBody / saveQuestionFromCard : condition à plusieurs règles, chargement puis changement ET/OU', async () => {
+    state.cfgQuestions = [
+      { id: 'src1', kind: 'select', label: 'Statut', choices: ['Ouvert', 'Fermé'] },
+      { id: 'src2', kind: 'select', label: 'Priorité', choices: ['Haute', 'Basse'] },
+      {
+        id: 'q1', kind: 'text', label: 'Commentaire', writeTable: 'Main', writeCol: 'colA', required: false,
+        condition: { mode: 'all', rules: [{ questionId: 'src1', op: 'equals', value: 'Ouvert' }, { questionId: 'src2', op: 'equals', value: 'Haute' }] },
+      },
+    ];
+    state.mainTableIdCache = 'Main';
+    state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+    window.grist = { docApi: { listTables: async () => ['Main'], fetchTable: async (t) => t === '_grist_Tables' ? { id: [1], tableId: ['Main'] } : { id: [10], colA: ['x'] }, applyUserActions: async () => ({}), setOptions: async () => {} } };
+    state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
+    const body = mount(document.createElement('div'));
+    await renderCardBody('q1', body);
+    assertEqual('2 lignes de condition affichées au chargement', body.querySelectorAll('.qf-cond-rule').length, 2);
+    assert('bascule ET/OU visible', !body.querySelector('.qf-cond-mode').classList.contains('hidden'));
+    assert('ET actif au chargement (mode enregistré)', body.querySelector('.qf-cond-mode-btn[data-mode="all"]').classList.contains('active'));
+    body.querySelector('.qf-cond-mode-btn[data-mode="any"]').click();
+    body.querySelector('.qf-save').click();
+    await tick();
+    assertEqual('condition ré-enregistrée en OU, mêmes règles', state.cfgQuestions.find(q => q.id === 'q1')?.condition,
+      { mode: 'any', rules: [{ questionId: 'src1', op: 'equals', value: 'Ouvert' }, { questionId: 'src2', op: 'equals', value: 'Haute' }] });
   });
 
   await group('saveQuestionFromCard : choix depuis une table', async () => {
@@ -318,7 +404,7 @@ export async function runTests() {
     state.mainTableIdCache = 'Reponses';
     state.currentLink = { api: 'https://fake/api/s/KEY', vsId: 1 };
     state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
-    const sectionFields = { id: [100, 101, 102, 103, 104, 105, 106, 107], parentId: [1, 1, 1, 1, 1, 1, 1, 1], widgetOptions: ['{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}'] };
+    const sectionFields = { id: [100, 101, 102, 103, 104, 105, 106, 107, 108], parentId: [1, 1, 1, 1, 1, 1, 1, 1, 1], widgetOptions: ['{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}'] };
     window.grist = {
       docApi: {
         fetchTable: async (t) => {
@@ -341,6 +427,7 @@ export async function runTests() {
           105: { colId: 'f', type: 'ChoiceList', question: 'Q6', options: { choices: ['X', 'Y'] } },
           106: { colId: 'g', type: 'Attachments', question: 'Q7', options: {} },
           107: { colId: 'h', type: 'DateTime', question: 'Q8', options: {} },
+          108: { colId: 'i', type: 'Text', question: 'Q9', options: { formTextFormat: 'multiline' } },
         },
       }),
     });
@@ -353,7 +440,10 @@ export async function runTests() {
     assertEqual('Bool -> bool', kindByLabel.Q4, 'bool');
     assertEqual('Choice -> select', kindByLabel.Q5, 'select');
     assertEqual('ChoiceList -> multiselect', kindByLabel.Q6, 'multiselect');
-    assertEqual('Attachments et DateTime ignorés (6 importés sur 8)', state.cfgQuestions.length, 6);
+    assertEqual('Attachments -> attachments', kindByLabel.Q7, 'attachments');
+    assertEqual('Text multiligne -> longtext', kindByLabel.Q9, 'longtext');
+    assertEqual('seul DateTime ignoré (8 importés sur 9)', state.cfgQuestions.length, 8);
+    assertEqual('colonne existante reprise telle quelle pour Attachments', state.cfgQuestions.find(q => q.label === 'Q7')?.writeCol, 'g');
     assertEqual('options reprises pour Choice', state.cfgQuestions.find(q => q.label === 'Q5')?.choices, ['X', 'Y']);
     assert('importedFrom renseigné', state.cfgQuestions.every(q => !!q.importedFrom));
   });
@@ -519,6 +609,8 @@ export async function runTests() {
       { id: 'q9', kind: 'section', label: 'Section' },
       { id: 'q10', kind: 'info', label: 'Info' },
       { id: 'q11', kind: 'text', label: 'Commentaire', writeTable: 'Autre', writeCol: 'Texte' },
+      { id: 'q12', kind: 'longtext', label: 'Remarques', writeTable: 'Reponses', writeCol: 'Remarques' },
+      { id: 'q13', kind: 'attachments', label: 'Justificatif', writeTable: 'Pieces', writeCol: 'PJ' },
     ];
     const formEl = mount(document.createElement('form'));
     formEl.innerHTML = `<input type="text" name="_website" value="" style="display:none">${extraQuestions.map(renderExtraQuestion).join('')}<span id="fill-status"></span><button type="submit"></button>`;
@@ -532,12 +624,17 @@ export async function runTests() {
     formEl.querySelector('#eq-q11').value = 'Bonjour';
     formEl.querySelector('#eq-q8').innerHTML = '<label class="opt"><input type="radio" name="eq-q8" value="5" data-label="Rhône"></label>';
     formEl.querySelector('#eq-q8 input').checked = true;
+    formEl.querySelector('#eq-q12').value = 'Sur plusieurs lignes';
+    const dt = new DataTransfer();
+    dt.items.add(new File(['contenu'], 'justif.pdf', { type: 'application/pdf' }));
+    formEl.querySelector('#eq-q13').files = dt.files;
 
     const extraTableWrites = [];
     window.grist = { docApi: { applyUserActions: async (a) => { extraTableWrites.push(a); return {}; } } };
     let capturedBody = null;
     window.fetch = async (url, opts) => {
       if (String(url).includes('/tables/Reponses/records')) { capturedBody = JSON.parse(opts.body); return { ok: true, json: async () => ({ records: [{ id: 42 }] }) }; }
+      if (String(url).includes('/attachments')) { return { ok: true, json: async () => ([99]) }; }
       return { ok: true, json: async () => ({}) };
     };
     state.options = {};
@@ -552,10 +649,13 @@ export async function runTests() {
     assertEqual('choix liste fixe (radio)', fields.VilleRadio, 'Paris');
     assertEqual('choix multiples', fields.Langues, ['L', 'En']);
     assertEqual('choix depuis une table (radio, numérique)', fields.Dept, 5);
+    assertEqual('texte long', fields.Remarques, 'Sur plusieurs lignes');
     assert('titre de section absent des champs envoyés', !('Section' in fields));
     assert('bloc d’info absent des champs envoyés', !('Info' in fields));
+    assert('pièces jointes absentes des champs de la table principale (envoyées à part)', !('Justificatif' in fields) && !('PJ' in fields));
     await tick();
     assertEqual('écriture séparée vers la table Autre', extraTableWrites[0]?.[0], ['AddRecord', 'Autre', null, { Texte: 'Bonjour' }]);
+    assertEqual('pièce jointe : upload puis écriture séparée vers la table Pieces', extraTableWrites[1]?.[0], ['AddRecord', 'Pieces', null, { PJ: ['L', 99] }]);
   });
 
   await group('onSubmit : un échec sur une table secondaire ne s’affiche jamais comme un succès complet', async () => {

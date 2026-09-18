@@ -1,6 +1,6 @@
 import { $, esc, show } from './dom.js';
 import { LAYOUT_KINDS, SINGLE_CHOICE_KINDS } from './kinds.js';
-import { parseFormLink, migrateLegacy } from './links.js';
+import { parseFormLink, migrateLegacy, normalizeCondition } from './links.js';
 import { applyBranding } from './theme.js';
 import { probeCanEdit } from './grist-meta.js';
 import { diag, fragmentFormLink } from './diag.js';
@@ -83,6 +83,17 @@ export function radioGroup(name, choices) {
   return choices.map(c => `<label class="opt"><input type="radio" name="${name}" value="${esc(c)}" data-label="${esc(c)}"> ${esc(c)}</label>`).join('');
 }
 
+// Une condition d'affichage combine N critères (question source = valeur) en ET (toutes vraies)
+// ou en OU (au moins une) — voir normalizeCondition (links.js) pour les deux formats acceptés en
+// entrée. Chaque critère se lit sur le conteneur #eq-<questionId> de sa question source, avec la
+// même lecture que la soumission (singleValueOf) : un seul point de lecture pour les deux usages.
+export function conditionMet(condition) {
+  const cond = normalizeCondition(condition);
+  if (!cond?.rules?.length) return true;
+  const results = cond.rules.map(r => singleValueOf($(`eq-${r.questionId}`)).label === r.value);
+  return cond.mode === 'any' ? results.some(Boolean) : results.every(Boolean);
+}
+
 export function renderExtraQuestion(q) {
   if (q.kind === 'section') {
     return `<div class="q q-section" data-extra="${q.id}" data-kind="section">
@@ -122,6 +133,12 @@ export function renderExtraQuestion(q) {
       break;
     case 'bool':
       input = `<label class="switch"><input id="eq-${q.id}" type="checkbox"> Oui</label>`;
+      break;
+    case 'longtext':
+      input = `<textarea id="eq-${q.id}" rows="4"></textarea>`;
+      break;
+    case 'attachments':
+      input = `<input id="eq-${q.id}" type="file" multiple>`;
       break;
     default:
       input = `<input id="eq-${q.id}" type="text">`;
@@ -231,12 +248,11 @@ export async function renderFill() {
     }
   }
   for (const q of extraQuestions) {
-    if (!q.condition) continue;
-    const srcContainer = $(`eq-${q.condition.questionId}`);
-    if (!srcContainer) continue;
+    const cond = normalizeCondition(q.condition);
+    if (!cond?.rules?.length) continue;
     const target = card.querySelector(`[data-extra="${q.id}"]`);
-    const check = () => target.classList.toggle('cond-hidden', singleValueOf(srcContainer).label !== q.condition.value);
-    srcContainer.addEventListener('change', check);
+    const check = () => target.classList.toggle('cond-hidden', !conditionMet(q.condition));
+    cond.rules.map(r => $(`eq-${r.questionId}`)).filter(Boolean).forEach(c => c.addEventListener('change', check));
     check();
   }
 
@@ -267,7 +283,7 @@ export async function onSubmit(ev, form, link, extraQuestions) {
       value = vals.length ? ['L', ...vals] : null;
     } else if (type === 'Attachments') {
       const files = [...q.querySelector('input').files];
-      if (files.length) uploads.push({ col, files });
+      if (files.length) uploads.push({ table: form.formTableId, col, files });
       value = files.length ? 'pending' : null;
     } else if (q.querySelector('input[type=radio]')) {
       const c = q.querySelector('input:checked'); value = c ? c.value : null;
@@ -289,6 +305,17 @@ export async function onSubmit(ev, form, link, extraQuestions) {
     const el = formEl.querySelector(`[data-extra="${q.id}"]`);
     if (!el) continue;
     const visible = !el.classList.contains('cond-hidden');
+    if (q.kind === 'attachments') {
+      // Pas de valeur directe à poser dans fieldsByTable : le fichier part vers /attachments à
+      // l'envoi (comme pour un champ natif Attachments), la colonne n'est renseignée qu'ensuite
+      // avec les identifiants renvoyés (voir la boucle "uploads" plus bas).
+      const files = [...(el.querySelector('input[type=file]')?.files || [])];
+      const empty = files.length === 0;
+      el.classList.toggle('invalid', q.required && empty && visible);
+      if (q.required && empty && visible) valid = false;
+      if (visible && !empty) uploads.push({ table: q.writeTable, col: q.writeCol, files });
+      continue;
+    }
     let value = null, empty;
     if (q.kind === 'multiselect') {
       const checked = [...el.querySelectorAll('input:checked')].map(i => i.value);
@@ -329,7 +356,8 @@ export async function onSubmit(ev, form, link, extraQuestions) {
       up.files.forEach(file => fd.append('upload', file));
       const r = await fetch(`${link.api}/attachments`, { method: 'POST', body: fd });
       if (!r.ok) throw new Error(`Pièces jointes : HTTP ${r.status}`);
-      fieldsByTable[form.formTableId][up.col] = ['L', ...(await r.json())];
+      fieldsByTable[up.table] = fieldsByTable[up.table] || {};
+      fieldsByTable[up.table][up.col] = ['L', ...(await r.json())];
     }
     // Table principale, via l'API REST (déjà utilisée pour les pièces jointes, cohérent).
     const r = await fetch(`${link.api}/tables/${form.formTableId}/records`, {

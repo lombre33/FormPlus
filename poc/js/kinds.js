@@ -5,12 +5,14 @@ import { ICONS } from './icons.js';
 // dans la même liste, réordonnables comme les autres (mêmes cartes, mêmes conditions d'affichage).
 export const KINDS = [
   { id: 'text', label: 'Texte', icon: ICONS.text },
+  { id: 'longtext', label: 'Texte long', icon: ICONS.paragraph },
   { id: 'number', label: 'Nombre', icon: ICONS.hash },
   { id: 'date', label: 'Date', icon: ICONS.calendar },
   { id: 'bool', label: 'Oui / non', icon: ICONS.toggleOn },
   { id: 'select', label: 'Choix (liste fixe)', icon: ICONS.list },
   { id: 'multiselect', label: 'Choix multiples (liste fixe)', icon: ICONS.checkSquare },
   { id: 'choice', label: 'Choix depuis une table', icon: ICONS.table },
+  { id: 'attachments', label: 'Pièces jointes', icon: ICONS.paperclip },
   { id: 'section', label: 'Titre de section', icon: ICONS.heading },
   { id: 'info', label: "Bloc d'info repliable", icon: ICONS.info },
 ];

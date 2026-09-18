@@ -1,7 +1,7 @@
 import { $, esc, uid, cssEsc, show } from './dom.js';
 import { ICONS } from './icons.js';
 import { KINDS, LAYOUT_KINDS, SINGLE_CHOICE_KINDS } from './kinds.js';
-import { parseFormLink, buildPublicUrl, migrateLegacy, myPageFromReferrer, hostOrgFromReferrer } from './links.js';
+import { parseFormLink, buildPublicUrl, migrateLegacy, myPageFromReferrer, hostOrgFromReferrer, normalizeCondition } from './links.js';
 import { diag } from './diag.js';
 import {
   fetchMeta, getTableRef, tableIdOfRef, columnOptions,
@@ -176,9 +176,14 @@ export function questionSummary(q) {
   if (q.kind === 'select' || q.kind === 'multiselect') parts.push(`${(q.choices || []).length} option(s)`);
   if (SINGLE_CHOICE_KINDS.has(q.kind) && q.displayMode === 'radio') parts.push('en radio');
   if (q.writeTable && q.writeTable !== state.mainTableIdCache) parts.push(`écrit dans « ${q.writeTable} »`);
-  if (q.condition) {
-    const src = state.cfgQuestions.find(x => x.id === q.condition.questionId);
-    parts.push(`si « ${src ? src.label : '?'} » = « ${q.condition.value} »`);
+  const cond = normalizeCondition(q.condition);
+  if (cond?.rules?.length) {
+    const joiner = cond.mode === 'any' ? ' ou ' : ' et ';
+    const desc = cond.rules.map(r => {
+      const src = state.cfgQuestions.find(x => x.id === r.questionId);
+      return `« ${src ? src.label : '?'} » = « ${r.value} »`;
+    }).join(joiner);
+    parts.push(`si ${desc}`);
   }
   return parts.join(' · ');
 }
@@ -372,9 +377,12 @@ export async function renderCardBody(id, body) {
     <label class="toggle qf-required-row"><input type="checkbox" class="qf-required" ${q?.required ? 'checked' : ''}><span class="toggle-track"><span class="toggle-thumb"></span></span><span>Obligatoire</span></label>
     <button type="button" class="qf-link" data-reveal="condition">${ICONS.branch}<span>Condition d'affichage</span></button>
     <div class="qf-condition ${conditionOpen ? '' : 'hidden'}">
-      <label>Afficher si</label>
-      <select class="qf-condQ"><option value="">— choisir une question —</option>${condCandidates.map(c => `<option value="${c.id}">${esc(c.label)}</option>`).join('')}</select>
-      <label>égale</label><div class="combo-host" data-combo="condValue"></div>
+      <div class="qf-cond-mode hidden">
+        <button type="button" class="qf-cond-mode-btn" data-mode="all">Toutes vraies (ET)</button>
+        <button type="button" class="qf-cond-mode-btn" data-mode="any">Au moins une vraie (OU)</button>
+      </div>
+      <div class="qf-cond-rules"></div>
+      <button type="button" class="qf-link qf-cond-add">${ICONS.plus}<span>Ajouter une condition</span></button>
     </div>
     <p class="qf-msg muted"></p>
     <div class="qcard-footer">
@@ -437,21 +445,75 @@ export async function renderCardBody(id, body) {
   combos.writeTable.onChange(refreshWriteCol);
   await refreshWriteCol();
 
-  async function refreshCondValues() {
-    const srcId = body.querySelector('.qf-condQ').value;
-    if (!srcId) { combos.condValue.setOptions([]); return; }
+  // Conditions combinées : N critères (question source = valeur), combinés en ET (toutes vraies)
+  // ou en OU (au moins une) — voir normalizeCondition (links.js) pour les deux formats acceptés.
+  // condRules est la donnée de travail de cette carte ; body.getCondition() la relit à
+  // l'enregistrement (saveQuestionFromCard n'a pas d'autre accès à cette fermeture).
+  const condNorm = normalizeCondition(q?.condition);
+  const condRules = (condNorm?.rules?.length ? condNorm.rules : [{ questionId: '', value: '' }])
+    .map(r => ({ questionId: r.questionId, value: r.value }));
+  let condMode = condNorm?.mode === 'any' ? 'any' : 'all';
+  const condModeEl = body.querySelector('.qf-cond-mode');
+  const condRulesEl = body.querySelector('.qf-cond-rules');
+  const condRuleCombos = [];
+
+  function setCondMode(m) {
+    condMode = m;
+    condModeEl.querySelectorAll('.qf-cond-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === m));
+  }
+
+  async function refreshRuleValue(i) {
+    const srcId = condRules[i].questionId;
+    const combo = condRuleCombos[i];
+    if (!srcId) { combo.setOptions([]); return; }
     const src = state.cfgQuestions.find(x => x.id === srcId);
-    if (!src) return;
-    if (src.kind === 'select') {
-      combos.condValue.setOptions((src.choices || []).map(v => ({ value: v, label: v })), q?.condition?.value);
-    } else {
+    if (src?.kind === 'select') {
+      combo.setOptions((src.choices || []).map(v => ({ value: v, label: v })), condRules[i].value);
+    } else if (src?.kind === 'choice') {
       const data = await fetchMeta(src.sourceTable);
-      combos.condValue.setOptions((data[src.sourceCol] || []).map(v => ({ value: v, label: v })), q?.condition?.value);
+      combo.setOptions((data[src.sourceCol] || []).map(v => ({ value: v, label: v })), condRules[i].value);
+    } else {
+      combo.setOptions([]);
     }
   }
-  if (q?.condition) body.querySelector('.qf-condQ').value = q.condition.questionId;
-  body.querySelector('.qf-condQ').addEventListener('change', refreshCondValues);
-  await refreshCondValues();
+
+  async function renderCondRules() {
+    condModeEl.classList.toggle('hidden', condRules.length < 2);
+    setCondMode(condMode);
+    condRulesEl.innerHTML = condRules.map((r, i) => `
+      <div class="qf-cond-rule" data-idx="${i}">
+        <div class="qf-cond-rule-head">
+          <label>Afficher si</label>
+          ${condRules.length > 1 ? `<button type="button" class="icon-btn danger qf-cond-remove" data-idx="${i}" title="Retirer cette condition">${ICONS.trash}</button>` : ''}
+        </div>
+        <select class="qf-condQ" data-idx="${i}"><option value="">— choisir une question —</option>${condCandidates.map(c => `<option value="${c.id}" ${c.id === r.questionId ? 'selected' : ''}>${esc(c.label)}</option>`).join('')}</select>
+        <label>égale</label><div class="combo-host"></div>
+      </div>`).join('');
+    condRuleCombos.length = 0;
+    const rows = [...condRulesEl.querySelectorAll('.qf-cond-rule')];
+    rows.forEach((row, i) => {
+      const combo = mountCombo(row.querySelector('.combo-host'));
+      condRuleCombos[i] = combo;
+      combo.onChange((v) => { condRules[i].value = v; });
+      row.querySelector('.qf-condQ').addEventListener('change', (e) => {
+        condRules[i].questionId = e.target.value;
+        condRules[i].value = '';
+        refreshRuleValue(i);
+      });
+      row.querySelector('.qf-cond-remove')?.addEventListener('click', () => { condRules.splice(i, 1); renderCondRules(); });
+    });
+    await Promise.all(rows.map((_, i) => refreshRuleValue(i)));
+  }
+  await renderCondRules();
+  body.querySelector('.qf-cond-add').addEventListener('click', () => { condRules.push({ questionId: '', value: '' }); renderCondRules(); });
+  condModeEl.querySelectorAll('.qf-cond-mode-btn').forEach(b => b.addEventListener('click', () => setCondMode(b.dataset.mode)));
+
+  body.getCondition = () => {
+    const rules = condRules
+      .filter(r => r.questionId && r.value !== '' && r.value != null)
+      .map(r => ({ questionId: r.questionId, op: 'equals', value: r.value }));
+    return rules.length ? { mode: condMode, rules } : null;
+  };
 
   body.querySelector('.qf-cancel').addEventListener('click', () => { state.expandedId = null; renderQuestionList(); });
   body.querySelector('.qf-save').addEventListener('click', () => saveQuestionFromCard(id, body, q, combos));
@@ -477,8 +539,7 @@ export async function saveQuestionFromCard(id, body, existing, combos) {
   const label = body.querySelector('.qf-label').value.trim() ||
     (kind === 'choice' ? 'Votre choix' : kind === 'section' ? 'Section' : kind === 'info' ? "Bloc d'info" : 'Réponse');
   const description = (kind === 'info' ? body.querySelector('.qf-desc-long') : body.querySelector('.qf-desc')).value.trim();
-  const condQ = body.querySelector('.qf-condQ').value;
-  const condition = condQ ? { questionId: condQ, op: 'equals', value: combos.condValue.value } : null;
+  const condition = body.getCondition ? body.getCondition() : null;
 
   try {
     msg.textContent = 'Enregistrement…';
@@ -551,13 +612,14 @@ export async function importNativeFields() {
     const fieldUpdates = [];
 
     // Correspondance type de colonne Grist → type de question FormPlus. Hors périmètre pour
-    // l'instant : DateTime, RefList, Attachments (aucun "kind" équivalent côté éditeur).
+    // l'instant : DateTime, RefList (aucun "kind" équivalent côté éditeur).
     const SIMPLE_MAP = { Date: 'date', Numeric: 'number', Int: 'number', Bool: 'bool' };
     for (const [fieldId, fl] of Object.entries(form.formFieldsById)) {
       const o = fl.options || {};
       if (o.formIsHidden) continue; // déjà masqué : déjà importé, ou masqué intentionnellement
       let kind = null;
-      if (fl.type === 'Text' || fl.type === 'Any') kind = 'text';
+      if (fl.type === 'Text' || fl.type === 'Any') kind = o.formTextFormat === 'multiline' ? 'longtext' : 'text';
+      else if (fl.type === 'Attachments') kind = 'attachments';
       else if (fl.type === 'Ref') kind = 'choice';
       else if (fl.type === 'Choice') kind = 'select';
       else if (fl.type === 'ChoiceList') kind = 'multiselect';
