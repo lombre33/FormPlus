@@ -180,6 +180,31 @@ export async function duplicateFormSection(sourceVsId) {
   return newVsId;
 }
 
+// Détermine la page Grist qui héberge CE widget, sans connaître de vsId de formulaire (utile
+// avant même la première génération, ex. pour poser une nouvelle section vide sur la bonne
+// page) : d'abord le référent (myPageFromReferrer, fiable dans le cas courant), puis, s'il est
+// absent ou ne contient pas de numéro de page (référent bloqué par le navigateur, embed=true…),
+// un repli sur les métadonnées, en cherchant l'unique section personnalisée dont l'URL
+// correspond à ce widget — même repli que celui déjà utilisé par findViewRefForSection ci-
+// dessous, mais utilisable sans lien de formulaire déjà connu.
+export async function findMyWidgetPage() {
+  const myPage = myPageFromReferrer();
+  if (myPage != null) return myPage;
+  const sections = await fetchMeta('_grist_Views_section');
+  const myFile = location.pathname.split('/').pop();
+  const candidates = [];
+  for (let i = 0; i < sections.id.length; i++) {
+    if (sections.parentKey[i] !== 'custom') continue;
+    let o = {}; try { o = JSON.parse(sections.options[i] || '{}') || {}; } catch (e) { /* ignore */ }
+    const cv = parseCustomView(o);
+    candidates.push({ parentId: sections.parentId[i], url: cv.url || '' });
+  }
+  const matches = candidates.filter(s => s.url.includes(myFile));
+  if (matches.length === 1) return matches[0].parentId;
+  if (candidates.length === 1) return candidates[0].parentId;
+  return null;
+}
+
 export async function findViewRefForSection(vsId) {
   // La clé accordée par le formulaire natif porte sur sa TABLE, pas sur sa page : elle vaut
   // pour tout le document (voir ACLRulesReader._shareTableForForm, aclFormula ne référence que

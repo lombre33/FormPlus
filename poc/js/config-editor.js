@@ -1,12 +1,12 @@
 import { $, esc, uid, show } from './dom.js';
 import { ICONS } from './icons.js';
 import { KINDS, LAYOUT_KINDS, SINGLE_CHOICE_KINDS } from './kinds.js';
-import { parseFormLink, buildPublicUrl, migrateLegacy, myPageFromReferrer, hostOrgFromReferrer, normalizeCondition } from './links.js';
+import { parseFormLink, buildPublicUrl, migrateLegacy, hostOrgFromReferrer, normalizeCondition } from './links.js';
 import { diag } from './diag.js';
 import {
   fetchMeta, getTableRef, tableIdOfRef, columnOptions,
   findExistingShareKey, ensureTableGate, ensureChoiceField,
-  findViewRefForSection, persistOptions, duplicateFormSection,
+  findViewRefForSection, findMyWidgetPage, persistOptions, duplicateFormSection,
 } from './grist-meta.js';
 import { state } from './state.js';
 import { renderFill } from './respond.js';
@@ -226,7 +226,7 @@ $('scratchCreate').addEventListener('click', createEmptyForm);
 
 export async function createEmptyForm() {
   const msg = $('scratch-msg');
-  const widgetPage = myPageFromReferrer();
+  const widgetPage = await findMyWidgetPage();
   if (!widgetPage) {
     msg.innerHTML = '<span class="err">Impossible de déterminer la page de ce widget (adresse de la page Grist illisible). Créez le formulaire manuellement depuis Grist : Ajouter une page → Formulaire.</span>';
     return;

@@ -522,6 +522,33 @@ export async function runTests() {
     assert('message d’erreur affiché', $('scratch-msg').innerHTML.includes('err'));
   });
 
+  await group('createEmptyForm : référent illisible mais widget retrouvé via les métadonnées -> page correcte', async () => {
+    const calls = [];
+    const myFile = location.pathname.split('/').pop();
+    window.grist = {
+      docApi: {
+        fetchTable: async (t) => {
+          if (t === '_grist_Tables') return { tableId: ['Departements'], id: [1] };
+          if (t === '_grist_Views_section') return {
+            id: [9], parentId: [7], parentKey: ['custom'],
+            options: [JSON.stringify({ customView: JSON.stringify({ url: `https://cdn.example.com/${myFile}` }) })],
+          };
+          return {};
+        },
+        applyUserActions: async (a) => { calls.push(a); return {}; },
+      },
+    };
+    $('scratchTable').value = 'Departements';
+    // Référent vide (ex. embed=true, ou navigateur qui le bloque) : myPageFromReferrer() échoue,
+    // le repli doit retrouver la page (7) via l'unique section personnalisée qui pointe vers ce
+    // widget dans les métadonnées du document, sans jamais afficher le message d'erreur.
+    Object.defineProperty(document, 'referrer', { value: '', configurable: true });
+    await createEmptyForm();
+    assertEqual('CreateViewSection déclenché malgré le référent illisible', calls.length, 1);
+    assertEqual('page retrouvée via les métadonnées (7), pas via le référent', calls[0][0], ['CreateViewSection', 1, 7, 'form', null, 'Departements']);
+    assert('aucun message d’erreur', !$('scratch-msg').innerHTML.includes('err'));
+  });
+
   await group('hostOrgFromReferrer / findExistingShareKey', async () => {
     Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
     assertEqual('hostOrgFromReferrer', hostOrgFromReferrer(), { host: 'https://grist.example.com', org: 'team' });
