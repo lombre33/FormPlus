@@ -93,39 +93,66 @@
   .toggle input:checked + .toggle-track .toggle-thumb { transform: translateX(14px); }
   .toggle input:focus-visible + .toggle-track { outline: 2px solid var(--chrome-accent); outline-offset: 2px; }
 
-  /* Sélecteur de type de question, deux boutons */
-  .qtype-toggle { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
-  .qtype-btn { flex: 1 1 calc(33.333% - 6px); min-width: 88px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 10px 6px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--muted); font-size: .78rem; text-align: center; line-height: 1.15; }
-  .qtype-btn.active { border-color: var(--chrome-accent); color: var(--chrome-accent); background: var(--chrome-accent-soft); }
+  /* Sélecteur de type de question : une pastille compacte (icône + libellé du type actuel),
+     un clic ouvre un petit popover d'icônes pour changer de type — plutôt qu'une grille de
+     boutons toujours affichée, qui à elle seule faisait la moitié de la hauteur d'une carte. */
+  .qtype-pill-wrap { position: relative; display: inline-block; margin: 6px 0 8px; }
+  .qtype-pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--card); color: var(--text); font-size: .82rem; font-weight: 600; }
+  .qtype-pill:hover { border-color: var(--chrome-accent); }
+  .qtype-pill-icon { display: flex; color: var(--chrome-accent); }
+  .qtype-pill svg:last-child { width: 12px; height: 12px; color: var(--muted); }
+  .qtype-popover { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; background: var(--card); border: 1px solid var(--border); border-radius: 9px; box-shadow: var(--shadow); padding: 6px; width: 184px; }
+  .qtype-opt { display: flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 7px; border: none; background: none; color: var(--muted); }
+  .qtype-opt:hover { background: var(--bg); }
+  .qtype-opt.active { background: var(--chrome-accent-soft); color: var(--chrome-accent); }
 
   /* Liste et cartes de questions : édition directe, toujours "ouvertes" (plus d'accordéon) —
      chaque carte est stylée pour ressembler à ce que verra le répondant (voir ".pv-q" plus bas),
-     avec son titre et sa description modifiables sur place, sans bouton Enregistrer. */
+     avec son titre et sa description modifiables sur place, sans bouton Enregistrer. Réglages
+     secondaires (type, obligatoire, destination) volontairement compacts : c'est ce que la
+     maquette montrait et que la première version de cette refonte avait perdu de vue. */
   .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-  #qlist { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
-  .qcard { position: relative; border: 1px solid var(--border-soft); border-radius: var(--radius); background: var(--card); padding: 16px 16px 6px; transition: border-color .12s; }
+  #qlist { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .qcard { position: relative; border: 1px solid var(--border-soft); border-radius: var(--radius); background: var(--card); padding: 12px 14px 8px; transition: border-color .12s; }
   .qcard:focus-within { border-color: var(--chrome-accent); }
-  .qcard-toolbar { display: flex; align-items: center; gap: 4px; margin: -6px -6px 6px; opacity: 0; transition: opacity .12s; }
+  .qcard-toolbar { display: flex; align-items: center; gap: 4px; margin: -6px -6px 4px; opacity: 0; transition: opacity .12s; }
   .qcard:hover .qcard-toolbar, .qcard:focus-within .qcard-toolbar { opacity: 1; }
   .qcard-new-flag { display: flex; align-items: center; gap: 6px; color: var(--chrome-accent); font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; opacity: 1; }
   .qcard-new-flag svg { width: 13px; height: 13px; }
   .qcard-order { display: flex; gap: 2px; flex-shrink: 0; margin-left: auto; }
   .qcard-order .icon-btn { width: 26px; height: 26px; }
   .qcard-body { display: flex; flex-direction: column; }
-  .qf-label { border: none; background: none; padding: 4px 2px; font-size: 1.05rem; font-weight: 600; }
+  .qtitle-row { display: flex; align-items: flex-start; gap: 4px; }
+  .qtitle-row .qf-label { flex: 1; min-width: 0; }
+  .qf-label { border: none; background: none; padding: 4px 2px; font-size: 1rem; font-weight: 600; }
   .qf-label:focus { outline: none; background: var(--bg); border-radius: 6px; }
-  .qf-desc { border: none; background: none; padding: 2px 2px 8px; font-size: .87rem; color: var(--muted); }
+  .qf-desc { border: none; background: none; padding: 2px 2px 6px; font-size: .85rem; color: var(--muted); }
   .qf-desc:focus { outline: none; background: var(--bg); border-radius: 6px; }
-  .qf-desc-long { margin-bottom: 8px; }
-  .qtype-toggle { margin: 4px 0 2px; }
-  .qf-choice-fields, .qf-text-fields, .qf-table-override, .qf-condition, .qf-fixed-options, .qf-display-mode { margin-top: 8px; padding-top: 4px; }
-  .qf-table-override { margin-top: 10px; }
+  .qf-desc-long { margin-bottom: 6px; }
+  .qf-choice-fields, .qf-text-fields, .qf-table-override, .qf-condition, .qf-fixed-options, .qf-display-mode { margin-top: 6px; padding-top: 2px; }
+  .qf-table-override { margin-top: 8px; }
+  .qf-field-label { display: block; font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); margin: 8px 0 3px; }
+  .qcard .combo-input { padding: 6px 9px; font-size: .86rem; }
+  .qf-choices { font-size: .86rem; }
   .qgrip { cursor: grab; display: flex; align-items: center; color: var(--muted); flex-shrink: 0; touch-action: none; padding: 4px; }
   .qgrip:active { cursor: grabbing; }
   .qcard.drag-over { border-color: var(--chrome-accent); box-shadow: 0 0 0 2px var(--chrome-accent-soft); }
-  .qf-display-mode { display: flex; gap: 8px; }
-  .qf-display-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--muted); font-size: .82rem; }
-  .qf-display-btn.active { border-color: var(--chrome-accent); color: var(--chrome-accent); background: var(--chrome-accent-soft); }
+  .qf-display-mode { display: inline-flex; align-self: flex-start; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .qf-display-btn { display: flex; align-items: center; justify-content: center; width: 30px; height: 26px; padding: 0; border: none; background: var(--card); color: var(--muted); }
+  .qf-display-btn + .qf-display-btn { border-left: 1px solid var(--border); }
+  .qf-display-btn.active { background: var(--chrome-accent-soft); color: var(--chrome-accent); }
+
+  /* Bascule à deux choix textuels (démarrage "nouvelle/table existante", réglages coins/ambiance) —
+     distincte de .qf-display-mode/.qf-display-btn ci-dessus qui, elle, n'habille que la bascule
+     compacte menu déroulant/radio DANS la carte de question (même nom utilisé par les tests). */
+  .seg-toggle { display: flex; gap: 8px; }
+  .seg-toggle-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--muted); font-size: .82rem; }
+  .seg-toggle-btn.active { border-color: var(--chrome-accent); color: var(--chrome-accent); background: var(--chrome-accent-soft); }
+
+  /* Étoile "Obligatoire" à côté du titre plutôt qu'un interrupteur pleine largeur en dessous. */
+  .qf-required-row { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 28px; height: 28px; margin-top: 2px; border-radius: 6px; color: var(--border); cursor: pointer; }
+  .qf-required-row:hover { background: var(--bg); color: var(--muted); }
+  .qf-required:checked + .req-star { color: var(--chrome-accent); }
 
   /* Conditions combinées (ET/OU) : une ligne par critère, séparateur entre chaque */
   .qf-cond-mode { display: flex; gap: 8px; margin: 4px 0 10px; }
@@ -160,7 +187,7 @@
   .combo-opt { padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: .9rem; }
   .combo-opt:hover { background: var(--chrome-accent-soft); }
   .combo-empty { padding: 8px 10px; color: var(--muted); font-size: .85rem; }
-  .qcard-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-soft); }
+  .qcard-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-soft); }
   .qcard-footer-left { display: flex; gap: 2px; }
   .qcard-footer-right { display: flex; gap: 8px; }
   .empty-hint { color: var(--muted); font-size: .9rem; padding: 4px 0 12px; }

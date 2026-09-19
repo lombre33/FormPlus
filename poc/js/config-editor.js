@@ -484,38 +484,52 @@ export async function renderCardBody(id, body) {
   const condCandidates = choiceQuestionsBefore(isNew ? null : id);
   const tableOverrideOpen = !!(q && q.kind !== 'choice' && q.writeTable && q.writeTable !== state.mainTableIdCache);
   const conditionOpen = !!q?.condition;
+  const kind = q?.kind || 'text';
+  const currentKind = KINDS.find(k => k.id === kind) || KINDS[0];
 
   const displayMode = q?.displayMode || 'dropdown';
   body.innerHTML = `
-    <label for="qf-label-${id}" class="visually-hidden">Intitulé</label>
-    <input id="qf-label-${id}" class="qf-label" type="text" placeholder="Question sans titre" value="${esc(q?.label || '')}">
+    <div class="qtitle-row">
+      <label for="qf-label-${id}" class="visually-hidden">Intitulé</label>
+      <input id="qf-label-${id}" class="qf-label" type="text" placeholder="Question sans titre" value="${esc(q?.label || '')}">
+      <label class="qf-required-row" title="Rendre obligatoire">
+        <input type="checkbox" class="qf-required visually-hidden" ${q?.required ? 'checked' : ''}>
+        <span class="req-star" aria-hidden="true">${ICONS.star}</span>
+      </label>
+    </div>
     <label for="qf-desc-${id}" class="qf-desc-label-short visually-hidden">Description</label>
     <input id="qf-desc-${id}" class="qf-desc" type="text" placeholder="Description (facultatif)" value="${esc(q?.description || '')}">
     <label for="qf-desc-long-${id}" class="qf-desc-label-long hidden visually-hidden">Contenu du bloc</label>
     <textarea id="qf-desc-long-${id}" class="qf-desc-long hidden" rows="4" placeholder="Texte affiché une fois le bloc déplié">${esc(q?.description || '')}</textarea>
-    <div class="qtype-toggle">
-      ${KINDS.map(k => `<button type="button" class="qtype-btn" data-kind="${k.id}" title="${esc(k.label)}">${k.icon}<span>${k.label}</span></button>`).join('')}
+    <div class="qtype-pill-wrap">
+      <button type="button" class="qtype-pill" data-role="type-toggle">
+        <span class="qtype-pill-icon">${currentKind.icon}</span>
+        <span class="qtype-pill-label">${esc(currentKind.label)}</span>
+        ${ICONS.chevronDown}
+      </button>
+      <div class="qtype-popover hidden">
+        ${KINDS.map(k => `<button type="button" class="qtype-opt${k.id === kind ? ' active' : ''}" data-kind="${k.id}" title="${esc(k.label)}">${k.icon}</button>`).join('')}
+      </div>
     </div>
     <div class="qf-choice-fields hidden">
-      <label>Table source</label><div class="combo-host" data-combo="srcTable"></div>
-      <label>Colonne affichée (libellé)</label><div class="combo-host" data-combo="srcCol"></div>
+      <label class="qf-field-label">Table source</label><div class="combo-host" data-combo="srcTable"></div>
+      <label class="qf-field-label">Colonne affichée (libellé)</label><div class="combo-host" data-combo="srcCol"></div>
     </div>
     <div class="qf-fixed-options hidden">
-      <label for="qf-choices-${id}">Options (une par ligne)</label>
+      <label for="qf-choices-${id}" class="qf-field-label">Options (une par ligne)</label>
       <textarea id="qf-choices-${id}" class="qf-choices" rows="4" placeholder="Option 1&#10;Option 2">${esc((q?.choices || []).join('\n'))}</textarea>
     </div>
     <div class="qf-display-mode hidden">
-      <button type="button" class="qf-display-btn" data-display="dropdown">${ICONS.list}<span>Menu déroulant</span></button>
-      <button type="button" class="qf-display-btn" data-display="radio">${ICONS.radio}<span>Boutons radio</span></button>
+      <button type="button" class="qf-display-btn" data-display="dropdown" title="Menu déroulant">${ICONS.list}</button>
+      <button type="button" class="qf-display-btn" data-display="radio" title="Boutons radio">${ICONS.radio}</button>
     </div>
     <div class="qf-text-fields hidden">
-      <label>Colonne de destination</label><div class="combo-host" data-combo="writeCol"></div>
+      <label class="qf-field-label">Colonne de destination</label><div class="combo-host" data-combo="writeCol"></div>
       <button type="button" class="qf-link" data-reveal="table">${ICONS.settings}<span>Écrire dans une autre table</span></button>
       <div class="qf-table-override ${tableOverrideOpen ? '' : 'hidden'}">
-        <label>Table de destination</label><div class="combo-host" data-combo="writeTable"></div>
+        <label class="qf-field-label">Table de destination</label><div class="combo-host" data-combo="writeTable"></div>
       </div>
     </div>
-    <label class="toggle qf-required-row"><input type="checkbox" class="qf-required" ${q?.required ? 'checked' : ''}><span class="toggle-track"><span class="toggle-thumb"></span></span><span>Obligatoire</span></label>
     <button type="button" class="qf-link" data-reveal="condition">${ICONS.branch}<span>Condition d'affichage</span></button>
     <div class="qf-condition ${conditionOpen ? '' : 'hidden'}">
       <div class="qf-cond-mode hidden">
@@ -539,10 +553,12 @@ export async function renderCardBody(id, body) {
   const combos = {};
   body.querySelectorAll('[data-combo]').forEach(host => { combos[host.dataset.combo] = mountCombo(host); });
 
-  const kind = q?.kind || 'text';
   const setKind = (k) => {
     const layout = LAYOUT_KINDS.has(k);
-    body.querySelectorAll('.qtype-btn').forEach(b => b.classList.toggle('active', b.dataset.kind === k));
+    const kindDef = KINDS.find(x => x.id === k) || KINDS[0];
+    body.querySelector('.qtype-pill-icon').innerHTML = kindDef.icon;
+    body.querySelector('.qtype-pill-label').textContent = kindDef.label;
+    body.querySelectorAll('.qtype-opt').forEach(b => b.classList.toggle('active', b.dataset.kind === k));
     body.querySelector('.qf-choice-fields').classList.toggle('hidden', k !== 'choice');
     body.querySelector('.qf-fixed-options').classList.toggle('hidden', k !== 'select' && k !== 'multiselect');
     body.querySelector('.qf-display-mode').classList.toggle('hidden', !SINGLE_CHOICE_KINDS.has(k));
@@ -554,7 +570,21 @@ export async function renderCardBody(id, body) {
     body.querySelector('.qf-desc-long').classList.toggle('hidden', k !== 'info');
   };
   setKind(kind);
-  body.querySelectorAll('.qtype-btn').forEach(b => b.addEventListener('click', () => setKind(b.dataset.kind)));
+
+  // Sélecteur de type compact : une pastille (icône + libellé du type actuel) ouvre un petit
+  // popover d'icônes au clic, plutôt que la grille complète toujours affichée — c'est ce qui
+  // rendait chaque carte immense. Le popover reste dans le DOM (juste masqué en CSS) : les tests
+  // hors-ligne cliquent directement sur [data-kind], qu'il soit visible ou non (comme .qf-save).
+  const typePillWrap = body.querySelector('.qtype-pill-wrap');
+  const typePopover = body.querySelector('.qtype-popover');
+  body.querySelector('.qtype-pill').addEventListener('click', () => typePopover.classList.toggle('hidden'));
+  typePillWrap.addEventListener('focusout', (e) => {
+    if (!typePillWrap.contains(e.relatedTarget)) typePopover.classList.add('hidden');
+  });
+  body.querySelectorAll('.qtype-opt').forEach(b => b.addEventListener('click', () => {
+    setKind(b.dataset.kind);
+    typePopover.classList.add('hidden');
+  }));
 
   const setDisplay = (d) => body.querySelectorAll('.qf-display-btn').forEach(b => b.classList.toggle('active', b.dataset.display === d));
   setDisplay(displayMode);
@@ -707,7 +737,7 @@ function upsertQuestion(q) {
 // faire apparaître la nouvelle carte et réinitialiser l'emplacement "nouvelle question".
 export async function saveQuestionFromCard(id, body, existing, combos, { rerender = true } = {}) {
   const msg = body.querySelector('.qf-msg');
-  const kind = body.querySelector('.qtype-btn.active')?.dataset.kind || 'text';
+  const kind = body.querySelector('.qtype-opt.active')?.dataset.kind || 'text';
   const label = body.querySelector('.qf-label').value.trim() ||
     (kind === 'choice' ? 'Votre choix' : kind === 'section' ? 'Section' : kind === 'info' ? "Bloc d'info" : 'Réponse');
   const description = (kind === 'info' ? body.querySelector('.qf-desc-long') : body.querySelector('.qf-desc')).value.trim();
