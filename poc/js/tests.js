@@ -8,6 +8,7 @@ import {
   importNativeFields, resetQuestions, createEmptyForm, populateFormPicker, generate, saveConfig,
 } from './config-editor.js';
 import { findExistingShareKey, ensureTableGate } from './grist-meta.js';
+import { loadPluginApi } from './plugin-loader.js';
 import { state } from './state.js';
 
 // ───────────────────────── Démarrage ─────────────────────────
@@ -99,6 +100,34 @@ export async function runTests() {
     assertEqual('nouveau format OU conservé', normalizeCondition({ mode: 'any', rules: [{ questionId: 'a', value: 'V' }] }),
       { mode: 'any', rules: [{ questionId: 'a', value: 'V' }] });
     assertEqual('mode absent -> ET par défaut', normalizeCondition({ rules: [{ questionId: 'a', value: 'V' }] }).mode, 'all');
+  });
+
+  await group('loadPluginApi : liste blanche d’origines, un référent hors liste retombe toujours sur docs.getgrist.com', async () => {
+    // Intercepte document.createElement('script')/appendChild pour lire l'origine choisie SANS
+    // jamais laisser un vrai <script> s'insérer dans la page (donc sans requête réseau réelle,
+    // vers un vrai domaine Grist ou un domaine imaginaire) : loadPluginApi() ne fait ensuite plus
+    // rien avec la promesse (onload/onerror ne sont jamais déclenchés ici), seul le src choisi
+    // avant tout chargement nous intéresse.
+    const savedCreateElement = document.createElement.bind(document);
+    const savedAppendChild = document.head.appendChild.bind(document.head);
+    const capturedSrcs = [];
+    document.createElement = (tag) => (tag === 'script' ? { set src(v) { capturedSrcs.push(v); }, onload: null, onerror: null } : savedCreateElement(tag));
+    document.head.appendChild = (el) => el;
+    try {
+      Object.defineProperty(document, 'referrer', { value: 'https://attaquant.example', configurable: true });
+      loadPluginApi();
+      await tick();
+      assertEqual('référent d’une page tierce (hors liste blanche) -> repli sur docs.getgrist.com, jamais l’origine tierce', capturedSrcs[0], 'https://docs.getgrist.com/grist-plugin-api.js');
+
+      capturedSrcs.length = 0;
+      Object.defineProperty(document, 'referrer', { value: 'https://docs.getgrist.com', configurable: true });
+      loadPluginApi();
+      await tick();
+      assertEqual('référent dans la liste blanche -> utilisé tel quel', capturedSrcs[0], 'https://docs.getgrist.com/grist-plugin-api.js');
+    } finally {
+      document.createElement = savedCreateElement;
+      document.head.appendChild = savedAppendChild;
+    }
   });
 
   await group('couleurs (hexToRgb / softenColor / contrastText)', () => {
