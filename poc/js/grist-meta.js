@@ -72,17 +72,10 @@ export async function findExistingShareKey(viewRef) {
   }
 }
 
-// Ouvre l'écriture sur une table pour la clé de partage, sans intervention manuelle : crée une
-// section Formulaire VIDE (jamais destinée à être affichée ni remplie) sur la page du formulaire
-// principal, et la publie. Seule la présence + shareOptions.publish/form comptent pour la règle
-// d'accès (ACLRulesReader._addRulesForShare) — le contenu du formulaire n'a aucune importance.
-// Réutilise le partage déjà en place sur cette page, n'en crée jamais un nouveau.
-export async function ensureTableGate(tableId, viewRef) {
-  const already = (await formTablesOnPage(viewRef)).includes(tableId);
-  if (already) return { created: false };
-  const tref = await getTableRef(tableId);
-  if (!tref) throw new Error(`Table « ${tableId} » introuvable.`);
-  await grist.docApi.applyUserActions([['CreateViewSection', tref, viewRef, 'form', null, tableId]]);
+// Retrouve la section Formulaire la plus récente pour (page, table) : utilisé juste après un
+// CreateViewSection dont l'action ne renvoie pas directement l'id créé côté widget (le retour
+// de applyUserActions n'est pas exploité ici pour rester au plus près du code existant).
+async function findNewestFormSection(viewRef, tref) {
   const sections = await fetchMeta('_grist_Views_section');
   let newest = null;
   for (let i = 0; i < sections.id.length; i++) {
@@ -90,9 +83,52 @@ export async function ensureTableGate(tableId, viewRef) {
       if (newest == null || sections.id[i] > newest) newest = sections.id[i];
     }
   }
+  return newest;
+}
+
+// CreateViewSection peuple automatiquement la nouvelle section avec un champ par colonne de la
+// table (comportement natif de Grist, vérifié sur un vrai document, voir duplicateFormSection
+// plus bas) : retire ces champs auto-créés pour qu'une section censée rester vide (portillon
+// d'accès, formulaire "vide" créé depuis zéro) le soit réellement.
+async function clearAutoFields(vsId) {
+  const fields = await fetchMeta('_grist_Views_section_field');
+  const autoFieldIds = [];
+  for (let i = 0; i < fields.id.length; i++) if (fields.parentId[i] === vsId) autoFieldIds.push(fields.id[i]);
+  if (autoFieldIds.length) {
+    await grist.docApi.applyUserActions(autoFieldIds.map(id => ['RemoveRecord', '_grist_Views_section_field', id]));
+  }
+  return autoFieldIds.length;
+}
+
+// Ouvre l'écriture sur une table pour la clé de partage, sans intervention manuelle : crée une
+// section Formulaire VIDE sur la page du formulaire principal, et la publie. Seule la présence +
+// shareOptions.publish/form comptent pour la règle d'accès (ACLRulesReader._addRulesForShare) —
+// le contenu du formulaire n'a aucune importance pour ce droit. Mais CreateViewSection remplit
+// la nouvelle section d'un champ par colonne de la table (voir clearAutoFields ci-dessus) : sans
+// nettoyage, cette section publiée exposerait un vrai formulaire natif complet sur cette table,
+// atteignable par quiconque connaît/devine l'adresse /forms/<clé>/<id-section>, alors que le
+// concepteur n'a jamais choisi de publier cette table. Réutilise le partage déjà en place sur
+// cette page, n'en crée jamais un nouveau.
+export async function ensureTableGate(tableId, viewRef) {
+  const already = (await formTablesOnPage(viewRef)).includes(tableId);
+  if (already) return { created: false };
+  const tref = await getTableRef(tableId);
+  if (!tref) throw new Error(`Table « ${tableId} » introuvable.`);
+  await grist.docApi.applyUserActions([['CreateViewSection', tref, viewRef, 'form', null, tableId]]);
+  const newest = await findNewestFormSection(viewRef, tref);
   if (newest == null) throw new Error('Section créée introuvable après CreateViewSection.');
+  await clearAutoFields(newest);
   await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section', newest, { shareOptions: JSON.stringify({ publish: true, form: true }) }]]);
   return { created: true, sectionId: newest };
+}
+
+// Utilisé par createEmptyForm (config-editor.js) : elle crée elle-même la section « vide » via
+// CreateViewSection, mais sans jamais avoir eu besoin jusqu'ici de retrouver son id (elle ne fait
+// que l'annoncer au concepteur). Expose les deux mêmes helpers pour qu'elle puisse réellement la
+// vider avant d'afficher « Formulaire natif vide créé ».
+export async function clearNewFormSectionFields(viewRef, tref) {
+  const newest = await findNewestFormSection(viewRef, tref);
+  if (newest != null) await clearAutoFields(newest);
 }
 
 // Ouvre la lecture d'une table pour une question à choix : colonne Référence cachée sur la

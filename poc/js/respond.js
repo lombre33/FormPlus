@@ -22,6 +22,13 @@ export function layoutOrder(f) {
 export function renderNativeField(id, fl, prefillParams) {
   const o = fl.options || {};
   const name = fl.colId;
+  // colId vient de l'API /forms/<clé>/<section> d'un document Grist quelconque (y compris,
+  // documenté plus bas, via le secours d'URL #form=<lien> sur un hôte arbitraire) : jamais fait
+  // confiance sans échappement dans le HTML produit, comme fl.question/fl.description juste en
+  // dessous — mais uniquement à l'affichage : le nom de paramètre d'URL et l'attribut `name` lu
+  // par onSubmit (via dataset.col, que le navigateur décode automatiquement) restent la valeur
+  // brute, jamais la version échappée.
+  const nameAttr = esc(name);
   const req = o.formRequired ? 'req' : '';
   const hidden = o.formIsHidden;
   const prefill = o.formAcceptFromUrl ? prefillParams.get(name) : null;
@@ -32,20 +39,20 @@ export function renderNativeField(id, fl, prefillParams) {
   const refs = fl.refValues || [];
   switch (fl.type) {
     case 'Int': case 'Numeric':
-      input = `<input id="i${id}" type="number" step="any" name="${name}" value="${esc(prefill ?? '')}">`; break;
+      input = `<input id="i${id}" type="number" step="any" name="${nameAttr}" value="${esc(prefill ?? '')}">`; break;
     case 'Bool':
-      input = `<label class="switch"><input type="checkbox" name="${name}" ${prefill === 'true' ? 'checked' : ''}> Oui</label>`; break;
+      input = `<label class="switch"><input type="checkbox" name="${nameAttr}" ${prefill === 'true' ? 'checked' : ''}> Oui</label>`; break;
     case 'Date':
-      input = `<input id="i${id}" type="date" name="${name}" value="${esc(prefill ?? '')}">`; break;
+      input = `<input id="i${id}" type="date" name="${nameAttr}" value="${esc(prefill ?? '')}">`; break;
     case 'DateTime':
-      input = `<input id="i${id}" type="datetime-local" name="${name}" value="${esc(prefill ?? '')}">`; break;
+      input = `<input id="i${id}" type="datetime-local" name="${nameAttr}" value="${esc(prefill ?? '')}">`; break;
     case 'Choice':
     case 'Ref': {
       const opts = fl.type === 'Choice' ? choices.map(c => [c, c]) : refs.map(([rid, v]) => [rid, v]);
       if (o.formSelectFormat === 'radio') {
-        input = `<div class="pv-pill-group">${opts.map(([v, l]) => `<label class="pv-pill"><input type="radio" name="${name}" value="${esc(v)}" ${String(v) === prefill ? 'checked' : ''}><span>${esc(l)}</span></label>`).join('')}</div>`;
+        input = `<div class="pv-pill-group">${opts.map(([v, l]) => `<label class="pv-pill"><input type="radio" name="${nameAttr}" value="${esc(v)}" ${String(v) === prefill ? 'checked' : ''}><span>${esc(l)}</span></label>`).join('')}</div>`;
       } else {
-        input = `<select id="i${id}" name="${name}"><option value="">Choisir…</option>` +
+        input = `<select id="i${id}" name="${nameAttr}"><option value="">Choisir…</option>` +
           opts.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === prefill ? 'selected' : ''}>${esc(l)}</option>`).join('') + `</select>`;
       }
       break;
@@ -53,17 +60,17 @@ export function renderNativeField(id, fl, prefillParams) {
     case 'ChoiceList':
     case 'RefList': {
       const opts = fl.type === 'ChoiceList' ? choices.map(c => [c, c]) : refs.map(([rid, v]) => [rid, v]);
-      input = `<div class="pv-pill-group">${opts.map(([v, l]) => `<label class="pv-pill"><input type="checkbox" name="${name}[]" value="${esc(v)}"><span>${esc(l)}</span></label>`).join('')}</div>`;
+      input = `<div class="pv-pill-group">${opts.map(([v, l]) => `<label class="pv-pill"><input type="checkbox" name="${nameAttr}[]" value="${esc(v)}"><span>${esc(l)}</span></label>`).join('')}</div>`;
       break;
     }
     case 'Attachments':
-      input = `<input id="i${id}" type="file" name="${name}" multiple>`; break;
+      input = `<input id="i${id}" type="file" name="${nameAttr}" multiple>`; break;
     default:
       input = o.formTextFormat === 'multiline'
-        ? `<textarea id="i${id}" name="${name}" rows="${o.formTextLineCount || 3}">${esc(prefill ?? '')}</textarea>`
-        : `<input id="i${id}" type="text" name="${name}" value="${esc(prefill ?? '')}" ${o.formTextMaximumLength ? `maxlength="${o.formTextMaximumLength}"` : ''}>`;
+        ? `<textarea id="i${id}" name="${nameAttr}" rows="${o.formTextLineCount || 3}">${esc(prefill ?? '')}</textarea>`
+        : `<input id="i${id}" type="text" name="${nameAttr}" value="${esc(prefill ?? '')}" ${o.formTextMaximumLength ? `maxlength="${o.formTextMaximumLength}"` : ''}>`;
   }
-  return `<div class="q pv-q" data-native="1" data-type="${fl.type}" data-col="${name}" data-required="${o.formRequired ? 1 : 0}" ${hidden ? 'hidden' : ''}>${head}${input}<div class="err-msg">Ce champ est obligatoire.</div></div>`;
+  return `<div class="q pv-q" data-native="1" data-type="${fl.type}" data-col="${nameAttr}" data-required="${o.formRequired ? 1 : 0}" ${hidden ? 'hidden' : ''}>${head}${input}<div class="err-msg">Ce champ est obligatoire.</div></div>`;
 }
 
 // Lit la valeur courante d'un champ à choix unique, qu'il s'affiche en menu déroulant (élément
@@ -91,7 +98,16 @@ export function radioGroup(name, choices) {
 export function conditionMet(condition) {
   const cond = normalizeCondition(condition);
   if (!cond?.rules?.length) return true;
-  const results = cond.rules.map(r => singleValueOf($(`eq-${r.questionId}`)).label === r.value);
+  const results = cond.rules.map(r => {
+    const el = $(`eq-${r.questionId}`);
+    // Une question elle-même masquée par SA PROPRE condition n'a plus de valeur pertinente à
+    // offrir à ses dépendants, même si son <select>/input garde encore sa dernière valeur dans
+    // le DOM (rien ne la réinitialise visuellement) : sans ce contrôle, une règle en cascade sur
+    // trois questions (A masque B, B masque C) reste évaluée sur la valeur PÉRIMÉE de B une fois
+    // B masqué par le changement de A, et C reste affiché à tort.
+    if (el?.closest('.q')?.classList.contains('cond-hidden')) return false;
+    return singleValueOf(el).label === r.value;
+  });
   return cond.mode === 'any' ? results.some(Boolean) : results.every(Boolean);
 }
 
@@ -163,7 +179,7 @@ export function isAnswered(q) {
   const file = q.querySelector('input[type=file]');
   if (file) return file.files.length > 0;
   const el = q.querySelector('input, select, textarea');
-  return el ? el.value !== '' : null;
+  return el ? el.value.trim() !== '' : null;
 }
 export function updateProgress(formEl) {
   const box = $('progress');
@@ -263,7 +279,14 @@ export async function renderFill() {
     const cond = normalizeCondition(q.condition);
     if (!cond?.rules?.length) continue;
     const target = card.querySelector(`[data-extra="${q.id}"]`);
-    const check = () => target.classList.toggle('cond-hidden', !conditionMet(q.condition));
+    // Répercute le changement de visibilité sur les conditions EN CASCADE : une question qui
+    // dépend de q (pas de sa propre source directe) n'écoute que le conteneur eq-<q.id> de q,
+    // jamais celui de la source de q — sans cet événement synthétique, un masquage en chaîne (A
+    // masque B, B masque C) ne réveille jamais le check de C quand B se masque à son tour.
+    const check = () => {
+      target.classList.toggle('cond-hidden', !conditionMet(q.condition));
+      $(`eq-${q.id}`)?.dispatchEvent(new Event('change', { bubbles: true }));
+    };
     cond.rules.map(r => $(`eq-${r.questionId}`)).filter(Boolean).forEach(c => c.addEventListener('change', check));
     check();
   }
@@ -302,11 +325,18 @@ export async function onSubmit(ev, form, link, extraQuestions) {
       if (type === 'Ref' && value != null) value = Number(value);
     } else {
       const el = q.querySelector('input, select, textarea');
-      value = el.value === '' ? null : (type === 'Ref' ? Number(el.value) : (type === 'Int' || type === 'Numeric') ? Number(el.value) : el.value);
+      // trim() UNIQUEMENT pour juger si le champ est vide : la valeur réellement stockée reste
+      // el.value tel quel (des espaces internes légitimes ne sont jamais altérés), sinon un champ
+      // obligatoire rempli d'espaces passait la validation sans jamais bloquer l'envoi.
+      value = el.value.trim() === '' ? null : (type === 'Ref' ? Number(el.value) : (type === 'Int' || type === 'Numeric') ? Number(el.value) : el.value);
     }
     const empty = value === null || value === '' || (value === false && type !== 'Bool');
-    q.classList.toggle('invalid', required && empty && !q.hidden);
-    if (required && empty && !q.hidden) valid = false;
+    // Un Oui/Non n'est jamais "vide" au sens du stockage (empty reste false ci-dessus, une case
+    // décochée est une réponse valide) mais DOIT pouvoir être rendu obligatoire (ex. "J'accepte
+    // les conditions") : sans ce cas séparé, "Obligatoire" n'avait strictement aucun effet ici.
+    const missingRequired = required && !q.hidden && (type === 'Bool' ? value !== true : empty);
+    q.classList.toggle('invalid', missingRequired);
+    if (missingRequired) valid = false;
     if (value !== null && type !== 'Attachments') fieldsByTable[form.formTableId][col] = value;
   }
 
@@ -328,30 +358,38 @@ export async function onSubmit(ev, form, link, extraQuestions) {
       if (visible && !empty) uploads.push({ table: q.writeTable, col: q.writeCol, files });
       continue;
     }
-    let value = null, empty;
+    let value = null, empty, missingRequired;
     if (q.kind === 'multiselect') {
       const checked = [...el.querySelectorAll('input:checked')].map(i => i.value);
       empty = checked.length === 0;
       if (!empty) value = ['L', ...checked];
+      missingRequired = q.required && empty && visible;
     } else if (q.kind === 'bool') {
-      // Un bouton oui/non n'est jamais "vide" : obligatoire n'a pas de sens ici, comme pour
-      // les champs natifs Oui/non (voir la boucle des champs natifs juste au-dessus).
+      // Stockage : un bouton oui/non n'est jamais "vide" (une case décochée est une réponse
+      // valide, empty reste false). Validation : DOIT pouvoir être rendu obligatoire (ex.
+      // "J'accepte les conditions") — sans missingRequired séparé, "Obligatoire" n'avait aucun
+      // effet ici, comme pour les champs natifs Oui/non (voir la boucle native plus haut).
       value = $(`eq-${q.id}`).checked;
       empty = false;
+      missingRequired = q.required && visible && value !== true;
     } else if (SINGLE_CHOICE_KINDS.has(q.kind)) {
       // Menu déroulant ou radios selon q.displayMode : même lecture des deux (singleValueOf).
       const raw = singleValueOf($(`eq-${q.id}`)).value;
       empty = raw === '' || raw == null;
       if (!empty) value = q.kind === 'choice' ? Number(raw) : raw;
+      missingRequired = q.required && empty && visible;
     } else {
       const raw = $(`eq-${q.id}`).value;
-      empty = raw === '' || raw == null;
+      // trim() uniquement pour juger si le champ est vide (cf. la même règle sur les champs
+      // natifs plus haut) : la valeur stockée reste raw tel quel, jamais trimmée.
+      empty = raw == null || raw.trim() === '';
       // Même règle que pour les champs natifs : seuls les nombres sont convertis, une date reste
       // une chaîne ISO que l'API REST sait déjà interpréter (voir renderNativeField/onSubmit natif).
       if (!empty) value = q.kind === 'number' ? Number(raw) : raw;
+      missingRequired = q.required && empty && visible;
     }
-    el.classList.toggle('invalid', q.required && empty && visible);
-    if (q.required && empty && visible) valid = false;
+    el.classList.toggle('invalid', missingRequired);
+    if (missingRequired) valid = false;
     if (!visible || empty) continue;
     fieldsByTable[q.writeTable] = fieldsByTable[q.writeTable] || {};
     fieldsByTable[q.writeTable][q.writeCol] = value;
@@ -363,13 +401,28 @@ export async function onSubmit(ev, form, link, extraQuestions) {
   const status = $('fill-status');
   btn.disabled = true; status.textContent = 'Envoi…'; status.classList.remove('err');
   try {
+    // Une pièce jointe destinée à la table principale reste bloquante comme avant (le champ fait
+    // partie du même enregistrement que les champs obligatoires déjà validés ci-dessus) ; un échec
+    // sur une pièce jointe d'une question supplémentaire écrivant dans une AUTRE table ne doit pas
+    // annuler toute la réponse, déjà valide par ailleurs — même principe que pour l'échec d'une
+    // table secondaire plus bas (failedTables), jamais un succès affiché à tort, mais jamais non
+    // plus la perte de données principales valides pour un fichier optionnel sans rapport.
+    const failedUploads = [];
     for (const up of uploads) {
-      const fd = new FormData();
-      up.files.forEach(file => fd.append('upload', file));
-      const r = await fetch(`${link.api}/attachments`, { method: 'POST', body: fd });
-      if (!r.ok) throw new Error(`Pièces jointes : HTTP ${r.status}`);
-      fieldsByTable[up.table] = fieldsByTable[up.table] || {};
-      fieldsByTable[up.table][up.col] = ['L', ...(await r.json())];
+      try {
+        const fd = new FormData();
+        up.files.forEach(file => fd.append('upload', file));
+        const r = await fetch(`${link.api}/attachments`, { method: 'POST', body: fd });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const ids = await r.json();
+        if (ids.length !== up.files.length) throw new Error(`${ids.length}/${up.files.length} fichier(s) accepté(s)`);
+        fieldsByTable[up.table] = fieldsByTable[up.table] || {};
+        fieldsByTable[up.table][up.col] = ['L', ...ids];
+      } catch (e) {
+        if (up.table === form.formTableId) throw new Error(`Pièces jointes : ${e.message}`);
+        failedUploads.push(up.col);
+        diag({ event: 'upload-failed', table: up.table, col: up.col, message: e.message });
+      }
     }
     // Table principale, via l'API REST (déjà utilisée pour les pièces jointes, cohérent).
     const r = await fetch(`${link.api}/tables/${form.formTableId}/records`, {
@@ -393,9 +446,19 @@ export async function onSubmit(ev, form, link, extraQuestions) {
 
     $('progress').classList.add('hidden');
     const endMessage = state.options?.endMessage || 'Merci, votre réponse a bien été enregistrée.';
-    const redirectUrl = failedTables.length ? '' : (state.options?.redirectUrl || ''); // pas de redirection auto sur un envoi partiel : le répondant doit voir l'avertissement
-    const warning = failedTables.length
-      ? `<p class="err">Une partie de la réponse n'a pas pu être enregistrée (table${failedTables.length > 1 ? 's' : ''} : ${failedTables.map(esc).join(', ')}). Le reste a bien été pris en compte ; contactez le responsable du formulaire pour signaler ce message.</p>`
+    const partial = failedTables.length || failedUploads.length;
+    // Redirection automatique jamais lancée sur un envoi partiel (le répondant doit voir
+    // l'avertissement d'abord), et jamais vers un schéma autre que http(s) : esc() échappe les
+    // caractères HTML mais ne filtre aucun schéma d'URI, un opt-redirect à javascript:… passerait
+    // tel quel et s'exécuterait automatiquement 3 secondes après l'envoi, sans clic du répondant.
+    const rawRedirect = partial ? '' : (state.options?.redirectUrl || '');
+    let redirectUrl = '';
+    if (rawRedirect) { try { redirectUrl = ['http:', 'https:'].includes(new URL(rawRedirect, location.href).protocol) ? rawRedirect : ''; } catch (e) { redirectUrl = ''; } }
+    const warningParts = [];
+    if (failedTables.length) warningParts.push(`table${failedTables.length > 1 ? 's' : ''} : ${failedTables.map(esc).join(', ')}`);
+    if (failedUploads.length) warningParts.push(`pièce${failedUploads.length > 1 ? 's' : ''} jointe${failedUploads.length > 1 ? 's' : ''} : ${failedUploads.map(esc).join(', ')}`);
+    const warning = warningParts.length
+      ? `<p class="err">Une partie de la réponse n'a pas pu être enregistrée (${warningParts.join(' ; ')}). Le reste a bien été pris en compte ; contactez le responsable du formulaire pour signaler ce message.</p>`
       : '';
     $('fill-card').classList.remove('respond-card-shell'); // ce message tient dans le padding normal de .card, plus de bandeau/en-tête à afficher
     $('fill-card').innerHTML = `<div class="center"><h1 class="ok">${esc(endMessage)}</h1>

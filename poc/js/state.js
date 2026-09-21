@@ -18,4 +18,5 @@ export const state = {
   editorTab: 'questions', // onglet affiché dans l'éditeur : questions | responses | settings
   cornerStyle: 'soft',  // forme des coins de la page répondant : soft | bold
   bgMood: 'flat',       // ambiance de fond de la page répondant : flat | tinted
+  generating: false,    // generate() en cours : bloque un second déclenchement concurrent (bouton + touche Entrée)
 };

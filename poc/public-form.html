@@ -114,6 +114,13 @@
   function renderField(id, fl) {
     const o = fl.options || {};
     const name = fl.colId;
+    // colId vient de l'API /forms/<clé>/<section> d'un document Grist quelconque (cette page
+    // n'affiche QUE ce que #form=<lien> lui donne, sans aucune restriction d'hôte, par nature) :
+    // jamais fait confiance sans échappement dans le HTML produit, comme fl.question/fl.description
+    // juste en dessous. nameAttr est réservé à l'affichage ; name (brut) reste utilisé pour le
+    // paramètre d'URL de préremplissage et est relu tel quel via dataset.col dans onSubmit (le
+    // navigateur décode automatiquement les entités d'un attribut).
+    const nameAttr = esc(name);
     const req = o.formRequired ? 'req' : '';
     const hidden = o.formIsHidden;
     const prefill = o.formAcceptFromUrl ? params.get(name) : null;
@@ -124,20 +131,20 @@
     const refs = fl.refValues || [];
     switch (fl.type) {
       case 'Int': case 'Numeric':
-        input = `<input id="i${id}" type="number" step="any" name="${name}" value="${esc(prefill ?? '')}">`; break;
+        input = `<input id="i${id}" type="number" step="any" name="${nameAttr}" value="${esc(prefill ?? '')}">`; break;
       case 'Bool':
-        input = `<label class="switch"><input type="checkbox" name="${name}" ${prefill === 'true' ? 'checked' : ''}> Oui</label>`; break;
+        input = `<label class="switch"><input type="checkbox" name="${nameAttr}" ${prefill === 'true' ? 'checked' : ''}> Oui</label>`; break;
       case 'Date':
-        input = `<input id="i${id}" type="date" name="${name}" value="${esc(prefill ?? '')}">`; break;
+        input = `<input id="i${id}" type="date" name="${nameAttr}" value="${esc(prefill ?? '')}">`; break;
       case 'DateTime':
-        input = `<input id="i${id}" type="datetime-local" name="${name}" value="${esc(prefill ?? '')}">`; break;
+        input = `<input id="i${id}" type="datetime-local" name="${nameAttr}" value="${esc(prefill ?? '')}">`; break;
       case 'Choice':
       case 'Ref': {
         const opts = fl.type === 'Choice' ? choices.map(c => [c, c]) : refs.map(([rid, v]) => [rid, v]);
         if (o.formSelectFormat === 'radio') {
-          input = opts.map(([v, l]) => `<label class="opt"><input type="radio" name="${name}" value="${esc(v)}" ${String(v) === prefill ? 'checked' : ''}> ${esc(l)}</label>`).join('');
+          input = opts.map(([v, l]) => `<label class="opt"><input type="radio" name="${nameAttr}" value="${esc(v)}" ${String(v) === prefill ? 'checked' : ''}> ${esc(l)}</label>`).join('');
         } else {
-          input = `<select id="i${id}" name="${name}"><option value="">Choisir…</option>` +
+          input = `<select id="i${id}" name="${nameAttr}"><option value="">Choisir…</option>` +
             opts.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === prefill ? 'selected' : ''}>${esc(l)}</option>`).join('') + `</select>`;
         }
         break;
@@ -145,17 +152,17 @@
       case 'ChoiceList':
       case 'RefList': {
         const opts = fl.type === 'ChoiceList' ? choices.map(c => [c, c]) : refs.map(([rid, v]) => [rid, v]);
-        input = opts.map(([v, l]) => `<label class="opt"><input type="checkbox" name="${name}[]" value="${esc(v)}"> ${esc(l)}</label>`).join('');
+        input = opts.map(([v, l]) => `<label class="opt"><input type="checkbox" name="${nameAttr}[]" value="${esc(v)}"> ${esc(l)}</label>`).join('');
         break;
       }
       case 'Attachments':
-        input = `<input id="i${id}" type="file" name="${name}" multiple>`; break;
+        input = `<input id="i${id}" type="file" name="${nameAttr}" multiple>`; break;
       default:
         input = o.formTextFormat === 'multiline'
-          ? `<textarea id="i${id}" name="${name}" rows="${o.formTextLineCount || 3}">${esc(prefill ?? '')}</textarea>`
-          : `<input id="i${id}" type="text" name="${name}" value="${esc(prefill ?? '')}" ${o.formTextMaximumLength ? `maxlength="${o.formTextMaximumLength}"` : ''}>`;
+          ? `<textarea id="i${id}" name="${nameAttr}" rows="${o.formTextLineCount || 3}">${esc(prefill ?? '')}</textarea>`
+          : `<input id="i${id}" type="text" name="${nameAttr}" value="${esc(prefill ?? '')}" ${o.formTextMaximumLength ? `maxlength="${o.formTextMaximumLength}"` : ''}>`;
     }
-    return `<div class="q" data-type="${fl.type}" data-col="${name}" data-required="${o.formRequired ? 1 : 0}" ${hidden ? 'hidden' : ''}>${head}${input}<div class="err">Ce champ est obligatoire.</div></div>`;
+    return `<div class="q" data-type="${fl.type}" data-col="${nameAttr}" data-required="${o.formRequired ? 1 : 0}" ${hidden ? 'hidden' : ''}>${head}${input}<div class="err">Ce champ est obligatoire.</div></div>`;
   }
 
   async function onSubmit(ev) {

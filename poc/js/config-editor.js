@@ -7,6 +7,7 @@ import {
   fetchMeta, getTableRef, tableIdOfRef, columnOptions,
   findExistingShareKey, ensureTableGate, ensureChoiceField,
   findViewRefForSection, findMyWidgetPage, persistOptions, duplicateFormSection,
+  clearNewFormSectionFields,
 } from './grist-meta.js';
 import { state } from './state.js';
 import { renderFill } from './respond.js';
@@ -21,6 +22,24 @@ import { renderFill } from './respond.js';
 //    n'est jamais modifié, qu'il soit tout juste créé (voie 1) ou déjà rempli depuis longtemps.
 // Ces deux voies convergent donc sur le même état ensuite : state.currentFormSection pointe
 // toujours vers une section que FormPlus a lui-même créée.
+
+// Affiche un message de sauvegarde cohérent avec ce que saveConfig() a réellement pu faire :
+// "err" (pas "ok") si la configuration n'a vécu que dans grist.setOptions (session du
+// concepteur), pour ne jamais afficher "Enregistré" quand ce n'est pas vrai pour tout le monde.
+function saveMsg(el, persisted, okText) {
+  el.innerHTML = persisted
+    ? `<span class="ok">${okText}</span>`
+    : `<span class="err">${okText} Non persisté : cliquez sur <strong>Enregistrer</strong> dans la barre du widget Grist pour conserver ce changement.</span>`;
+}
+
+// Chaîne toutes les sauvegardes entre elles (FIFO) : sans ce verrou, deux appels lancés à
+// quelques centaines de ms d'écart (ex. blur sur deux champs successifs avant que le premier
+// aller-retour réseau ne soit terminé) peuvent se terminer dans le désordre, et celui qui finit
+// EN DERNIER écrase state.options même s'il est parti avant l'autre. En chaînant sur cette même
+// promesse, un appel ne démarre jamais avant que le précédent (y compris son affectation finale
+// state.options = saved) ne soit complètement terminé : l'ordre de fin suit toujours l'ordre de
+// départ, quelle que soit la latence relative des deux requêtes.
+let saveChain = Promise.resolve();
 
 export async function saveConfig(publicUrl, widgetPage) {
   const saved = {
@@ -49,70 +68,87 @@ export async function saveConfig(publicUrl, widgetPage) {
     endMessage: $('opt-endmsg').value.trim(),
     redirectUrl: $('opt-redirect').value.trim(),
   };
-  const { self } = await findViewRefForSection(saved.vsId);
-  let persisted = false;
-  if (self) { try { await persistOptions(self, saved); persisted = true; } catch (e) { console.warn('[FormPlus] écriture directe refusée', e); } }
-  if (!persisted) { try { await grist.setOptions(saved); } catch (e) { /* ignore */ } }
-  state.options = saved;
-  return persisted;
+  const run = async () => {
+    const { self } = await findViewRefForSection(saved.vsId);
+    let persisted = false;
+    if (self) { try { await persistOptions(self, saved); persisted = true; } catch (e) { console.warn('[FormPlus] écriture directe refusée', e); } }
+    if (!persisted) { try { await grist.setOptions(saved); } catch (e) { /* ignore */ } }
+    state.options = saved;
+    return persisted;
+  };
+  saveChain = saveChain.then(run, run);
+  return saveChain;
 }
 
 export async function generate() {
   const msg = $('cfg-msg');
-  const pastedLink = parseFormLink($('link').value);
-  if (!pastedLink) { msg.innerHTML = '<span class="err">Lien non reconnu. Il doit contenir <code>/forms/&lt;clé&gt;/&lt;numéro&gt;</code>.</span>'; return; }
-  msg.textContent = 'Recherche de la page du formulaire…';
-  let formPage = null, widgetPage = null, self = null, samePage = null, onFormPage = 0, ambiguous = false;
-  try { ({ formPage, widgetPage, self, samePage, onFormPage, ambiguous } = await findViewRefForSection(pastedLink.vsId)); }
-  catch (e) { msg.innerHTML = `<span class="err">Impossible de lire les métadonnées du document (${esc(e.message)}). Le widget a-t-il l'accès complet ?</span>`; return; }
-  if (!formPage) { msg.innerHTML = '<span class="err">Cette section de formulaire n\'existe pas dans ce document. Le lien vient-il bien d\'ici ?</span>'; return; }
+  // Verrou de ré-entrance : le bouton et la touche Entrée appellent tous les deux generate()
+  // sans jamais s'attendre l'un l'autre. Sans ce verrou, un double-clic ou un Entrée suivi d'un
+  // clic sur un lien jamais encore configuré lance deux duplicateFormSection() en parallèle
+  // (isSameSource reste faux pour les deux tant qu'aucun des deux n'a fini), créant une seconde
+  // copie du formulaire natif, orpheline, jamais référencée par FormPlus.
+  if (state.generating) return;
+  state.generating = true;
+  $('generate').disabled = true;
+  try {
+    const pastedLink = parseFormLink($('link').value);
+    if (!pastedLink) { msg.innerHTML = '<span class="err">Lien non reconnu. Il doit contenir <code>/forms/&lt;clé&gt;/&lt;numéro&gt;</code>.</span>'; return; }
+    msg.textContent = 'Recherche de la page du formulaire…';
+    let formPage = null, widgetPage = null, self = null, samePage = null, onFormPage = 0, ambiguous = false;
+    try { ({ formPage, widgetPage, self, samePage, onFormPage, ambiguous } = await findViewRefForSection(pastedLink.vsId)); }
+    catch (e) { msg.innerHTML = `<span class="err">Impossible de lire les métadonnées du document (${esc(e.message)}). Le widget a-t-il l'accès complet ?</span>`; return; }
+    if (!formPage) { msg.innerHTML = '<span class="err">Cette section de formulaire n\'existe pas dans ce document. Le lien vient-il bien d\'ici ?</span>'; return; }
 
-  // FormPlus ne travaille jamais directement sur un formulaire natif qu'il n'a pas lui-même
-  // créé. Même lien déjà collé auparavant (sourceVsId inchangé) : on garde la copie déjà faite,
-  // avec ses questions. Lien nouveau ou différent : on en duplique un exemplaire (même colonnes,
-  // même page, donc même clé de partage, sans republication manuelle), et on repart d'une liste
-  // de questions vide, comme pour tout changement de formulaire aujourd'hui. Les configurations
-  // enregistrées avant cette fonctionnalité (sourceVsId absent) sont préservées telles quelles :
-  // pas de duplication rétroactive tant que le même lien continue d'être utilisé.
-  const knownSource = state.options?.sourceVsId ?? state.options?.vsId;
-  const isSameSource = knownSource === pastedLink.vsId;
-  let vsId;
-  if (isSameSource && state.options?.vsId) {
-    vsId = state.options.vsId;
-  } else {
-    msg.textContent = "Duplication du formulaire (le vôtre n'est jamais modifié)…";
-    try { vsId = await duplicateFormSection(pastedLink.vsId); }
-    catch (e) { msg.innerHTML = `<span class="err">Impossible de dupliquer ce formulaire (${esc(e.message)}).</span>`; return; }
+    // FormPlus ne travaille jamais directement sur un formulaire natif qu'il n'a pas lui-même
+    // créé. Même lien déjà collé auparavant (sourceVsId inchangé) : on garde la copie déjà faite,
+    // avec ses questions. Lien nouveau ou différent : on en duplique un exemplaire (même colonnes,
+    // même page, donc même clé de partage, sans republication manuelle), et on repart d'une liste
+    // de questions vide, comme pour tout changement de formulaire aujourd'hui. Les configurations
+    // enregistrées avant cette fonctionnalité (sourceVsId absent) sont préservées telles quelles :
+    // pas de duplication rétroactive tant que le même lien continue d'être utilisé.
+    const knownSource = state.options?.sourceVsId ?? state.options?.vsId;
+    const isSameSource = knownSource === pastedLink.vsId;
+    let vsId;
+    if (isSameSource && state.options?.vsId) {
+      vsId = state.options.vsId;
+    } else {
+      msg.textContent = "Duplication du formulaire (le vôtre n'est jamais modifié)…";
+      try { vsId = await duplicateFormSection(pastedLink.vsId); }
+      catch (e) { msg.innerHTML = `<span class="err">Impossible de dupliquer ce formulaire (${esc(e.message)}).</span>`; return; }
+    }
+    const link = { ...pastedLink, vsId, sourceVsId: pastedLink.vsId };
+    state.currentLink = link;
+    const sections = await fetchMeta('_grist_Views_section');
+    const idx = sections.id.indexOf(vsId);
+    state.currentFormSection = { id: vsId, viewRef: formPage, tableRef: sections.tableRef[idx] };
+    state.mainTableIdCache = await tableIdOfRef(state.currentFormSection.tableRef);
+    // On garde les questions déjà enregistrées si ce lien était déjà configuré.
+    state.cfgQuestions = isSameSource ? migrateLegacy(state.options) : [];
+    state.stayOnConfig = true;
+    const publicUrl = buildPublicUrl(link, widgetPage);
+    const persisted = await saveConfig(publicUrl, widgetPage);
+    const dupNote = isSameSource ? '' : 'Copie du formulaire créée pour FormPlus, le vôtre est inchangé. ';
+    msg.innerHTML = persisted
+      ? `<span class="ok">${dupNote}Configuration enregistrée dans le document.</span>`
+      : `<span class="err">${dupNote}Configuration posée dans cette session seulement : cliquez sur <strong>Enregistrer</strong> dans la barre du widget pour la conserver.</span>`;
+    $('public-url').textContent = publicUrl;
+    $('qrPanel').classList.add('hidden'); // évite d'afficher un QR code périmé après une nouvelle adresse
+    if (!self && ambiguous) {
+      $('page-check').innerHTML = `<span class="err">Plusieurs widgets personnalisés utilisant ce même fichier existent sur la page ${widgetPage} : impossible de savoir lequel enregistrer. Supprimez les widgets FormPlus superflus laissés par d'anciens essais sur cette page, ne gardez que celui-ci, puis cliquez de nouveau sur Générer l'adresse.</span>`;
+    } else if (!self) {
+      $('page-check').innerHTML = `<span class="err">Impossible de déterminer la page de ce widget (adresse de la page Grist illisible). L'adresse pointe vers la page du formulaire natif (page ${formPage}), qui affichera aussi son propre habillage.</span>`;
+    } else if (samePage) {
+      $('page-check').innerHTML = `<span class="ok">Le widget est sur la même page (${formPage}) que le formulaire natif${onFormPage > 1 ? `, avec ${onFormPage} widgets personnalisés dessus` : ''}. L'adresse fonctionnera, mais affichera aussi l'habillage du formulaire natif au-dessus ou à côté. Pour un rendu plus propre, déplacez ce widget seul sur une autre page : la clé reste valable, elle porte sur la table, pas sur la page.</span>`;
+    } else {
+      $('page-check').innerHTML = `<span class="ok">Le widget est seul sur la page ${widgetPage}, distincte de la page ${formPage} qui porte le formulaire natif. L'adresse n'affichera que ce widget : c'est la configuration la plus propre.</span>`;
+    }
+    $('editor').classList.remove('hidden');
+    renderQuestionList();
+    showEditorTab('questions');
+  } finally {
+    state.generating = false;
+    $('generate').disabled = false;
   }
-  const link = { ...pastedLink, vsId, sourceVsId: pastedLink.vsId };
-  state.currentLink = link;
-  const sections = await fetchMeta('_grist_Views_section');
-  const idx = sections.id.indexOf(vsId);
-  state.currentFormSection = { id: vsId, viewRef: formPage, tableRef: sections.tableRef[idx] };
-  state.mainTableIdCache = await tableIdOfRef(state.currentFormSection.tableRef);
-  // On garde les questions déjà enregistrées si ce lien était déjà configuré.
-  state.cfgQuestions = isSameSource ? migrateLegacy(state.options) : [];
-  state.stayOnConfig = true;
-  const publicUrl = buildPublicUrl(link, widgetPage);
-  const persisted = await saveConfig(publicUrl, widgetPage);
-  const dupNote = isSameSource ? '' : 'Copie du formulaire créée pour FormPlus, le vôtre est inchangé. ';
-  msg.innerHTML = persisted
-    ? `<span class="ok">${dupNote}Configuration enregistrée dans le document.</span>`
-    : `<span class="err">${dupNote}Configuration posée dans cette session seulement : cliquez sur <strong>Enregistrer</strong> dans la barre du widget pour la conserver.</span>`;
-  $('public-url').textContent = publicUrl;
-  $('qrPanel').classList.add('hidden'); // évite d'afficher un QR code périmé après une nouvelle adresse
-  if (!self && ambiguous) {
-    $('page-check').innerHTML = `<span class="err">Plusieurs widgets personnalisés utilisant ce même fichier existent sur la page ${widgetPage} : impossible de savoir lequel enregistrer. Supprimez les widgets FormPlus superflus laissés par d'anciens essais sur cette page, ne gardez que celui-ci, puis cliquez de nouveau sur Générer l'adresse.</span>`;
-  } else if (!self) {
-    $('page-check').innerHTML = `<span class="err">Impossible de déterminer la page de ce widget (adresse de la page Grist illisible). L'adresse pointe vers la page du formulaire natif (page ${formPage}), qui affichera aussi son propre habillage.</span>`;
-  } else if (samePage) {
-    $('page-check').innerHTML = `<span class="ok">Le widget est sur la même page (${formPage}) que le formulaire natif${onFormPage > 1 ? `, avec ${onFormPage} widgets personnalisés dessus` : ''}. L'adresse fonctionnera, mais affichera aussi l'habillage du formulaire natif au-dessus ou à côté. Pour un rendu plus propre, déplacez ce widget seul sur une autre page : la clé reste valable, elle porte sur la table, pas sur la page.</span>`;
-  } else {
-    $('page-check').innerHTML = `<span class="ok">Le widget est seul sur la page ${widgetPage}, distincte de la page ${formPage} qui porte le formulaire natif. L'adresse n'affichera que ce widget : c'est la configuration la plus propre.</span>`;
-  }
-  $('editor').classList.remove('hidden');
-  renderQuestionList();
-  showEditorTab('questions');
 }
 
 $('generate').addEventListener('click', generate);
@@ -122,15 +158,15 @@ $('link').addEventListener('keydown', (e) => { if (e.key === 'Enter') generate()
 ['opt-title', 'opt-desc', 'opt-logo', 'opt-emoji', 'opt-accent', 'opt-progress', 'opt-submit', 'opt-endmsg', 'opt-redirect'].forEach(id => {
   $(id).addEventListener('change', async () => {
     if (!state.currentFormSection) return; // rien à sauvegarder tant qu'aucun formulaire n'est lié
-    await saveConfig(state.options.publicUrl, state.options.viewRef);
-    $('appearance-msg').innerHTML = '<span class="ok">Enregistré.</span>';
+    const persisted = await saveConfig(state.options.publicUrl, state.options.viewRef);
+    saveMsg($('appearance-msg'), persisted, 'Enregistré.');
   });
 });
 $('opt-accent-reset').addEventListener('click', async () => {
   $('opt-accent').value = '#3452e1';
   if (!state.currentFormSection) return;
-  await saveConfig(state.options.publicUrl, state.options.viewRef);
-  $('appearance-msg').innerHTML = '<span class="ok">Couleur réinitialisée.</span>';
+  const persisted = await saveConfig(state.options.publicUrl, state.options.viewRef);
+  saveMsg($('appearance-msg'), persisted, 'Couleur réinitialisée.');
 });
 
 // Forme des coins / ambiance de fond de la page répondant : dérivées uniquement de --accent
@@ -152,8 +188,8 @@ $('editor').addEventListener('click', async (e) => {
   if (cornerBtn) setCornerStyle(cornerBtn.dataset.corner);
   if (moodBtn) setBgMood(moodBtn.dataset.mood);
   if (!state.currentFormSection) return;
-  await saveConfig(state.options.publicUrl, state.options.viewRef);
-  $('appearance-msg').innerHTML = '<span class="ok">Enregistré.</span>';
+  const persisted = await saveConfig(state.options.publicUrl, state.options.viewRef);
+  saveMsg($('appearance-msg'), persisted, 'Enregistré.');
 });
 $('paste').addEventListener('click', async () => {
   try { $('link').value = (await navigator.clipboard.readText()).trim(); generate(); }
@@ -239,6 +275,10 @@ export async function createEmptyForm() {
     try {
       const tref = await getTableRef(tableId);
       await grist.docApi.applyUserActions([['CreateViewSection', tref, widgetPage, 'form', null, tableId]]);
+      // CreateViewSection remplit la nouvelle section d'un champ par colonne de la table : sans
+      // ce nettoyage, une table existante déjà pourvue de colonnes donnerait un formulaire natif
+      // rempli de tous ses champs, pas « vide » comme annoncé ci-dessous.
+      await clearNewFormSectionFields(widgetPage, tref);
       msg.innerHTML = `<span class="ok">Formulaire natif vide créé sur cette page pour la table « ${esc(tableId)} ». Cliquez sur <strong>Publier</strong> dans ce nouveau formulaire (repliez-le une fois publié), puis <strong>Copier le lien</strong>, et collez-le ci-dessus.</span>`;
     } catch (e) {
       msg.innerHTML = `<span class="err">Erreur : ${esc(e.message)}</span>`;
@@ -261,6 +301,7 @@ export async function createEmptyForm() {
     }
     const tref = await getTableRef(tableId);
     await grist.docApi.applyUserActions([['CreateViewSection', tref, widgetPage, 'form', null, tableId]]);
+    await clearNewFormSectionFields(widgetPage, tref);
     msg.innerHTML = `<span class="ok">Formulaire natif vide créé sur cette page pour la table « ${esc(tableId)} ». Cliquez sur <strong>Publier</strong> dans ce nouveau formulaire (repliez-le une fois publié), puis <strong>Copier le lien</strong>, et collez-le ci-dessus.</span>`;
     $('scratchTable').value = '';
   } catch (e) {
@@ -477,7 +518,11 @@ export function mountCombo(host, placeholder) {
 // Référence cachée créée et gérée par ensureChoiceField).
 export async function renderCardBody(id, body) {
   const isNew = id === '__new__';
-  const q = isNew ? null : state.cfgQuestions.find(x => x.id === id);
+  // `let`, pas `const` : autoSave (plus bas) réaffecte cette variable une fois la question créée,
+  // pour que le SECOND blur d'une frappe rapide (avant que le premier round-trip réseau ne soit
+  // terminé) mette bien à jour l'entrée déjà créée au lieu d'en recréer une autre avec un id
+  // différent, à partir d'un `existing` resté figé sur sa valeur du tout premier rendu de la carte.
+  let q = isNew ? null : state.cfgQuestions.find(x => x.id === id);
   let tables = [];
   try { tables = await grist.docApi.listTables(); } catch (e) { tables = []; }
   const tableItems = tables.map(t => ({ value: t, label: t }));
@@ -696,23 +741,48 @@ export async function renderCardBody(id, body) {
   // de type/table/condition restent volontairement en dehors de cet auto-enregistrement : une
   // nouvelle question ne doit se créer qu'une fois qu'elle a un contenu, jamais au simple survol
   // des options du sélecteur de type.
-  const autoSave = () => saveQuestionFromCard(id, body, q, combos, { rerender: isNew });
+  // Chaîne les appels entre eux (même principe que saveChain dans saveConfig) ET met à jour `q`
+  // avec le résultat de chaque sauvegarde réussie : un second blur déclenché avant la fin du
+  // premier aller-retour réseau attend que celui-ci se termine, puis repart de la question qu'il
+  // vient de créer/modifier au lieu d'un `existing` resté figé sur `null` ou sur l'ancienne valeur.
+  let autoSaving = Promise.resolve();
+  const autoSave = () => {
+    autoSaving = autoSaving
+      .then(() => saveQuestionFromCard(id, body, q, combos, { rerender: isNew }))
+      .then((saved) => { if (saved) q = saved; });
+    return autoSaving;
+  };
   ['.qf-label', '.qf-desc', '.qf-desc-long', '.qf-choices'].forEach(sel => {
     body.querySelector(sel).addEventListener('blur', autoSave);
   });
   body.querySelector('.qf-required').addEventListener('change', autoSave);
 
   body.querySelector('[data-del]')?.addEventListener('click', async () => {
-    state.cfgQuestions = state.cfgQuestions.filter(x => x.id !== id);
+    // Retire aussi toute règle de condition qui référençait cette question ailleurs : sans ce
+    // nettoyage, la question dépendante reste masquée pour toujours (sa condition ne peut plus
+    // jamais être vraie), sans qu'aucun message ne le signale, et la règle cassée est réenregistrée
+    // telle quelle au moindre autre changement.
+    state.cfgQuestions = state.cfgQuestions
+      .filter(x => x.id !== id)
+      .map(x => {
+        const cond = normalizeCondition(x.condition);
+        if (!cond) return x;
+        const rules = cond.rules.filter(r => r.questionId !== id);
+        if (rules.length === cond.rules.length) return x;
+        return { ...x, condition: rules.length ? { ...cond, rules } : null };
+      });
     state.expandedId = null;
     await saveConfig(state.options.publicUrl, state.options.viewRef);
     renderQuestionList();
   });
   body.querySelector('[data-dup]')?.addEventListener('click', async () => {
-    const copy = { ...q, id: uid(), label: (q.label || '') + ' (copie)' };
+    // Relit l'entrée depuis state.cfgQuestions plutôt que de faire confiance à `q` : si un
+    // auto-enregistrement est encore en vol (chaîné sur autoSaving ci-dessus), state.cfgQuestions
+    // reflète déjà la dernière valeur upsertée dès qu'elle est disponible, sans attendre.
+    const current = state.cfgQuestions.find(x => x.id === id) || q;
+    const copy = { ...current, id: uid(), label: (current.label || '') + ' (copie)' };
     delete copy.importedFrom; // la copie n'est plus liée au champ natif d'origine
     state.cfgQuestions = [...state.cfgQuestions, copy];
-    state.expandedId = copy.id;
     await saveConfig(state.options.publicUrl, state.options.viewRef);
     renderQuestionList();
   });
@@ -743,10 +813,10 @@ export async function saveQuestionFromCard(id, body, existing, combos, { rerende
   const description = (kind === 'info' ? body.querySelector('.qf-desc-long') : body.querySelector('.qf-desc')).value.trim();
   const condition = body.getCondition ? body.getCondition() : null;
 
-  const done = () => {
+  const done = (persisted) => {
     if (rerender) { state.expandedId = null; renderQuestionList(); return; }
-    msg.innerHTML = '<span class="ok">Enregistré.</span>';
-    setTimeout(() => { if (msg.isConnected) msg.textContent = ''; }, 1500);
+    saveMsg(msg, persisted, 'Enregistré.');
+    if (persisted) setTimeout(() => { if (msg.isConnected) msg.textContent = ''; }, 1500);
   };
 
   try {
@@ -757,8 +827,8 @@ export async function saveQuestionFromCard(id, body, existing, combos, { rerende
     if (LAYOUT_KINDS.has(kind)) {
       // Titre de section / bloc d'info : ne collecte rien, pas de destination ni d'obligatoire.
       upsertQuestion(q);
-      await saveConfig(state.options.publicUrl, state.options.viewRef);
-      done();
+      const persisted = await saveConfig(state.options.publicUrl, state.options.viewRef);
+      done(persisted);
       return q;
     }
 
@@ -785,8 +855,8 @@ export async function saveQuestionFromCard(id, body, existing, combos, { rerende
       if (q.writeTable !== mainTableId) await ensureTableGate(q.writeTable, state.currentFormSection.viewRef);
     }
     upsertQuestion(q);
-    await saveConfig(state.options.publicUrl, state.options.viewRef);
-    done();
+    const persisted = await saveConfig(state.options.publicUrl, state.options.viewRef);
+    done(persisted);
     return q;
   } catch (e) {
     msg.innerHTML = `<span class="err">Erreur : ${esc(e.message)}</span>`;
@@ -879,15 +949,18 @@ export async function importNativeFields() {
     }
 
     if (fieldUpdates.length) await grist.docApi.applyUserActions(fieldUpdates);
+    let persisted = true;
     if (imported.length) {
       state.cfgQuestions = [...state.cfgQuestions, ...imported];
-      await saveConfig(state.options.publicUrl, state.options.viewRef);
+      persisted = await saveConfig(state.options.publicUrl, state.options.viewRef);
       renderQuestionList();
     }
     const skipMsg = Object.keys(skipped).length ? ` Ignorés (type non pris en charge pour l'instant) : ${Object.entries(skipped).map(([t, n]) => `${n} ${t}`).join(', ')}.` : '';
-    msg.innerHTML = imported.length
-      ? `<span class="ok">${imported.length} champ(s) importé(s).${skipMsg}</span>`
-      : `<span class="muted">Rien à importer.${skipMsg || ' Tous les champs sont déjà pris en charge ou déjà importés.'}</span>`;
+    if (imported.length) {
+      saveMsg(msg, persisted, `${imported.length} champ(s) importé(s).${skipMsg}`);
+    } else {
+      msg.innerHTML = `<span class="muted">Rien à importer.${skipMsg || ' Tous les champs sont déjà pris en charge ou déjà importés.'}</span>`;
+    }
   } catch (e) {
     msg.innerHTML = `<span class="err">Erreur : ${esc(e.message)}</span>`;
   }
@@ -922,9 +995,9 @@ export async function resetQuestions() {
     }
     state.cfgQuestions = [];
     state.expandedId = null;
-    await saveConfig(state.options.publicUrl, state.options.viewRef);
+    const persisted = await saveConfig(state.options.publicUrl, state.options.viewRef);
     renderQuestionList();
-    msg.innerHTML = '<span class="ok">Questions réinitialisées.</span>';
+    saveMsg(msg, persisted, 'Questions réinitialisées.');
   } catch (e) {
     msg.innerHTML = `<span class="err">Erreur : ${esc(e.message)}</span>`;
   }

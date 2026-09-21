@@ -2,12 +2,12 @@ import { $, show } from './dom.js';
 import { parseFormLink, buildPublicUrl, parseCustomView, migrateLegacy, hostOrgFromReferrer, normalizeCondition } from './links.js';
 import { hexToRgb, softenColor, contrastText } from './theme.js';
 import { KINDS } from './kinds.js';
-import { singleValueOf, isAnswered, renderExtraQuestion, onSubmit, conditionMet } from './respond.js';
+import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet } from './respond.js';
 import {
   questionSummary, choiceQuestionsBefore, renderCardBody,
-  importNativeFields, resetQuestions, createEmptyForm, populateFormPicker, generate,
+  importNativeFields, resetQuestions, createEmptyForm, populateFormPicker, generate, saveConfig,
 } from './config-editor.js';
-import { findExistingShareKey } from './grist-meta.js';
+import { findExistingShareKey, ensureTableGate } from './grist-meta.js';
 import { state } from './state.js';
 
 // ───────────────────────── Démarrage ─────────────────────────
@@ -169,6 +169,16 @@ export async function runTests() {
     assert('ancien format, valeur différente -> false', !conditionMet({ questionId: 'a', value: 'Y' }));
   });
 
+  await group('conditionMet : une question masquée par sa propre condition ne compte plus pour ses dépendants (cascade)', () => {
+    const host = mount(document.createElement('div'));
+    host.innerHTML = `
+      <div class="q cond-hidden"><select id="eq-b"><option value=""></option><option value="p" data-label="P">P</option></select></div>`;
+    $('eq-b').value = 'p'; // la valeur reste dans le DOM même une fois la question masquée
+    assert('règle sur une question actuellement masquée -> jamais vraie, même si la valeur DOM correspond', !conditionMet({ mode: 'all', rules: [{ questionId: 'b', value: 'P' }] }));
+    host.querySelector('.q').classList.remove('cond-hidden');
+    assert('la même règle redevient vraie une fois la question de nouveau visible', conditionMet({ mode: 'all', rules: [{ questionId: 'b', value: 'P' }] }));
+  });
+
   await group('isAnswered', () => {
     const form = document.createElement('form');
     form.innerHTML = `
@@ -189,6 +199,8 @@ export async function runTests() {
     assertEqual('radio, rien coché -> false', isAnswered(qs[4]), false);
     assertEqual('section -> hors calcul (null)', isAnswered(qs[5]), null);
     assertEqual('masquée par condition -> hors calcul (null)', isAnswered(qs[6]), null);
+    qs[0].querySelector('input').value = '   ';
+    assertEqual('texte rempli uniquement d’espaces -> false (pas répondu)', isAnswered(qs[0]), false);
   });
 
   await group('renderExtraQuestion : forme du HTML par type', () => {
@@ -230,6 +242,21 @@ export async function runTests() {
 
     host.innerHTML = renderExtraQuestion({ id: 'q10', kind: 'info', label: 'Aide', description: 'contenu' });
     assert('bloc d’info : <details><summary>, pas de champ', host.querySelector('details.q-info summary')?.textContent === 'Aide' && host.querySelector('.err-msg') == null);
+  });
+
+  await group('renderNativeField : colId échappé à l’affichage, jamais altéré pour la lecture (dataset.col)', () => {
+    // colId vient de l'API /forms/<clé>/<section> d'un document Grist quelconque : jamais fait
+    // confiance sans échappement dans le HTML produit (voir le commentaire au-dessus de nameAttr
+    // dans respond.js), sous peine d'injection HTML/JS via un nom de colonne malveillant.
+    const evilColId = '"><img src=x onerror=alert(1)>';
+    const fl = { colId: evilColId, question: 'Q', options: {}, type: 'Text' };
+    const html = renderNativeField(1, fl, new URLSearchParams());
+    assert('le HTML produit ne contient jamais le colId brut (pas d’injection)', !html.includes(evilColId));
+    assert('la version échappée (jamais interprétable comme balise) apparaît bien à sa place', html.includes('&quot;&gt;&lt;img src=x onerror=alert(1)&gt;'));
+    const host = document.createElement('div');
+    host.innerHTML = html;
+    assertEqual('un seul champ produit (le HTML échappé n’a pas cassé la structure)', host.querySelectorAll('.q').length, 1);
+    assertEqual('dataset.col retrouve la valeur brute exacte (décodage HTML par le navigateur)', host.querySelector('.q').dataset.col, evilColId);
   });
 
   await group('renderCardBody : setKind affiche les bons blocs par type', async () => {
@@ -380,6 +407,64 @@ export async function runTests() {
     assert('writeCol calculé (référence cachée)', typeof state.cfgQuestions[0]?.writeCol === 'string' && state.cfgQuestions[0].writeCol.startsWith('FormPlus_src_'));
   });
 
+  await group('renderCardBody : deux enregistrements automatiques rapides sur une question neuve ne créent qu’une seule entrée', async () => {
+    state.cfgQuestions = [];
+    state.mainTableIdCache = 'Main';
+    state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+    window.grist = {
+      docApi: {
+        listTables: async () => ['Main'],
+        // _grist_Views_section a besoin d'un tableau `id` exploitable (findViewRefForSection,
+        // appelé par saveConfig, y fait indexOf) : {} nu y provoquerait une exception qui ferait
+        // échouer saveConfig à chaque fois, masquant justement le comportement que ce test vérifie.
+        fetchTable: async (t) => (t === '_grist_Views_section' ? { id: [], parentId: [], parentKey: [], options: [] } : { id: [] }),
+        applyUserActions: async () => ({}),
+        setOptions: async () => {},
+      },
+    };
+    state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
+    const body = mount(document.createElement('div'));
+    await renderCardBody('__new__', body);
+    body.querySelector('[data-kind="section"]').click();
+    // Deux frappes suivies chacune d'un blur, l'une juste après l'autre, avant qu'aucun des deux
+    // aller-retours (saveConfig) n'ait eu le temps de se terminer : sans le verrou qui met à jour
+    // `q` après chaque sauvegarde réussie, le second blur repartait d'un `existing` resté à `null`
+    // et créait une SECONDE question au lieu de modifier la première.
+    body.querySelector('.qf-label').value = 'Premier titre';
+    body.querySelector('.qf-label').dispatchEvent(new Event('blur'));
+    body.querySelector('.qf-label').value = 'Second titre';
+    body.querySelector('.qf-label').dispatchEvent(new Event('blur'));
+    await tick(); await tick(); await tick(); await tick();
+    assertEqual('une seule question créée (pas de doublon)', state.cfgQuestions.length, 1, JSON.stringify(state.cfgQuestions));
+    assertEqual('le second enregistrement met à jour la même entrée, avec le dernier libellé tapé', state.cfgQuestions[0]?.label, 'Second titre');
+  });
+
+  await group('[data-del] : supprimer une question retire aussi les règles de condition qui la référençaient ailleurs', async () => {
+    state.cfgQuestions = [
+      { id: 'src1', kind: 'select', label: 'Statut', choices: ['Ouvert', 'Fermé'] },
+      { id: 'q1', kind: 'text', label: 'Commentaire', writeTable: 'Main', writeCol: 'colA', condition: { mode: 'all', rules: [{ questionId: 'src1', op: 'equals', value: 'Ouvert' }] } },
+      { id: 'q2', kind: 'text', label: 'Autre', writeTable: 'Main', writeCol: 'colB', condition: { mode: 'all', rules: [{ questionId: 'src1', op: 'equals', value: 'Ouvert' }, { questionId: 'q1', op: 'equals', value: 'x' }] } },
+    ];
+    state.mainTableIdCache = 'Main';
+    state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+    window.grist = {
+      docApi: {
+        listTables: async () => ['Main'],
+        fetchTable: async (t) => (t === '_grist_Views_section' ? { id: [], parentId: [], parentKey: [], options: [] } : { id: [] }),
+        applyUserActions: async () => ({}),
+        setOptions: async () => {},
+      },
+    };
+    state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
+    const body = mount(document.createElement('div'));
+    await renderCardBody('src1', body);
+    body.querySelector('[data-del]').click();
+    await tick();
+    assertEqual('la question supprimée n’est plus dans la liste', state.cfgQuestions.some(q => q.id === 'src1'), false);
+    assertEqual('q1 ne référençait plus qu’elle : condition entièrement retirée (plus jamais masquée à tort)', state.cfgQuestions.find(q => q.id === 'q1')?.condition, null);
+    assertEqual('q2 : seule la règle sur la question supprimée est retirée, l’autre règle reste', state.cfgQuestions.find(q => q.id === 'q2')?.condition, { mode: 'all', rules: [{ questionId: 'q1', op: 'equals', value: 'x' }] });
+  });
+
   await group('saveQuestionFromCard : section et bloc d’info', async () => {
     for (const k of ['section', 'info']) {
       state.cfgQuestions = [];
@@ -473,12 +558,36 @@ export async function runTests() {
     assertEqual('la configuration est aussi sauvegardée (UpdateRecord section)', calls.some(a => a[0][1] === '_grist_Views_section'), true);
   });
 
-  await group('createEmptyForm : réutilise une table existante', async () => {
+  // CreateViewSection peuple automatiquement la nouvelle section d'un champ par colonne de la
+  // table (comportement natif de Grist, voir grist-meta.js/clearAutoFields) : un mock réaliste de
+  // _grist_Views_section_field doit donc en simuler au moins un pour que ce nettoyage soit
+  // vérifié, plutôt qu'un mock vide qui ne peut jamais faire échouer ce test si le nettoyage
+  // disparaissait un jour.
+  await group('createEmptyForm : réutilise une table existante, section vidée de ses champs auto-créés', async () => {
     const calls = [];
     window.grist = {
       docApi: {
-        fetchTable: async (t) => t === '_grist_Tables' ? { tableId: ['Departements'], id: [1] } : {},
-        applyUserActions: async (a) => { calls.push(a); return {}; },
+        fetchTable: async (t) => {
+          if (t === '_grist_Tables') return { tableId: ['Departements'], id: [1] };
+          if (t === '_grist_Views_section') return { id: [], parentId: [], tableRef: [], parentKey: [] };
+          if (t === '_grist_Views_section_field') return { id: [201], parentId: [50] };
+          return {};
+        },
+        applyUserActions: async (a) => {
+          calls.push(a);
+          if (a[0][0] === 'CreateViewSection') {
+            // Simule l'auto-remplissage : la section fraîchement créée (id 50) porte désormais
+            // un champ (id 201), retrouvée par findNewestFormSection puisqu'elle correspond
+            // maintenant à (viewRef=7, tableRef=1, parentKey='form').
+            window.grist.docApi.fetchTable = async (t) => {
+              if (t === '_grist_Tables') return { tableId: ['Departements'], id: [1] };
+              if (t === '_grist_Views_section') return { id: [50], parentId: [7], tableRef: [1], parentKey: ['form'] };
+              if (t === '_grist_Views_section_field') return { id: [201], parentId: [50] };
+              return {};
+            };
+          }
+          return {};
+        },
       },
     };
     const el = mount(document.createElement('div'));
@@ -488,8 +597,10 @@ export async function runTests() {
     $('scratchTable').value = 'Departements';
     Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
     await createEmptyForm();
-    assertEqual('une seule action, CreateViewSection direct (pas de AddTable)', calls.length, 1);
+    assertEqual('deux actions : CreateViewSection puis retrait du champ auto-créé', calls.map(c => c[0][0]), ['CreateViewSection', 'RemoveRecord']);
     assertEqual('CreateViewSection sur la bonne table/page', calls[0][0], ['CreateViewSection', 1, 7, 'form', null, 'Departements']);
+    assertEqual('le champ auto-créé (201) est bien retiré', calls[1][0], ['RemoveRecord', '_grist_Views_section_field', 201]);
+    assert('message de succès (formulaire réellement vide)', $('scratch-msg').innerHTML.includes('ok'));
   });
 
   await group('createEmptyForm : crée une nouvelle table', async () => {
@@ -497,7 +608,12 @@ export async function runTests() {
     let tablesState = { tableId: ['Departements'], id: [1] };
     window.grist = {
       docApi: {
-        fetchTable: async (t) => t === '_grist_Tables' ? { ...tablesState } : {},
+        fetchTable: async (t) => {
+          if (t === '_grist_Tables') return { ...tablesState };
+          if (t === '_grist_Views_section') return { id: [], parentId: [], tableRef: [], parentKey: [] };
+          if (t === '_grist_Views_section_field') return { id: [], parentId: [] };
+          return {};
+        },
         applyUserActions: async (a) => {
           calls.push(a);
           if (a[0][0] === 'AddTable') tablesState = { tableId: [...tablesState.tableId, 'Reponses'], id: [...tablesState.id, 2] };
@@ -508,7 +624,7 @@ export async function runTests() {
     $('scratchTable').value = 'Réponses';
     Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
     await createEmptyForm();
-    assertEqual('deux actions : AddTable puis CreateViewSection', calls.map(c => c[0][0]), ['AddTable', 'CreateViewSection']);
+    assertEqual('deux actions : AddTable puis CreateViewSection (rien à retirer, aucun champ auto simulé ici)', calls.map(c => c[0][0]), ['AddTable', 'CreateViewSection']);
     assertEqual('CreateViewSection cible la table nouvellement créée (ref 2)', calls[1][0][1], 2);
   });
 
@@ -530,9 +646,13 @@ export async function runTests() {
         fetchTable: async (t) => {
           if (t === '_grist_Tables') return { tableId: ['Departements'], id: [1] };
           if (t === '_grist_Views_section') return {
-            id: [9], parentId: [7], parentKey: ['custom'],
+            // tableRef/parentKey doivent être définis pour TOUTES les sections, comme sur un vrai
+            // document Grist : cette section personnalisée (le widget lui-même) n'est pas une
+            // section "form", donc exclue par parentKey quel que soit son tableRef.
+            id: [9], parentId: [7], tableRef: [1], parentKey: ['custom'],
             options: [JSON.stringify({ customView: JSON.stringify({ url: `https://cdn.example.com/${myFile}` }) })],
           };
+          if (t === '_grist_Views_section_field') return { id: [], parentId: [] };
           return {};
         },
         applyUserActions: async (a) => { calls.push(a); return {}; },
@@ -750,6 +870,151 @@ export async function runTests() {
     assertEqual('aucune nouvelle section créée', calls.slice(callsBefore).flatMap(a => a).some(a => a[0] === 'CreateViewSection'), false);
   });
 
+  await group('generate() : verrou de ré-entrance, un double déclenchement (clic + Entrée) ne duplique jamais deux fois', async () => {
+    state.options = {};
+    state.cfgQuestions = [];
+    state.generating = false;
+    const sectionsState = { id: [12], parentId: [7], parentKey: ['form'], tableRef: [10], shareOptions: ['{"publish":true,"form":true}'], options: ['{}'] };
+    let nextSectionId = 100;
+    const calls = [];
+    window.grist = {
+      docApi: {
+        listTables: async () => ['Reponses'],
+        fetchTable: async (t) => {
+          if (t === '_grist_Pages') return { id: [1], viewRef: [7], shareRef: [9] };
+          if (t === '_grist_Shares') return { id: [9], linkId: ['SECRETKEY'] };
+          if (t === '_grist_Views_section') return { ...sectionsState };
+          if (t === '_grist_Views_section_field') return { id: [], parentId: [], colRef: [], widgetOptions: [], parentPos: [] };
+          if (t === '_grist_Tables') return { id: [10], tableId: ['Reponses'] };
+          return {};
+        },
+        // Round-trip volontairement lent : laisse le temps à un second appel synchrone de
+        // generate() (double-clic, ou clic après un Entrée déjà en vol) de s'exécuter avant que
+        // le premier n'ait fini, si le verrou de ré-entrance ne l'empêchait pas.
+        applyUserActions: async (actions) => {
+          calls.push(actions);
+          await tick();
+          for (const a of actions) {
+            if (a[0] === 'CreateViewSection') {
+              const newId = nextSectionId++;
+              sectionsState.id = [...sectionsState.id, newId];
+              sectionsState.parentId = [...sectionsState.parentId, a[2]];
+              sectionsState.parentKey = [...sectionsState.parentKey, 'form'];
+              sectionsState.tableRef = [...sectionsState.tableRef, a[1]];
+              sectionsState.shareOptions = [...sectionsState.shareOptions, '{}'];
+              sectionsState.options = [...sectionsState.options, '{}'];
+            }
+          }
+          return { retValues: actions.map(() => null) };
+        },
+        setOptions: async () => {},
+      },
+    };
+    Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
+    $('link').value = 'https://grist.example.com/o/team/forms/SECRETKEY/12';
+    const p1 = generate();
+    const p2 = generate(); // synchrone, juste après : doit être ignoré tant que p1 n'est pas fini
+    await Promise.all([p1, p2]);
+    await tick();
+    const createCalls = calls.flatMap(a => a).filter(a => a[0] === 'CreateViewSection');
+    assertEqual('une seule section dupliquée créée, jamais deux', createCalls.length, 1, JSON.stringify(createCalls));
+  });
+
+  await group('saveConfig : deux sauvegardes rapprochées, l’ordre d’appel décide toujours (jamais la vitesse du réseau)', async () => {
+    state.currentLink = null;
+    state.cfgQuestions = [];
+    ['opt-title', 'opt-desc', 'opt-logo', 'opt-emoji', 'opt-accent', 'opt-submit', 'opt-endmsg', 'opt-redirect'].forEach(k => { $(k).value = ''; });
+    $('opt-progress').checked = false;
+    state.options = { formLink: '' };
+    let fetchCount = 0;
+    let unblockFirst;
+    window.grist = {
+      docApi: {
+        fetchTable: async (t) => {
+          if (t === '_grist_Views_section') {
+            fetchCount++;
+            // Seul le PREMIER appel (le premier saveConfig) est ralenti : simule un aller-retour
+            // réseau plus lent pour l'appel parti en premier que pour celui parti juste après.
+            if (fetchCount === 1) await new Promise(r => { unblockFirst = r; });
+            return { id: [], parentId: [], parentKey: [], options: [] };
+          }
+          return {};
+        },
+      },
+    };
+    const p1 = saveConfig('https://x/premier', 1);
+    await tick(); // laisse le 1er appel démarrer et se bloquer sur son fetchTable
+    const p2 = saveConfig('https://x/second', 2); // 2e appel, lancé juste après le 1er
+    await tick();
+    unblockFirst(); // le 1er débloque enfin, APRÈS que le 2e ait été lancé
+    await Promise.all([p1, p2]);
+    assertEqual('la configuration finale reflète le DERNIER appel, jamais le premier même débloqué après', state.options.publicUrl, 'https://x/second');
+  });
+
+  // ensureTableGate n'avait jusqu'ici AUCUN test (contrairement à duplicateFormSection ci-dessus,
+  // qui simule déjà l'auto-remplissage de CreateViewSection) : la section « portillon » qu'elle
+  // publie n'était en réalité jamais vidée de ses champs auto-créés, ce qui l'exposait comme un
+  // vrai formulaire natif complet et public sur la table cible — voir clearAutoFields (grist-meta.js).
+  await group('ensureTableGate : la section "portillon" est vidée de ses champs auto-créés avant publication', async () => {
+    let sectionsState = { id: [], parentId: [], parentKey: [], tableRef: [], shareOptions: [] };
+    let fieldsState = { id: [], parentId: [] };
+    let nextSectionId = 900, nextFieldId = 9000;
+    const calls = [];
+    window.grist = {
+      docApi: {
+        fetchTable: async (t) => {
+          if (t === '_grist_Tables') return { id: [20], tableId: ['Secondaire'] };
+          if (t === '_grist_Views_section') return { ...sectionsState };
+          if (t === '_grist_Views_section_field') return { ...fieldsState };
+          return {};
+        },
+        applyUserActions: async (actions) => {
+          calls.push(actions);
+          for (const a of actions) {
+            if (a[0] === 'CreateViewSection') {
+              const newId = nextSectionId++;
+              sectionsState = {
+                id: [...sectionsState.id, newId], parentId: [...sectionsState.parentId, a[2]],
+                parentKey: [...sectionsState.parentKey, 'form'], tableRef: [...sectionsState.tableRef, a[1]],
+                shareOptions: [...sectionsState.shareOptions, '{}'],
+              };
+              // Comportement réel de Grist (voir duplicateFormSection ci-dessus) : la table cible
+              // a 2 colonnes, donc 2 champs apparaissent automatiquement sur la nouvelle section.
+              for (const colRef of [700, 701]) {
+                fieldsState = { id: [...fieldsState.id, nextFieldId++], parentId: [...fieldsState.parentId, newId] };
+              }
+            } else if (a[0] === 'RemoveRecord' && a[1] === '_grist_Views_section_field') {
+              const idx = fieldsState.id.indexOf(a[2]);
+              if (idx >= 0) fieldsState = { id: fieldsState.id.filter((_, i) => i !== idx), parentId: fieldsState.parentId.filter((_, i) => i !== idx) };
+            } else if (a[0] === 'UpdateRecord' && a[1] === '_grist_Views_section') {
+              const idx = sectionsState.id.indexOf(a[2]);
+              if (idx >= 0 && a[3].shareOptions !== undefined) {
+                const arr = [...sectionsState.shareOptions]; arr[idx] = a[3].shareOptions; sectionsState.shareOptions = arr;
+              }
+            }
+          }
+          return {};
+        },
+      },
+    };
+    const result = await ensureTableGate('Secondaire', 7);
+    assert('section signalée comme créée', result.created === true);
+    assertEqual('plus aucun champ sur la section une fois publiée : réellement vide', fieldsState.id.length, 0);
+    const allActions = calls.flatMap(a => a);
+    const removeCalls = allActions.filter(a => a[0] === 'RemoveRecord' && a[1] === '_grist_Views_section_field');
+    assertEqual('les 2 champs auto-créés sont retirés', removeCalls.length, 2);
+    const publishIdx = allActions.findIndex(a => a[0] === 'UpdateRecord' && a[1] === '_grist_Views_section');
+    const lastRemoveIdx = allActions.map((a, i) => (a[0] === 'RemoveRecord' ? i : -1)).filter(i => i >= 0).pop();
+    assert('le nettoyage a bien lieu AVANT la publication', lastRemoveIdx < publishIdx);
+    assertEqual('shareOptions posé après coup', JSON.parse(allActions[publishIdx][3].shareOptions), { publish: true, form: true });
+
+    // Rappelée pour la même table déjà ouverte : ne recrée jamais une seconde section.
+    const callsBefore = calls.length;
+    const result2 = await ensureTableGate('Secondaire', 7);
+    assertEqual('déjà ouvert : aucune nouvelle section', result2.created, false);
+    assertEqual('aucun nouvel appel', calls.length, callsBefore);
+  });
+
   await group('onSubmit : construit les bons champs par type et par table', async () => {
     const form = { formTableId: 'Reponses', formFieldsById: {} };
     const link = { api: 'https://fake/api/s/KEY' };
@@ -836,6 +1101,94 @@ export async function runTests() {
     assert('la réponse principale reste annoncée (elle a bien été enregistrée)', cardHtml.includes('99'));
     assert('un avertissement visible nomme la table en échec', cardHtml.includes('Autre') && /err/.test(cardHtml));
     assert('pas de redirection automatique sur un envoi partiel', !cardHtml.includes('exemple.example'));
+  });
+
+  await group('onSubmit : nombre de pièces jointes acceptées différent du nombre envoyé -> erreur bloquante (table principale)', async () => {
+    const form = { formTableId: 'Reponses', formFieldsById: {} };
+    const link = { api: 'https://fake/api/s/KEY' };
+    const formEl = mount(document.createElement('form'));
+    formEl.innerHTML = `<input type="text" name="_website" value="" style="display:none">
+      <div class="q pv-q" data-native="1" data-type="Attachments" data-col="PJ" data-required="0"><input type="file" multiple></div>
+      <span id="fill-status"></span><button type="submit"></button>`;
+    const dt = new DataTransfer();
+    dt.items.add(new File(['contenu'], 'x.pdf', { type: 'application/pdf' }));
+    formEl.querySelector('input[type=file]').files = dt.files;
+    let recordsCalled = false;
+    window.fetch = async (url) => {
+      if (String(url).includes('/attachments')) return { ok: true, json: async () => ([]) }; // 0 accepté sur 1 envoyé
+      if (String(url).includes('/tables/Reponses/records')) { recordsCalled = true; return { ok: true, json: async () => ({ records: [{ id: 1 }] }) }; }
+      return { ok: true, json: async () => ({}) };
+    };
+    state.options = {};
+    await onSubmit({ preventDefault() {}, target: formEl }, form, link, []);
+    await tick();
+    assert('message d’erreur explicite (compte de fichiers)', $('fill-status').textContent.includes('0/1'));
+    assertEqual('la réponse n’est jamais envoyée si l’upload d’une pièce jointe obligatoire à la table principale échoue', recordsCalled, false);
+  });
+
+  await group('onSubmit : l’échec de l’upload d’une pièce jointe d’une question annexe (autre table) reste non bloquant', async () => {
+    const form = { formTableId: 'Reponses', formFieldsById: {} };
+    const link = { api: 'https://fake/api/s/KEY' };
+    const extraQuestions = [{ id: 'q1', kind: 'attachments', label: 'Justificatif', writeTable: 'Pieces', writeCol: 'PJ' }];
+    const formEl = mount(document.createElement('form'));
+    formEl.innerHTML = `<input type="text" name="_website" value="" style="display:none">${extraQuestions.map(renderExtraQuestion).join('')}<span id="fill-status"></span><button type="submit"></button>`;
+    const dt = new DataTransfer();
+    dt.items.add(new File(['contenu'], 'x.pdf', { type: 'application/pdf' }));
+    formEl.querySelector('#eq-q1').files = dt.files;
+    window.fetch = async (url) => {
+      if (String(url).includes('/attachments')) return { ok: false, status: 500 };
+      if (String(url).includes('/tables/Reponses/records')) return { ok: true, json: async () => ({ records: [{ id: 7 }] }) };
+      return { ok: true, json: async () => ({}) };
+    };
+    state.options = {};
+    await onSubmit({ preventDefault() {}, target: formEl }, form, link, extraQuestions);
+    await tick(); await tick();
+    const cardHtml = $('fill-card').innerHTML;
+    assert('la réponse principale reste annoncée malgré l’échec de la pièce jointe annexe', cardHtml.includes('7'));
+    assert('un avertissement visible nomme la colonne en échec', cardHtml.includes('PJ') && /err/.test(cardHtml));
+  });
+
+  await group('onSubmit : redirection automatique jamais lancée vers un schéma autre que http(s)', async () => {
+    const form = { formTableId: 'Reponses', formFieldsById: {} };
+    const link = { api: 'https://fake/api/s/KEY' };
+    const formEl = mount(document.createElement('form'));
+    formEl.innerHTML = `<input type="text" name="_website" value="" style="display:none"><span id="fill-status"></span><button type="submit"></button>`;
+    window.fetch = async (url) => {
+      if (String(url).includes('/tables/Reponses/records')) return { ok: true, json: async () => ({ records: [{ id: 1 }] }) };
+      return { ok: true, json: async () => ({}) };
+    };
+    // esc() échappe les caractères HTML mais ne filtre aucun schéma d'URI : un opt-redirect à
+    // javascript:… doit être neutralisé explicitement, sinon il s'exécuterait tel quel 3 secondes
+    // après l'envoi, sans aucun clic du répondant.
+    state.options = { redirectUrl: 'javascript:alert(1)' };
+    await onSubmit({ preventDefault() {}, target: formEl }, form, link, []);
+    await tick();
+    const cardHtml = $('fill-card').innerHTML;
+    assert('un schéma javascript: est neutralisé, jamais de redirection automatique proposée', !cardHtml.includes('redirect-msg') && !cardHtml.includes('javascript:'));
+  });
+
+  await group('onSubmit : obligatoire refuse un texte fait uniquement d’espaces et un oui/non non cochée', async () => {
+    const form = { formTableId: 'Reponses', formFieldsById: {} };
+    const link = { api: 'https://fake/api/s/KEY' };
+    const extraQuestions = [
+      { id: 'q1', kind: 'text', label: 'Nom', required: true, writeTable: 'Reponses', writeCol: 'Nom' },
+      { id: 'q2', kind: 'bool', label: 'Accord', required: true, writeTable: 'Reponses', writeCol: 'Accord' },
+    ];
+    const formEl = mount(document.createElement('form'));
+    formEl.innerHTML = `<input type="text" name="_website" value="" style="display:none">
+      <div class="q pv-q" data-native="1" data-type="Text" data-col="NomNatif" data-required="1"><input type="text"></div>
+      ${extraQuestions.map(renderExtraQuestion).join('')}<span id="fill-status"></span><button type="submit"></button>`;
+    formEl.querySelector('[data-col="NomNatif"] input').value = '   ';
+    formEl.querySelector('#eq-q1').value = '   ';
+    let submitted = false;
+    window.fetch = async (url) => { if (String(url).includes('/tables/Reponses/records')) submitted = true; return { ok: true, json: async () => ({ records: [{ id: 1 }] }) }; };
+    state.options = {};
+    await onSubmit({ preventDefault() {}, target: formEl }, form, link, extraQuestions);
+    await tick();
+    assertEqual('texte natif obligatoire rempli d’espaces -> invalide', formEl.querySelector('[data-col="NomNatif"]').classList.contains('invalid'), true);
+    assertEqual('question annexe texte obligatoire remplie d’espaces -> invalide', formEl.querySelector('[data-extra="q1"]').classList.contains('invalid'), true);
+    assertEqual('oui/non obligatoire non cochée -> invalide', formEl.querySelector('[data-extra="q2"]').classList.contains('invalid'), true);
+    assertEqual('aucun envoi tant que des champs obligatoires ne sont pas valides', submitted, false);
   });
 
   // Restauration de l'état global et des stubs, pour ne rien laisser fuiter si la page reste ouverte.

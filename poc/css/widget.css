@@ -102,7 +102,9 @@
   .qtype-pill-icon { display: flex; color: var(--chrome-accent); }
   .qtype-pill svg:last-child { width: 12px; height: 12px; color: var(--muted); }
   .qtype-popover { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; background: var(--card); border: 1px solid var(--border); border-radius: 9px; box-shadow: var(--shadow); padding: 6px; width: 184px; }
-  .qtype-opt { display: flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 7px; border: none; background: none; color: var(--muted); }
+  /* padding:0 indispensable : sans lui, le padding global de "button" (voir plus haut) écrase
+     l'icône 16x16 dans cette boîte de 38px, comme déjà rencontré pour .icon-btn/.qf-display-btn. */
+  .qtype-opt { display: flex; align-items: center; justify-content: center; width: 38px; height: 38px; padding: 0; border-radius: 7px; border: none; background: none; color: var(--muted); }
   .qtype-opt:hover { background: var(--bg); }
   .qtype-opt.active { background: var(--chrome-accent-soft); color: var(--chrome-accent); }
 
