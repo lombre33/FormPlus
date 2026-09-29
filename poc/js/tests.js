@@ -55,6 +55,34 @@ export async function runTests() {
     opt.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
   }
 
+  // Fabrique de mock grist.docApi : centralise ce qui était répété à l'identique dans presque
+  // chaque construction artisanale de window.grist ci-dessous (listTables/setOptions par défaut,
+  // et `calls` qui accumule CHAQUE tableau d'actions reçu par applyUserActions, dans l'ordre —
+  // même forme que les tests qui inspectaient déjà `calls` à la main), et remplace la
+  // construction manuelle répétée de retValues (`actions.map(() => null)` puis
+  // `actions.forEach(...)` pour n'en remplir que certains) par un simple onAction(action) par
+  // action. fetchTable et onAction restent de simples fonctions : rien n'empêche un appelant de
+  // garder son propre état mutable dans leur fermeture, comme le font déjà les tests qui simulent
+  // un document Grist complet (sections/champs créés, renommés, supprimés...). `extra` permet de
+  // remplacer ou d'ajouter des propriétés docApi que ce mock générique ne couvre pas (ex.
+  // applyUserActions qui doit lever une exception).
+  function makeGristStub({ listTables = [], fetchTable, onAction, extra } = {}) {
+    const calls = [];
+    const docApi = {
+      listTables: async () => listTables,
+      fetchTable: async (t) => (typeof fetchTable === 'function' ? fetchTable(t) : ((fetchTable || {})[t] ?? { id: [] })),
+      applyUserActions: async (actions) => {
+        calls.push(actions);
+        if (!onAction) return {};
+        const retValues = await Promise.all(actions.map(a => onAction(a)));
+        return retValues.some(v => v !== undefined) ? { retValues } : {};
+      },
+      setOptions: async () => {},
+      ...extra,
+    };
+    return { grist: { docApi }, calls };
+  }
+
   // Sauvegarde l'état global mutable pour le restaurer une fois les tests terminés : cette
   // suite s'exécute dans le MÊME script que l'application (même portée), donc dans la même
   // session si elle était déjà active — jamais le cas via #test en pratique, mais prudence.
@@ -291,7 +319,10 @@ export async function runTests() {
   await group('renderCardBody : setKind affiche les bons blocs par type', async () => {
     state.mainTableIdCache = 'Main';
     state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
-    window.grist = { docApi: { listTables: async () => ['Main', 'Autre'], fetchTable: async (t) => t === '_grist_Tables' ? { id: [1, 2], tableId: ['Main', 'Autre'] } : { id: [10], colA: ['x'] } } };
+    window.grist = makeGristStub({
+      listTables: ['Main', 'Autre'],
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [1, 2], tableId: ['Main', 'Autre'] } : { id: [10], colA: ['x'] }),
+    }).grist;
     const body = mount(document.createElement('div'));
     await renderCardBody('__new__', body);
     for (const k of KINDS.map(x => x.id)) {
@@ -312,14 +343,10 @@ export async function runTests() {
       state.cfgQuestions = [];
       state.mainTableIdCache = 'Main';
       state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
-      window.grist = {
-        docApi: {
-          listTables: async () => ['Main', 'Autre'],
-          fetchTable: async (t) => t === '_grist_Tables' ? { id: [1, 2], tableId: ['Main', 'Autre'] } : { id: [10], colA: ['x'] },
-          applyUserActions: async () => ({}),
-          setOptions: async () => {},
-        },
-      };
+      window.grist = makeGristStub({
+        listTables: ['Main', 'Autre'],
+        fetchTable: (t) => (t === '_grist_Tables' ? { id: [1, 2], tableId: ['Main', 'Autre'] } : { id: [10], colA: ['x'] }),
+      }).grist;
       state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
       const body = mount(document.createElement('div'));
       await renderCardBody('__new__', body);
@@ -340,7 +367,10 @@ export async function runTests() {
     state.cfgQuestions = [];
     state.mainTableIdCache = 'Main';
     state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
-    window.grist = { docApi: { listTables: async () => ['Main'], fetchTable: async (t) => t === '_grist_Tables' ? { id: [1], tableId: ['Main'] } : { id: [10], colA: ['x'] }, applyUserActions: async () => ({}), setOptions: async () => {} } };
+    window.grist = makeGristStub({
+      listTables: ['Main'],
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [1], tableId: ['Main'] } : { id: [10], colA: ['x'] }),
+    }).grist;
     state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
     const body = mount(document.createElement('div'));
     await renderCardBody('__new__', body);
@@ -358,7 +388,10 @@ export async function runTests() {
     state.cfgQuestions = [{ id: 'src1', kind: 'select', label: 'Statut', choices: ['Ouvert', 'Fermé'] }];
     state.mainTableIdCache = 'Main';
     state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
-    window.grist = { docApi: { listTables: async () => ['Main'], fetchTable: async (t) => t === '_grist_Tables' ? { id: [1], tableId: ['Main'] } : { id: [10], colA: ['x'] } } };
+    window.grist = makeGristStub({
+      listTables: ['Main'],
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [1], tableId: ['Main'] } : { id: [10], colA: ['x'] }),
+    }).grist;
     const body = mount(document.createElement('div'));
     await renderCardBody('__new__', body);
     body.querySelector('[data-reveal="condition"]').click();
@@ -387,7 +420,10 @@ export async function runTests() {
     ];
     state.mainTableIdCache = 'Main';
     state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
-    window.grist = { docApi: { listTables: async () => ['Main'], fetchTable: async (t) => t === '_grist_Tables' ? { id: [1], tableId: ['Main'] } : { id: [10], colA: ['x'] }, applyUserActions: async () => ({}), setOptions: async () => {} } };
+    window.grist = makeGristStub({
+      listTables: ['Main'],
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [1], tableId: ['Main'] } : { id: [10], colA: ['x'] }),
+    }).grist;
     state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
     const body = mount(document.createElement('div'));
     await renderCardBody('q1', body);
@@ -406,20 +442,16 @@ export async function runTests() {
     state.mainTableIdCache = 'Main';
     state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
     const sectionFields = { id: [], parentId: [], colRef: [], widgetOptions: [] };
-    window.grist = {
-      docApi: {
-        listTables: async () => ['Main', 'Autre'],
-        fetchTable: async (t) => {
-          if (t === '_grist_Tables') return { id: [1, 2], tableId: ['Main', 'Autre'] };
-          if (t === '_grist_Tables_column') return { id: [], colId: [], parentId: [], type: [], visibleCol: [] };
-          if (t === '_grist_Views_section_field') return sectionFields;
-          if (t === 'Autre') return { id: [1, 2], nom: ['Alpha', 'Beta'] };
-          return {};
-        },
-        applyUserActions: async () => ({}),
-        setOptions: async () => {},
+    window.grist = makeGristStub({
+      listTables: ['Main', 'Autre'],
+      fetchTable: (t) => {
+        if (t === '_grist_Tables') return { id: [1, 2], tableId: ['Main', 'Autre'] };
+        if (t === '_grist_Tables_column') return { id: [], colId: [], parentId: [], type: [], visibleCol: [] };
+        if (t === '_grist_Views_section_field') return sectionFields;
+        if (t === 'Autre') return { id: [1, 2], nom: ['Alpha', 'Beta'] };
+        return {};
       },
-    };
+    }).grist;
     state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
     const body = mount(document.createElement('div'));
     await renderCardBody('__new__', body);
@@ -440,17 +472,13 @@ export async function runTests() {
     state.cfgQuestions = [];
     state.mainTableIdCache = 'Main';
     state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
-    window.grist = {
-      docApi: {
-        listTables: async () => ['Main'],
-        // _grist_Views_section a besoin d'un tableau `id` exploitable (findViewRefForSection,
-        // appelé par saveConfig, y fait indexOf) : {} nu y provoquerait une exception qui ferait
-        // échouer saveConfig à chaque fois, masquant justement le comportement que ce test vérifie.
-        fetchTable: async (t) => (t === '_grist_Views_section' ? { id: [], parentId: [], parentKey: [], options: [] } : { id: [] }),
-        applyUserActions: async () => ({}),
-        setOptions: async () => {},
-      },
-    };
+    window.grist = makeGristStub({
+      listTables: ['Main'],
+      // _grist_Views_section a besoin d'un tableau `id` exploitable (findViewRefForSection,
+      // appelé par saveConfig, y fait indexOf) : {} nu y provoquerait une exception qui ferait
+      // échouer saveConfig à chaque fois, masquant justement le comportement que ce test vérifie.
+      fetchTable: (t) => (t === '_grist_Views_section' ? { id: [], parentId: [], parentKey: [], options: [] } : { id: [] }),
+    }).grist;
     state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
     const body = mount(document.createElement('div'));
     await renderCardBody('__new__', body);
@@ -476,14 +504,10 @@ export async function runTests() {
     ];
     state.mainTableIdCache = 'Main';
     state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
-    window.grist = {
-      docApi: {
-        listTables: async () => ['Main'],
-        fetchTable: async (t) => (t === '_grist_Views_section' ? { id: [], parentId: [], parentKey: [], options: [] } : { id: [] }),
-        applyUserActions: async () => ({}),
-        setOptions: async () => {},
-      },
-    };
+    window.grist = makeGristStub({
+      listTables: ['Main'],
+      fetchTable: (t) => (t === '_grist_Views_section' ? { id: [], parentId: [], parentKey: [], options: [] } : { id: [] }),
+    }).grist;
     state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
     const body = mount(document.createElement('div'));
     await renderCardBody('src1', body);
@@ -499,7 +523,7 @@ export async function runTests() {
       state.cfgQuestions = [];
       state.mainTableIdCache = 'Main';
       state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
-      window.grist = { docApi: { listTables: async () => ['Main'], fetchTable: async () => ({}), applyUserActions: async () => ({}), setOptions: async () => {} } };
+      window.grist = makeGristStub({ listTables: ['Main'] }).grist;
       state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
       const body = mount(document.createElement('div'));
       await renderCardBody('__new__', body);
@@ -519,17 +543,14 @@ export async function runTests() {
     state.currentLink = { api: 'https://fake/api/s/KEY', vsId: 1 };
     state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
     const sectionFields = { id: [100, 101, 102, 103, 104, 105, 106, 107, 108], parentId: [1, 1, 1, 1, 1, 1, 1, 1, 1], widgetOptions: ['{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}'] };
-    window.grist = {
-      docApi: {
-        fetchTable: async (t) => {
-          if (t === '_grist_Tables_column') return { id: [], colId: [], parentId: [], type: [], visibleCol: [] };
-          if (t === '_grist_Tables') return { id: [1], tableId: ['Reponses'] };
-          if (t === '_grist_Views_section_field') return sectionFields;
-          return {};
-        },
-        applyUserActions: async () => ({}),
+    window.grist = makeGristStub({
+      fetchTable: (t) => {
+        if (t === '_grist_Tables_column') return { id: [], colId: [], parentId: [], type: [], visibleCol: [] };
+        if (t === '_grist_Tables') return { id: [1], tableId: ['Reponses'] };
+        if (t === '_grist_Views_section_field') return sectionFields;
+        return {};
       },
-    };
+    }).grist;
     window.fetch = async () => ({
       ok: true, json: async () => ({
         formFieldsById: {
@@ -563,16 +584,12 @@ export async function runTests() {
   });
 
   await group('resetQuestions : démasque uniquement les champs importés', async () => {
-    const calls = [];
-    window.grist = {
-      docApi: {
-        fetchTable: async (t) => t === '_grist_Views_section_field'
-          ? { id: [10, 11], parentId: [1, 1], colRef: [100, 101], widgetOptions: ['{"formIsHidden":true}', '{"formIsHidden":true,"formRequired":true}'] }
-          : (t === '_grist_Views_section' ? { id: [1], parentId: [5], parentKey: ['custom'], tableRef: [1], options: ['{}'] } : {}),
-        applyUserActions: async (a) => { calls.push(a); return {}; },
-        setOptions: async () => {},
-      },
-    };
+    const { grist, calls } = makeGristStub({
+      fetchTable: (t) => t === '_grist_Views_section_field'
+        ? { id: [10, 11], parentId: [1, 1], colRef: [100, 101], widgetOptions: ['{"formIsHidden":true}', '{"formIsHidden":true,"formRequired":true}'] }
+        : (t === '_grist_Views_section' ? { id: [1], parentId: [5], parentKey: ['custom'], tableRef: [1], options: ['{}'] } : {}),
+    });
+    window.grist = grist;
     const origConfirm = window.confirm;
     window.confirm = () => true;
     state.cfgQuestions = [{ id: 'q1', kind: 'text', label: 'Importée', importedFrom: '10' }, { id: 'q2', kind: 'number', label: 'Manuelle' }];
@@ -591,34 +608,19 @@ export async function runTests() {
   // table (comportement natif de Grist, voir grist-meta.js/clearAutoFields) : un mock réaliste de
   // _grist_Views_section_field doit donc en simuler au moins un pour que ce nettoyage soit
   // vérifié, plutôt qu'un mock vide qui ne peut jamais faire échouer ce test si le nettoyage
-  // disparaissait un jour.
+  // disparaissait un jour. La section créée (id 50) est directement renvoyée dans retValues,
+  // comme le fait un vrai document Grist (voir createFormSection, grist-meta.js) : plus besoin de
+  // la retrouver en re-lisant _grist_Views_section après coup.
   await group('createEmptyForm : réutilise une table existante, section vidée de ses champs auto-créés', async () => {
-    const calls = [];
-    window.grist = {
-      docApi: {
-        fetchTable: async (t) => {
-          if (t === '_grist_Tables') return { tableId: ['Departements'], id: [1] };
-          if (t === '_grist_Views_section') return { id: [], parentId: [], tableRef: [], parentKey: [] };
-          if (t === '_grist_Views_section_field') return { id: [201], parentId: [50] };
-          return {};
-        },
-        applyUserActions: async (a) => {
-          calls.push(a);
-          if (a[0][0] === 'CreateViewSection') {
-            // Simule l'auto-remplissage : la section fraîchement créée (id 50) porte désormais
-            // un champ (id 201), retrouvée par findNewestFormSection puisqu'elle correspond
-            // maintenant à (viewRef=7, tableRef=1, parentKey='form').
-            window.grist.docApi.fetchTable = async (t) => {
-              if (t === '_grist_Tables') return { tableId: ['Departements'], id: [1] };
-              if (t === '_grist_Views_section') return { id: [50], parentId: [7], tableRef: [1], parentKey: ['form'] };
-              if (t === '_grist_Views_section_field') return { id: [201], parentId: [50] };
-              return {};
-            };
-          }
-          return {};
-        },
+    const { grist, calls } = makeGristStub({
+      fetchTable: (t) => {
+        if (t === '_grist_Tables') return { tableId: ['Departements'], id: [1] };
+        if (t === '_grist_Views_section_field') return { id: [201], parentId: [50] };
+        return {};
       },
-    };
+      onAction: (a) => (a[0] === 'CreateViewSection' ? { sectionRef: 50, viewRef: a[2] } : undefined),
+    });
+    window.grist = grist;
     const el = mount(document.createElement('div'));
     el.innerHTML = '<input id="t-scratchTable"><p id="t-scratchMsg"></p>';
     // createEmptyForm lit les vrais #scratchTable/#scratch-msg de la page (pas de la sandbox) :
@@ -633,23 +635,20 @@ export async function runTests() {
   });
 
   await group('createEmptyForm : crée une nouvelle table', async () => {
-    const calls = [];
     let tablesState = { tableId: ['Departements'], id: [1] };
-    window.grist = {
-      docApi: {
-        fetchTable: async (t) => {
-          if (t === '_grist_Tables') return { ...tablesState };
-          if (t === '_grist_Views_section') return { id: [], parentId: [], tableRef: [], parentKey: [] };
-          if (t === '_grist_Views_section_field') return { id: [], parentId: [] };
-          return {};
-        },
-        applyUserActions: async (a) => {
-          calls.push(a);
-          if (a[0][0] === 'AddTable') tablesState = { tableId: [...tablesState.tableId, 'Reponses'], id: [...tablesState.id, 2] };
-          return {};
-        },
+    const { grist, calls } = makeGristStub({
+      fetchTable: (t) => {
+        if (t === '_grist_Tables') return { ...tablesState };
+        if (t === '_grist_Views_section') return { id: [], parentId: [], tableRef: [], parentKey: [] };
+        if (t === '_grist_Views_section_field') return { id: [], parentId: [] };
+        return {};
       },
-    };
+      onAction: (a) => {
+        if (a[0] === 'AddTable') tablesState = { tableId: [...tablesState.tableId, 'Reponses'], id: [...tablesState.id, 2] };
+        if (a[0] === 'CreateViewSection') return { sectionRef: 99 };
+      },
+    });
+    window.grist = grist;
     $('scratchTable').value = 'Réponses';
     Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
     await createEmptyForm();
@@ -658,8 +657,8 @@ export async function runTests() {
   });
 
   await group('createEmptyForm : page introuvable -> message clair, aucune action', async () => {
-    const calls = [];
-    window.grist = { docApi: { fetchTable: async () => ({ tableId: [], id: [] }), applyUserActions: async (a) => { calls.push(a); return {}; } } };
+    const { grist, calls } = makeGristStub({ fetchTable: () => ({ tableId: [], id: [] }) });
+    window.grist = grist;
     $('scratchTable').value = 'Table';
     Object.defineProperty(document, 'referrer', { value: '', configurable: true });
     await createEmptyForm();
@@ -668,25 +667,23 @@ export async function runTests() {
   });
 
   await group('createEmptyForm : référent illisible mais widget retrouvé via les métadonnées -> page correcte', async () => {
-    const calls = [];
     const myFile = location.pathname.split('/').pop();
-    window.grist = {
-      docApi: {
-        fetchTable: async (t) => {
-          if (t === '_grist_Tables') return { tableId: ['Departements'], id: [1] };
-          if (t === '_grist_Views_section') return {
-            // tableRef/parentKey doivent être définis pour TOUTES les sections, comme sur un vrai
-            // document Grist : cette section personnalisée (le widget lui-même) n'est pas une
-            // section "form", donc exclue par parentKey quel que soit son tableRef.
-            id: [9], parentId: [7], tableRef: [1], parentKey: ['custom'],
-            options: [JSON.stringify({ customView: JSON.stringify({ url: `https://cdn.example.com/${myFile}` }) })],
-          };
-          if (t === '_grist_Views_section_field') return { id: [], parentId: [] };
-          return {};
-        },
-        applyUserActions: async (a) => { calls.push(a); return {}; },
+    const { grist, calls } = makeGristStub({
+      fetchTable: (t) => {
+        if (t === '_grist_Tables') return { tableId: ['Departements'], id: [1] };
+        if (t === '_grist_Views_section') return {
+          // tableRef/parentKey doivent être définis pour TOUTES les sections, comme sur un vrai
+          // document Grist : cette section personnalisée (le widget lui-même) n'est pas une
+          // section "form", donc exclue par parentKey quel que soit son tableRef.
+          id: [9], parentId: [7], tableRef: [1], parentKey: ['custom'],
+          options: [JSON.stringify({ customView: JSON.stringify({ url: `https://cdn.example.com/${myFile}` }) })],
+        };
+        if (t === '_grist_Views_section_field') return { id: [], parentId: [] };
+        return {};
       },
-    };
+      onAction: () => ({ sectionRef: 55 }),
+    });
+    window.grist = grist;
     $('scratchTable').value = 'Departements';
     // Référent vide (ex. embed=true, ou navigateur qui le bloque) : myPageFromReferrer() échoue,
     // le repli doit retrouver la page (7) via l'unique section personnalisée qui pointe vers ce
@@ -702,32 +699,28 @@ export async function runTests() {
     Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
     assertEqual('hostOrgFromReferrer', hostOrgFromReferrer(), { host: 'https://grist.example.com', org: 'team' });
 
-    window.grist = {
-      docApi: {
-        fetchTable: async (t) => {
-          if (t === '_grist_Pages') return { id: [1], viewRef: [7], shareRef: [9] };
-          if (t === '_grist_Shares') return { id: [9], linkId: ['SECRETKEY'] };
-          return {};
-        },
+    window.grist = makeGristStub({
+      fetchTable: (t) => {
+        if (t === '_grist_Pages') return { id: [1], viewRef: [7], shareRef: [9] };
+        if (t === '_grist_Shares') return { id: [9], linkId: ['SECRETKEY'] };
+        return {};
       },
-    };
+    }).grist;
     assertEqual('clé retrouvée pour une page publiée', await findExistingShareKey(7), 'SECRETKEY');
     assertEqual('page sans partage -> null', await findExistingShareKey(999), null);
   });
 
   await group('populateFormPicker : liste et filtre les formulaires natifs', async () => {
-    window.grist = {
-      docApi: {
-        fetchTable: async (t) => {
-          if (t === '_grist_Views_section') return {
-            id: [1, 2, 3], parentKey: ['form', 'form', 'form'], tableRef: [10, 20, 30], parentId: [5, 6, 7],
-            shareOptions: ['{"publish":true,"form":true}', '{}', '{"publish":true,"form":true}'],
-          };
-          if (t === '_grist_Tables') return { id: [10, 20, 30], tableId: ['Reponses', 'Brouillon', '_grist_Interne'] };
-          return {};
-        },
+    window.grist = makeGristStub({
+      fetchTable: (t) => {
+        if (t === '_grist_Views_section') return {
+          id: [1, 2, 3], parentKey: ['form', 'form', 'form'], tableRef: [10, 20, 30], parentId: [5, 6, 7],
+          shareOptions: ['{"publish":true,"form":true}', '{}', '{"publish":true,"form":true}'],
+        };
+        if (t === '_grist_Tables') return { id: [10, 20, 30], tableId: ['Reponses', 'Brouillon', '_grist_Interne'] };
+        return {};
       },
-    };
+    }).grist;
     await populateFormPicker();
     assertEqual('table technique _grist_* exclue de la liste', state.formPickerItems.map(it => it.tableId), ['Reponses', 'Brouillon']);
     assertEqual('statut publié détecté', state.formPickerItems.find(it => it.tableId === 'Reponses')?.published, true);
@@ -736,19 +729,17 @@ export async function runTests() {
   });
 
   await group('populateFormPicker : exclut les copies créées par FormPlus (formplusDuplicate)', async () => {
-    window.grist = {
-      docApi: {
-        fetchTable: async (t) => {
-          if (t === '_grist_Views_section') return {
-            id: [1, 2], parentKey: ['form', 'form'], tableRef: [10, 10], parentId: [5, 5],
-            shareOptions: ['{"publish":true,"form":true}', '{"publish":true,"form":true}'],
-            options: ['{}', '{"formplusDuplicate":true,"formplusSource":1}'],
-          };
-          if (t === '_grist_Tables') return { id: [10], tableId: ['Reponses'] };
-          return {};
-        },
+    window.grist = makeGristStub({
+      fetchTable: (t) => {
+        if (t === '_grist_Views_section') return {
+          id: [1, 2], parentKey: ['form', 'form'], tableRef: [10, 10], parentId: [5, 5],
+          shareOptions: ['{"publish":true,"form":true}', '{"publish":true,"form":true}'],
+          options: ['{}', '{"formplusDuplicate":true,"formplusSource":1}'],
+        };
+        if (t === '_grist_Tables') return { id: [10], tableId: ['Reponses'] };
+        return {};
       },
-    };
+    }).grist;
     await populateFormPicker();
     assertEqual('seul le vrai formulaire (1) reste proposé, pas sa copie (2)', state.formPickerItems.map(it => it.vsId), [1]);
   });
@@ -770,18 +761,15 @@ export async function runTests() {
     $('formPicker').value = '12';
     $('link').value = '';
     Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
-    window.grist = {
-      docApi: {
-        listTables: async () => ['Reponses'],
-        fetchTable: async (t) => {
-          if (t === '_grist_Pages') return { id: [1], viewRef: [7], shareRef: [9] };
-          if (t === '_grist_Shares') return { id: [9], linkId: ['SECRETKEY'] };
-          if (t === '_grist_Views_section') return { id: [12], parentId: [7], tableRef: [10] };
-          return {};
-        },
-        setOptions: async () => {},
+    window.grist = makeGristStub({
+      listTables: ['Reponses'],
+      fetchTable: (t) => {
+        if (t === '_grist_Pages') return { id: [1], viewRef: [7], shareRef: [9] };
+        if (t === '_grist_Shares') return { id: [9], linkId: ['SECRETKEY'] };
+        if (t === '_grist_Views_section') return { id: [12], parentId: [7], tableRef: [10] };
+        return {};
       },
-    };
+    }).grist;
     $('formPicker').dispatchEvent(new Event('change'));
     await tick(); await tick(); await tick(); // generate() enchaîne plusieurs opérations asynchrones
     assertEqual('lien reconstruit automatiquement', $('link').value, 'https://grist.example.com/o/team/forms/SECRETKEY/12');
@@ -815,57 +803,53 @@ export async function runTests() {
         fieldsState[key] = fieldsState[key].filter((_, i) => i !== idx);
       }
     };
-    const calls = [];
-    window.grist = {
-      docApi: {
-        listTables: async () => ['Reponses'],
-        fetchTable: async (t) => {
-          if (t === '_grist_Pages') return { id: [1], viewRef: [7], shareRef: [9] };
-          if (t === '_grist_Shares') return { id: [9], linkId: ['SECRETKEY'] };
-          if (t === '_grist_Views_section') return { ...sectionsState };
-          if (t === '_grist_Views_section_field') return { ...fieldsState };
-          if (t === '_grist_Tables') return { id: [10], tableId: ['Reponses'] };
-          return {};
-        },
-        applyUserActions: async (actions) => {
-          calls.push(actions);
-          for (const a of actions) {
-            if (a[0] === 'CreateViewSection') {
-              const newId = nextSectionId++;
-              sectionsState.id = [...sectionsState.id, newId];
-              sectionsState.parentId = [...sectionsState.parentId, a[2]];
-              sectionsState.parentKey = [...sectionsState.parentKey, 'form'];
-              sectionsState.tableRef = [...sectionsState.tableRef, a[1]];
-              sectionsState.shareOptions = [...sectionsState.shareOptions, '{}'];
-              sectionsState.options = [...sectionsState.options, '{}'];
-              for (const colRef of tableColumns[a[1]] || []) {
-                fieldsState.id = [...fieldsState.id, nextFieldId++];
-                fieldsState.parentId = [...fieldsState.parentId, newId];
-                fieldsState.colRef = [...fieldsState.colRef, colRef];
-                fieldsState.widgetOptions = [...fieldsState.widgetOptions, ''];
-                fieldsState.parentPos = [...fieldsState.parentPos, fieldsState.parentPos.length];
-              }
-            } else if (a[0] === 'AddRecord' && a[1] === '_grist_Views_section_field') {
-              fieldsState.id = [...fieldsState.id, nextFieldId++];
-              fieldsState.parentId = [...fieldsState.parentId, a[3].parentId];
-              fieldsState.colRef = [...fieldsState.colRef, a[3].colRef];
-              fieldsState.widgetOptions = [...fieldsState.widgetOptions, a[3].widgetOptions];
-              fieldsState.parentPos = [...fieldsState.parentPos, fieldsState.parentPos.length];
-            } else if (a[0] === 'RemoveRecord' && a[1] === '_grist_Views_section_field') {
-              removeFieldRow(a[2]);
-            } else if (a[0] === 'UpdateRecord' && a[1] === '_grist_Views_section') {
-              const idx = sectionsState.id.indexOf(a[2]);
-              if (idx >= 0) {
-                if (a[3].shareOptions !== undefined) { const arr = [...sectionsState.shareOptions]; arr[idx] = a[3].shareOptions; sectionsState.shareOptions = arr; }
-                if (a[3].options !== undefined) { const arr = [...sectionsState.options]; arr[idx] = a[3].options; sectionsState.options = arr; }
-              }
-            }
-          }
-          return { retValues: actions.map(() => null) };
-        },
-        setOptions: async () => {},
+    const { grist, calls } = makeGristStub({
+      listTables: ['Reponses'],
+      fetchTable: (t) => {
+        if (t === '_grist_Pages') return { id: [1], viewRef: [7], shareRef: [9] };
+        if (t === '_grist_Shares') return { id: [9], linkId: ['SECRETKEY'] };
+        if (t === '_grist_Views_section') return { ...sectionsState };
+        if (t === '_grist_Views_section_field') return { ...fieldsState };
+        if (t === '_grist_Tables') return { id: [10], tableId: ['Reponses'] };
+        return {};
       },
-    };
+      onAction: (a) => {
+        if (a[0] === 'CreateViewSection') {
+          const newId = nextSectionId++;
+          sectionsState.id = [...sectionsState.id, newId];
+          sectionsState.parentId = [...sectionsState.parentId, a[2]];
+          sectionsState.parentKey = [...sectionsState.parentKey, 'form'];
+          sectionsState.tableRef = [...sectionsState.tableRef, a[1]];
+          sectionsState.shareOptions = [...sectionsState.shareOptions, '{}'];
+          sectionsState.options = [...sectionsState.options, '{}'];
+          for (const colRef of tableColumns[a[1]] || []) {
+            fieldsState.id = [...fieldsState.id, nextFieldId++];
+            fieldsState.parentId = [...fieldsState.parentId, newId];
+            fieldsState.colRef = [...fieldsState.colRef, colRef];
+            fieldsState.widgetOptions = [...fieldsState.widgetOptions, ''];
+            fieldsState.parentPos = [...fieldsState.parentPos, fieldsState.parentPos.length];
+          }
+          // Comme un vrai document Grist (voir createFormSection, grist-meta.js) : l'id créé
+          // est renvoyé directement dans retValues, jamais retrouvé en re-lisant les tables.
+          return { sectionRef: newId };
+        } else if (a[0] === 'AddRecord' && a[1] === '_grist_Views_section_field') {
+          fieldsState.id = [...fieldsState.id, nextFieldId++];
+          fieldsState.parentId = [...fieldsState.parentId, a[3].parentId];
+          fieldsState.colRef = [...fieldsState.colRef, a[3].colRef];
+          fieldsState.widgetOptions = [...fieldsState.widgetOptions, a[3].widgetOptions];
+          fieldsState.parentPos = [...fieldsState.parentPos, fieldsState.parentPos.length];
+        } else if (a[0] === 'RemoveRecord' && a[1] === '_grist_Views_section_field') {
+          removeFieldRow(a[2]);
+        } else if (a[0] === 'UpdateRecord' && a[1] === '_grist_Views_section') {
+          const idx = sectionsState.id.indexOf(a[2]);
+          if (idx >= 0) {
+            if (a[3].shareOptions !== undefined) { const arr = [...sectionsState.shareOptions]; arr[idx] = a[3].shareOptions; sectionsState.shareOptions = arr; }
+            if (a[3].options !== undefined) { const arr = [...sectionsState.options]; arr[idx] = a[3].options; sectionsState.options = arr; }
+          }
+        }
+      },
+    });
+    window.grist = grist;
     Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
     $('link').value = 'https://grist.example.com/o/team/forms/SECRETKEY/12';
     await generate();
@@ -905,40 +889,34 @@ export async function runTests() {
     state.generating = false;
     const sectionsState = { id: [12], parentId: [7], parentKey: ['form'], tableRef: [10], shareOptions: ['{"publish":true,"form":true}'], options: ['{}'] };
     let nextSectionId = 100;
-    const calls = [];
-    window.grist = {
-      docApi: {
-        listTables: async () => ['Reponses'],
-        fetchTable: async (t) => {
-          if (t === '_grist_Pages') return { id: [1], viewRef: [7], shareRef: [9] };
-          if (t === '_grist_Shares') return { id: [9], linkId: ['SECRETKEY'] };
-          if (t === '_grist_Views_section') return { ...sectionsState };
-          if (t === '_grist_Views_section_field') return { id: [], parentId: [], colRef: [], widgetOptions: [], parentPos: [] };
-          if (t === '_grist_Tables') return { id: [10], tableId: ['Reponses'] };
-          return {};
-        },
-        // Round-trip volontairement lent : laisse le temps à un second appel synchrone de
-        // generate() (double-clic, ou clic après un Entrée déjà en vol) de s'exécuter avant que
-        // le premier n'ait fini, si le verrou de ré-entrance ne l'empêchait pas.
-        applyUserActions: async (actions) => {
-          calls.push(actions);
-          await tick();
-          for (const a of actions) {
-            if (a[0] === 'CreateViewSection') {
-              const newId = nextSectionId++;
-              sectionsState.id = [...sectionsState.id, newId];
-              sectionsState.parentId = [...sectionsState.parentId, a[2]];
-              sectionsState.parentKey = [...sectionsState.parentKey, 'form'];
-              sectionsState.tableRef = [...sectionsState.tableRef, a[1]];
-              sectionsState.shareOptions = [...sectionsState.shareOptions, '{}'];
-              sectionsState.options = [...sectionsState.options, '{}'];
-            }
-          }
-          return { retValues: actions.map(() => null) };
-        },
-        setOptions: async () => {},
+    const { grist, calls } = makeGristStub({
+      listTables: ['Reponses'],
+      fetchTable: (t) => {
+        if (t === '_grist_Pages') return { id: [1], viewRef: [7], shareRef: [9] };
+        if (t === '_grist_Shares') return { id: [9], linkId: ['SECRETKEY'] };
+        if (t === '_grist_Views_section') return { ...sectionsState };
+        if (t === '_grist_Views_section_field') return { id: [], parentId: [], colRef: [], widgetOptions: [], parentPos: [] };
+        if (t === '_grist_Tables') return { id: [10], tableId: ['Reponses'] };
+        return {};
       },
-    };
+      // Round-trip volontairement lent : laisse le temps à un second appel synchrone de
+      // generate() (double-clic, ou clic après un Entrée déjà en vol) de s'exécuter avant que
+      // le premier n'ait fini, si le verrou de ré-entrance ne l'empêchait pas.
+      onAction: async (a) => {
+        await tick();
+        if (a[0] === 'CreateViewSection') {
+          const newId = nextSectionId++;
+          sectionsState.id = [...sectionsState.id, newId];
+          sectionsState.parentId = [...sectionsState.parentId, a[2]];
+          sectionsState.parentKey = [...sectionsState.parentKey, 'form'];
+          sectionsState.tableRef = [...sectionsState.tableRef, a[1]];
+          sectionsState.shareOptions = [...sectionsState.shareOptions, '{}'];
+          sectionsState.options = [...sectionsState.options, '{}'];
+          return { sectionRef: newId };
+        }
+      },
+    });
+    window.grist = grist;
     Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
     $('link').value = 'https://grist.example.com/o/team/forms/SECRETKEY/12';
     const p1 = generate();
@@ -957,20 +935,18 @@ export async function runTests() {
     state.options = { formLink: '' };
     let fetchCount = 0;
     let unblockFirst;
-    window.grist = {
-      docApi: {
-        fetchTable: async (t) => {
-          if (t === '_grist_Views_section') {
-            fetchCount++;
-            // Seul le PREMIER appel (le premier saveConfig) est ralenti : simule un aller-retour
-            // réseau plus lent pour l'appel parti en premier que pour celui parti juste après.
-            if (fetchCount === 1) await new Promise(r => { unblockFirst = r; });
-            return { id: [], parentId: [], parentKey: [], options: [] };
-          }
-          return {};
-        },
+    window.grist = makeGristStub({
+      fetchTable: async (t) => {
+        if (t === '_grist_Views_section') {
+          fetchCount++;
+          // Seul le PREMIER appel (le premier saveConfig) est ralenti : simule un aller-retour
+          // réseau plus lent pour l'appel parti en premier que pour celui parti juste après.
+          if (fetchCount === 1) await new Promise(r => { unblockFirst = r; });
+          return { id: [], parentId: [], parentKey: [], options: [] };
+        }
+        return {};
       },
-    };
+    }).grist;
     const p1 = saveConfig('https://x/premier', 1);
     await tick(); // laisse le 1er appel démarrer et se bloquer sur son fetchTable
     const p2 = saveConfig('https://x/second', 2); // 2e appel, lancé juste après le 1er
@@ -988,44 +964,39 @@ export async function runTests() {
     let sectionsState = { id: [], parentId: [], parentKey: [], tableRef: [], shareOptions: [] };
     let fieldsState = { id: [], parentId: [] };
     let nextSectionId = 900, nextFieldId = 9000;
-    const calls = [];
-    window.grist = {
-      docApi: {
-        fetchTable: async (t) => {
-          if (t === '_grist_Tables') return { id: [20], tableId: ['Secondaire'] };
-          if (t === '_grist_Views_section') return { ...sectionsState };
-          if (t === '_grist_Views_section_field') return { ...fieldsState };
-          return {};
-        },
-        applyUserActions: async (actions) => {
-          calls.push(actions);
-          for (const a of actions) {
-            if (a[0] === 'CreateViewSection') {
-              const newId = nextSectionId++;
-              sectionsState = {
-                id: [...sectionsState.id, newId], parentId: [...sectionsState.parentId, a[2]],
-                parentKey: [...sectionsState.parentKey, 'form'], tableRef: [...sectionsState.tableRef, a[1]],
-                shareOptions: [...sectionsState.shareOptions, '{}'],
-              };
-              // Comportement réel de Grist (voir duplicateFormSection ci-dessus) : la table cible
-              // a 2 colonnes, donc 2 champs apparaissent automatiquement sur la nouvelle section.
-              for (const colRef of [700, 701]) {
-                fieldsState = { id: [...fieldsState.id, nextFieldId++], parentId: [...fieldsState.parentId, newId] };
-              }
-            } else if (a[0] === 'RemoveRecord' && a[1] === '_grist_Views_section_field') {
-              const idx = fieldsState.id.indexOf(a[2]);
-              if (idx >= 0) fieldsState = { id: fieldsState.id.filter((_, i) => i !== idx), parentId: fieldsState.parentId.filter((_, i) => i !== idx) };
-            } else if (a[0] === 'UpdateRecord' && a[1] === '_grist_Views_section') {
-              const idx = sectionsState.id.indexOf(a[2]);
-              if (idx >= 0 && a[3].shareOptions !== undefined) {
-                const arr = [...sectionsState.shareOptions]; arr[idx] = a[3].shareOptions; sectionsState.shareOptions = arr;
-              }
-            }
-          }
-          return {};
-        },
+    const { grist, calls } = makeGristStub({
+      fetchTable: (t) => {
+        if (t === '_grist_Tables') return { id: [20], tableId: ['Secondaire'] };
+        if (t === '_grist_Views_section') return { ...sectionsState };
+        if (t === '_grist_Views_section_field') return { ...fieldsState };
+        return {};
       },
-    };
+      onAction: (a) => {
+        if (a[0] === 'CreateViewSection') {
+          const newId = nextSectionId++;
+          sectionsState = {
+            id: [...sectionsState.id, newId], parentId: [...sectionsState.parentId, a[2]],
+            parentKey: [...sectionsState.parentKey, 'form'], tableRef: [...sectionsState.tableRef, a[1]],
+            shareOptions: [...sectionsState.shareOptions, '{}'],
+          };
+          // Comportement réel de Grist (voir duplicateFormSection ci-dessus) : la table cible
+          // a 2 colonnes, donc 2 champs apparaissent automatiquement sur la nouvelle section.
+          for (const colRef of [700, 701]) {
+            fieldsState = { id: [...fieldsState.id, nextFieldId++], parentId: [...fieldsState.parentId, newId] };
+          }
+          return { sectionRef: newId };
+        } else if (a[0] === 'RemoveRecord' && a[1] === '_grist_Views_section_field') {
+          const idx = fieldsState.id.indexOf(a[2]);
+          if (idx >= 0) fieldsState = { id: fieldsState.id.filter((_, i) => i !== idx), parentId: fieldsState.parentId.filter((_, i) => i !== idx) };
+        } else if (a[0] === 'UpdateRecord' && a[1] === '_grist_Views_section') {
+          const idx = sectionsState.id.indexOf(a[2]);
+          if (idx >= 0 && a[3].shareOptions !== undefined) {
+            const arr = [...sectionsState.shareOptions]; arr[idx] = a[3].shareOptions; sectionsState.shareOptions = arr;
+          }
+        }
+      },
+    });
+    window.grist = grist;
     const result = await ensureTableGate('Secondaire', 7);
     assert('section signalée comme créée', result.created === true);
     assertEqual('plus aucun champ sur la section une fois publiée : réellement vide', fieldsState.id.length, 0);

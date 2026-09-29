@@ -72,25 +72,25 @@ export async function findExistingShareKey(viewRef) {
   }
 }
 
-// Retrouve la section Formulaire la plus récente pour (page, table) : utilisé juste après un
-// CreateViewSection dont l'action ne renvoie pas directement l'id créé côté widget (le retour
-// de applyUserActions n'est pas exploité ici pour rester au plus près du code existant).
-async function findNewestFormSection(viewRef, tref) {
-  const sections = await fetchMeta('_grist_Views_section');
-  let newest = null;
-  for (let i = 0; i < sections.id.length; i++) {
-    if (sections.parentId[i] === viewRef && sections.tableRef[i] === tref && sections.parentKey[i] === 'form') {
-      if (newest == null || sections.id[i] > newest) newest = sections.id[i];
-    }
-  }
-  return newest;
+// Crée une section Formulaire et renvoie directement son id, sans jamais avoir à le deviner :
+// applyUserActions renvoie déjà l'id créé dans retValues[0].sectionRef (vérifié contre un vrai
+// document Grist par tests/grist-env/grist_test_doc.py, qui l'utilise déjà côté harness Python).
+// Avant ce correctif (audit du 21 sept 2026), duplicateFormSection et ensureTableGate retrouvaient
+// la section créée en comparant deux photographies de _grist_Views_section avant/après, ou en
+// prenant l'id le plus grand correspondant à (page, table) : fragile dès qu'une AUTRE section est
+// créée n'importe où dans le document pendant cette fenêtre (un autre designer, un autre onglet).
+export async function createFormSection(tref, viewRef, tableId) {
+  const res = await grist.docApi.applyUserActions([['CreateViewSection', tref, viewRef, 'form', null, tableId]]);
+  const sectionId = res.retValues?.[0]?.sectionRef;
+  if (sectionId == null) throw new Error('CreateViewSection : identifiant de section absent de la réponse.');
+  return sectionId;
 }
 
 // CreateViewSection peuple automatiquement la nouvelle section avec un champ par colonne de la
 // table (comportement natif de Grist, vérifié sur un vrai document, voir duplicateFormSection
 // plus bas) : retire ces champs auto-créés pour qu'une section censée rester vide (portillon
 // d'accès, formulaire "vide" créé depuis zéro) le soit réellement.
-async function clearAutoFields(vsId) {
+export async function clearAutoFields(vsId) {
   const fields = await fetchMeta('_grist_Views_section_field');
   const autoFieldIds = [];
   for (let i = 0; i < fields.id.length; i++) if (fields.parentId[i] === vsId) autoFieldIds.push(fields.id[i]);
@@ -114,21 +114,10 @@ export async function ensureTableGate(tableId, viewRef) {
   if (already) return { created: false };
   const tref = await getTableRef(tableId);
   if (!tref) throw new Error(`Table « ${tableId} » introuvable.`);
-  await grist.docApi.applyUserActions([['CreateViewSection', tref, viewRef, 'form', null, tableId]]);
-  const newest = await findNewestFormSection(viewRef, tref);
-  if (newest == null) throw new Error('Section créée introuvable après CreateViewSection.');
-  await clearAutoFields(newest);
-  await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section', newest, { shareOptions: JSON.stringify({ publish: true, form: true }) }]]);
-  return { created: true, sectionId: newest };
-}
-
-// Utilisé par createEmptyForm (config-editor.js) : elle crée elle-même la section « vide » via
-// CreateViewSection, mais sans jamais avoir eu besoin jusqu'ici de retrouver son id (elle ne fait
-// que l'annoncer au concepteur). Expose les deux mêmes helpers pour qu'elle puisse réellement la
-// vider avant d'afficher « Formulaire natif vide créé ».
-export async function clearNewFormSectionFields(viewRef, tref) {
-  const newest = await findNewestFormSection(viewRef, tref);
-  if (newest != null) await clearAutoFields(newest);
+  const sectionId = await createFormSection(tref, viewRef, tableId);
+  await clearAutoFields(sectionId);
+  await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section', sectionId, { shareOptions: JSON.stringify({ publish: true, form: true }) }]]);
+  return { created: true, sectionId };
 }
 
 // Ouvre la lecture d'une table pour une question à choix : colonne Référence cachée sur la
@@ -176,11 +165,7 @@ export async function duplicateFormSection(sourceVsId) {
   const tableId = await tableIdOfRef(tableRef);
   if (!tableId) throw new Error('Table du formulaire source introuvable.');
 
-  const before = await fetchMeta('_grist_Views_section');
-  await grist.docApi.applyUserActions([['CreateViewSection', tableRef, viewRef, 'form', null, tableId]]);
-  const after = await fetchMeta('_grist_Views_section');
-  const newVsId = after.id.find(id => !before.id.includes(id));
-  if (newVsId == null) throw new Error('Section dupliquée introuvable après sa création.');
+  const newVsId = await createFormSection(tableRef, viewRef, tableId);
 
   // CreateViewSection peuple automatiquement la nouvelle section avec un champ par colonne de la
   // table (comportement natif de Grist, vérifié sur un vrai document, jamais documenté par

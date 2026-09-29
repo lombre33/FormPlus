@@ -7,7 +7,7 @@ import {
   fetchMeta, getTableRef, tableIdOfRef, columnOptions,
   findExistingShareKey, ensureTableGate, ensureChoiceField,
   findViewRefForSection, findMyWidgetPage, persistOptions, duplicateFormSection,
-  clearNewFormSectionFields,
+  clearAutoFields, createFormSection,
 } from './grist-meta.js';
 import { state } from './state.js';
 import { renderFill } from './respond.js';
@@ -274,11 +274,11 @@ export async function createEmptyForm() {
     msg.textContent = 'Création en cours…';
     try {
       const tref = await getTableRef(tableId);
-      await grist.docApi.applyUserActions([['CreateViewSection', tref, widgetPage, 'form', null, tableId]]);
+      const sectionId = await createFormSection(tref, widgetPage, tableId);
       // CreateViewSection remplit la nouvelle section d'un champ par colonne de la table : sans
       // ce nettoyage, une table existante déjà pourvue de colonnes donnerait un formulaire natif
       // rempli de tous ses champs, pas « vide » comme annoncé ci-dessous.
-      await clearNewFormSectionFields(widgetPage, tref);
+      await clearAutoFields(sectionId);
       msg.innerHTML = `<span class="ok">Formulaire natif vide créé sur cette page pour la table « ${esc(tableId)} ». Cliquez sur <strong>Publier</strong> dans ce nouveau formulaire (repliez-le une fois publié), puis <strong>Copier le lien</strong>, et collez-le ci-dessus.</span>`;
     } catch (e) {
       msg.innerHTML = `<span class="err">Erreur : ${esc(e.message)}</span>`;
@@ -300,8 +300,8 @@ export async function createEmptyForm() {
       if (!tableId) throw new Error("La table n'a pas pu être créée.");
     }
     const tref = await getTableRef(tableId);
-    await grist.docApi.applyUserActions([['CreateViewSection', tref, widgetPage, 'form', null, tableId]]);
-    await clearNewFormSectionFields(widgetPage, tref);
+    const sectionId = await createFormSection(tref, widgetPage, tableId);
+    await clearAutoFields(sectionId);
     msg.innerHTML = `<span class="ok">Formulaire natif vide créé sur cette page pour la table « ${esc(tableId)} ». Cliquez sur <strong>Publier</strong> dans ce nouveau formulaire (repliez-le une fois publié), puis <strong>Copier le lien</strong>, et collez-le ci-dessus.</span>`;
     $('scratchTable').value = '';
   } catch (e) {
@@ -511,11 +511,217 @@ export function mountCombo(host, placeholder) {
   };
 }
 
+// Bascule de type (pastille + popover d'icônes) et mode d'affichage radio/dropdown des questions
+// à choix : les deux se recoupent (SINGLE_CHOICE_KINDS) et ne dépendent que du DOM de la carte,
+// jamais de `q` après leur mise en place initiale — aucune valeur à faire remonter à l'appelant.
+function wireKindSelector(body, kind, displayMode) {
+  const setKind = (k) => {
+    const layout = LAYOUT_KINDS.has(k);
+    const kindDef = KINDS.find(x => x.id === k) || KINDS[0];
+    body.querySelector('.qtype-pill-icon').innerHTML = kindDef.icon;
+    body.querySelector('.qtype-pill-label').textContent = kindDef.label;
+    body.querySelectorAll('.qtype-opt').forEach(b => b.classList.toggle('active', b.dataset.kind === k));
+    body.querySelector('.qf-choice-fields').classList.toggle('hidden', k !== 'choice');
+    body.querySelector('.qf-fixed-options').classList.toggle('hidden', k !== 'select' && k !== 'multiselect');
+    body.querySelector('.qf-display-mode').classList.toggle('hidden', !SINGLE_CHOICE_KINDS.has(k));
+    body.querySelector('.qf-text-fields').classList.toggle('hidden', k === 'choice' || layout);
+    body.querySelector('.qf-required-row').classList.toggle('hidden', layout);
+    body.querySelector('.qf-desc-label-short').classList.toggle('hidden', k === 'info');
+    body.querySelector('.qf-desc').classList.toggle('hidden', k === 'info');
+    body.querySelector('.qf-desc-label-long').classList.toggle('hidden', k !== 'info');
+    body.querySelector('.qf-desc-long').classList.toggle('hidden', k !== 'info');
+  };
+  setKind(kind);
+
+  // Sélecteur de type compact : une pastille (icône + libellé du type actuel) ouvre un petit
+  // popover d'icônes au clic, plutôt que la grille complète toujours affichée — c'est ce qui
+  // rendait chaque carte immense. Le popover reste dans le DOM (juste masqué en CSS) : les tests
+  // hors-ligne cliquent directement sur [data-kind], qu'il soit visible ou non (comme .qf-save).
+  const typePillWrap = body.querySelector('.qtype-pill-wrap');
+  const typePopover = body.querySelector('.qtype-popover');
+  body.querySelector('.qtype-pill').addEventListener('click', () => typePopover.classList.toggle('hidden'));
+  typePillWrap.addEventListener('focusout', (e) => {
+    if (!typePillWrap.contains(e.relatedTarget)) typePopover.classList.add('hidden');
+  });
+  body.querySelectorAll('.qtype-opt').forEach(b => b.addEventListener('click', () => {
+    setKind(b.dataset.kind);
+    typePopover.classList.add('hidden');
+  }));
+
+  const setDisplay = (d) => body.querySelectorAll('.qf-display-btn').forEach(b => b.classList.toggle('active', b.dataset.display === d));
+  setDisplay(displayMode);
+  body.querySelectorAll('.qf-display-btn').forEach(b => b.addEventListener('click', () => setDisplay(b.dataset.display)));
+}
+
+// Comboboxes table/colonne source (question "choix") et table/colonne de destination (tous les
+// autres types, sauf mise en page) : même forme des deux côtés (setOptions puis un refresh async
+// rebranché sur onChange), jamais d'autre état à faire remonter à l'appelant que le DOM des combos
+// eux-mêmes (relu directement par saveQuestionFromCard via `combos`).
+async function wireSourceAndWriteCombos(body, q, tableItems, combos) {
+  combos.srcTable.setOptions(tableItems, q?.sourceTable);
+  async function refreshSrcCol() {
+    if (!combos.srcTable.value) { combos.srcCol.setOptions([]); return; }
+    const data = await fetchMeta(combos.srcTable.value);
+    combos.srcCol.setOptions(columnOptions(data).map(c => ({ value: c, label: c })), q?.sourceCol);
+  }
+  combos.srcTable.onChange(refreshSrcCol);
+  await refreshSrcCol();
+
+  // La colonne de destination "texte" suit toujours la table active (celle qu'on a choisi
+  // d'écrire ailleurs, sinon la table principale) : jamais besoin d'ouvrir "Écrire dans une
+  // autre table" juste pour voir où la réponse ira, seulement pour CHANGER la table.
+  combos.writeTable.setOptions(tableItems, q?.writeTable ?? state.mainTableIdCache);
+  async function refreshWriteCol() {
+    if (!combos.writeTable.value) { combos.writeCol.setOptions([]); return; }
+    const data = await fetchMeta(combos.writeTable.value);
+    combos.writeCol.setOptions(columnOptions(data).map(c => ({ value: c, label: c })), q?.writeCol);
+  }
+  combos.writeTable.onChange(refreshWriteCol);
+  await refreshWriteCol();
+}
+
+// Éditeur de condition d'affichage : N critères (question source = valeur), combinés en ET/OU —
+// voir normalizeCondition (links.js) pour les deux formats acceptés. condRules est la donnée de
+// travail de cette carte ; body.getCondition (posé ici) la relit à l'enregistrement, seul accès
+// de saveQuestionFromCard à cet état puisqu'il vit entièrement dans cette fermeture.
+async function wireConditionEditor(body, q, condCandidates) {
+  const condNorm = normalizeCondition(q?.condition);
+  const condRules = (condNorm?.rules?.length ? condNorm.rules : [{ questionId: '', value: '' }])
+    .map(r => ({ questionId: r.questionId, value: r.value }));
+  let condMode = condNorm?.mode === 'any' ? 'any' : 'all';
+  const condModeEl = body.querySelector('.qf-cond-mode');
+  const condRulesEl = body.querySelector('.qf-cond-rules');
+  const condRuleCombos = [];
+
+  function setCondMode(m) {
+    condMode = m;
+    condModeEl.querySelectorAll('.qf-cond-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === m));
+  }
+
+  async function refreshRuleValue(i) {
+    const srcId = condRules[i].questionId;
+    const combo = condRuleCombos[i];
+    if (!srcId) { combo.setOptions([]); return; }
+    const src = state.cfgQuestions.find(x => x.id === srcId);
+    if (src?.kind === 'select') {
+      combo.setOptions((src.choices || []).map(v => ({ value: v, label: v })), condRules[i].value);
+    } else if (src?.kind === 'choice') {
+      const data = await fetchMeta(src.sourceTable);
+      combo.setOptions((data[src.sourceCol] || []).map(v => ({ value: v, label: v })), condRules[i].value);
+    } else {
+      combo.setOptions([]);
+    }
+  }
+
+  async function renderCondRules() {
+    condModeEl.classList.toggle('hidden', condRules.length < 2);
+    setCondMode(condMode);
+    condRulesEl.innerHTML = condRules.map((r, i) => `
+      <div class="qf-cond-rule" data-idx="${i}">
+        <div class="qf-cond-rule-head">
+          <label>Afficher si</label>
+          ${condRules.length > 1 ? `<button type="button" class="icon-btn danger qf-cond-remove" data-idx="${i}" title="Retirer cette condition">${ICONS.trash}</button>` : ''}
+        </div>
+        <select class="qf-condQ" data-idx="${i}"><option value="">— choisir une question —</option>${condCandidates.map(c => `<option value="${c.id}" ${c.id === r.questionId ? 'selected' : ''}>${esc(c.label)}</option>`).join('')}</select>
+        <label>égale</label><div class="combo-host"></div>
+      </div>`).join('');
+    condRuleCombos.length = 0;
+    const rows = [...condRulesEl.querySelectorAll('.qf-cond-rule')];
+    rows.forEach((row, i) => {
+      const combo = mountCombo(row.querySelector('.combo-host'));
+      condRuleCombos[i] = combo;
+      combo.onChange((v) => { condRules[i].value = v; });
+      row.querySelector('.qf-condQ').addEventListener('change', (e) => {
+        condRules[i].questionId = e.target.value;
+        condRules[i].value = '';
+        refreshRuleValue(i);
+      });
+      row.querySelector('.qf-cond-remove')?.addEventListener('click', () => { condRules.splice(i, 1); renderCondRules(); });
+    });
+    await Promise.all(rows.map((_, i) => refreshRuleValue(i)));
+  }
+  await renderCondRules();
+  body.querySelector('.qf-cond-add').addEventListener('click', () => { condRules.push({ questionId: '', value: '' }); renderCondRules(); });
+  condModeEl.querySelectorAll('.qf-cond-mode-btn').forEach(b => b.addEventListener('click', () => setCondMode(b.dataset.mode)));
+
+  body.getCondition = () => {
+    const rules = condRules
+      .filter(r => r.questionId && r.value !== '' && r.value != null)
+      .map(r => ({ questionId: r.questionId, op: 'equals', value: r.value }));
+    return rules.length ? { mode: condMode, rules } : null;
+  };
+}
+
+// Pied de carte : annuler/enregistrer, auto-enregistrement au blur, supprimer, dupliquer. `q` est
+// possédé entièrement par cette fonction à partir d'ici (plus jamais lu par renderCardBody
+// ensuite) : autoSave peut librement le réaffecter une fois la question créée/modifiée, pour que
+// le SECOND blur d'une frappe rapide (avant que le premier round-trip réseau ne soit terminé)
+// mette bien à jour l'entrée déjà créée au lieu d'en recréer une autre avec un id différent.
+function wireCardFooter(id, body, q, combos, isNew) {
+  body.querySelector('.qf-cancel').addEventListener('click', () => { state.expandedId = null; renderQuestionList(); });
+  body.querySelector('.qf-save').addEventListener('click', () => saveQuestionFromCard(id, body, q, combos));
+
+  // Édition directe : quitter le titre, la description ou les options, ou cocher "Obligatoire",
+  // enregistre tout seul (pas de bouton). rerender=isNew : une question qui existe déjà n'a pas
+  // besoin de reconstruire toute la liste pour un simple changement de texte, seule une toute
+  // nouvelle question a besoin de ce passage pour quitter l'emplacement "__new__". Les sélecteurs
+  // de type/table/condition restent volontairement en dehors de cet auto-enregistrement : une
+  // nouvelle question ne doit se créer qu'une fois qu'elle a un contenu, jamais au simple survol
+  // des options du sélecteur de type.
+  // Chaîne les appels entre eux (même principe que saveChain dans saveConfig) ET met à jour `q`
+  // avec le résultat de chaque sauvegarde réussie : un second blur déclenché avant la fin du
+  // premier aller-retour réseau attend que celui-ci se termine, puis repart de la question qu'il
+  // vient de créer/modifier au lieu d'un `existing` resté figé sur `null` ou sur l'ancienne valeur.
+  let autoSaving = Promise.resolve();
+  const autoSave = () => {
+    autoSaving = autoSaving
+      .then(() => saveQuestionFromCard(id, body, q, combos, { rerender: isNew }))
+      .then((saved) => { if (saved) q = saved; });
+    return autoSaving;
+  };
+  ['.qf-label', '.qf-desc', '.qf-desc-long', '.qf-choices'].forEach(sel => {
+    body.querySelector(sel).addEventListener('blur', autoSave);
+  });
+  body.querySelector('.qf-required').addEventListener('change', autoSave);
+
+  body.querySelector('[data-del]')?.addEventListener('click', async () => {
+    // Retire aussi toute règle de condition qui référençait cette question ailleurs : sans ce
+    // nettoyage, la question dépendante reste masquée pour toujours (sa condition ne peut plus
+    // jamais être vraie), sans qu'aucun message ne le signale, et la règle cassée est réenregistrée
+    // telle quelle au moindre autre changement.
+    state.cfgQuestions = state.cfgQuestions
+      .filter(x => x.id !== id)
+      .map(x => {
+        const cond = normalizeCondition(x.condition);
+        if (!cond) return x;
+        const rules = cond.rules.filter(r => r.questionId !== id);
+        if (rules.length === cond.rules.length) return x;
+        return { ...x, condition: rules.length ? { ...cond, rules } : null };
+      });
+    state.expandedId = null;
+    await saveConfig(state.options.publicUrl, state.options.viewRef);
+    renderQuestionList();
+  });
+  body.querySelector('[data-dup]')?.addEventListener('click', async () => {
+    // Relit l'entrée depuis state.cfgQuestions plutôt que de faire confiance à `q` : si un
+    // auto-enregistrement est encore en vol (chaîné sur autoSaving ci-dessus), state.cfgQuestions
+    // reflète déjà la dernière valeur upsertée dès qu'elle est disponible, sans attendre.
+    const current = state.cfgQuestions.find(x => x.id === id) || q;
+    const copy = { ...current, id: uid(), label: (current.label || '') + ' (copie)' };
+    delete copy.importedFrom; // la copie n'est plus liée au champ natif d'origine
+    state.cfgQuestions = [...state.cfgQuestions, copy];
+    await saveConfig(state.options.publicUrl, state.options.viewRef);
+    renderQuestionList();
+  });
+}
+
 // Construit le contenu dépliable d'une carte : formulaire de réglages. La colonne de
 // destination d'une question "texte" est toujours visible (chaque réponse doit bien être
 // rangée quelque part) ; seul le choix d'une AUTRE table reste derrière un lien. Une question
 // "choix" n'a jamais de destination à régler : elle est entièrement automatique (colonne
-// Référence cachée créée et gérée par ensureChoiceField).
+// Référence cachée créée et gérée par ensureChoiceField). Le corps de chaque bloc (sélecteur de
+// type, comboboxes, éditeur de condition, pied de carte) est délégué aux fonctions ci-dessus :
+// cette fonction ne garde que la construction du HTML et l'orchestration des `await`.
 export async function renderCardBody(id, body) {
   const isNew = id === '__new__';
   // `let`, pas `const` : autoSave (plus bas) réaffecte cette variable une fois la question créée,
@@ -598,194 +804,16 @@ export async function renderCardBody(id, body) {
   const combos = {};
   body.querySelectorAll('[data-combo]').forEach(host => { combos[host.dataset.combo] = mountCombo(host); });
 
-  const setKind = (k) => {
-    const layout = LAYOUT_KINDS.has(k);
-    const kindDef = KINDS.find(x => x.id === k) || KINDS[0];
-    body.querySelector('.qtype-pill-icon').innerHTML = kindDef.icon;
-    body.querySelector('.qtype-pill-label').textContent = kindDef.label;
-    body.querySelectorAll('.qtype-opt').forEach(b => b.classList.toggle('active', b.dataset.kind === k));
-    body.querySelector('.qf-choice-fields').classList.toggle('hidden', k !== 'choice');
-    body.querySelector('.qf-fixed-options').classList.toggle('hidden', k !== 'select' && k !== 'multiselect');
-    body.querySelector('.qf-display-mode').classList.toggle('hidden', !SINGLE_CHOICE_KINDS.has(k));
-    body.querySelector('.qf-text-fields').classList.toggle('hidden', k === 'choice' || layout);
-    body.querySelector('.qf-required-row').classList.toggle('hidden', layout);
-    body.querySelector('.qf-desc-label-short').classList.toggle('hidden', k === 'info');
-    body.querySelector('.qf-desc').classList.toggle('hidden', k === 'info');
-    body.querySelector('.qf-desc-label-long').classList.toggle('hidden', k !== 'info');
-    body.querySelector('.qf-desc-long').classList.toggle('hidden', k !== 'info');
-  };
-  setKind(kind);
-
-  // Sélecteur de type compact : une pastille (icône + libellé du type actuel) ouvre un petit
-  // popover d'icônes au clic, plutôt que la grille complète toujours affichée — c'est ce qui
-  // rendait chaque carte immense. Le popover reste dans le DOM (juste masqué en CSS) : les tests
-  // hors-ligne cliquent directement sur [data-kind], qu'il soit visible ou non (comme .qf-save).
-  const typePillWrap = body.querySelector('.qtype-pill-wrap');
-  const typePopover = body.querySelector('.qtype-popover');
-  body.querySelector('.qtype-pill').addEventListener('click', () => typePopover.classList.toggle('hidden'));
-  typePillWrap.addEventListener('focusout', (e) => {
-    if (!typePillWrap.contains(e.relatedTarget)) typePopover.classList.add('hidden');
-  });
-  body.querySelectorAll('.qtype-opt').forEach(b => b.addEventListener('click', () => {
-    setKind(b.dataset.kind);
-    typePopover.classList.add('hidden');
-  }));
-
-  const setDisplay = (d) => body.querySelectorAll('.qf-display-btn').forEach(b => b.classList.toggle('active', b.dataset.display === d));
-  setDisplay(displayMode);
-  body.querySelectorAll('.qf-display-btn').forEach(b => b.addEventListener('click', () => setDisplay(b.dataset.display)));
+  wireKindSelector(body, kind, displayMode);
 
   body.querySelectorAll('[data-reveal]').forEach(b => b.addEventListener('click', () => {
     const el = body.querySelector(b.dataset.reveal === 'table' ? '.qf-table-override' : '.qf-condition');
     el.classList.toggle('hidden');
   }));
 
-  combos.srcTable.setOptions(tableItems, q?.sourceTable);
-  async function refreshSrcCol() {
-    if (!combos.srcTable.value) { combos.srcCol.setOptions([]); return; }
-    const data = await fetchMeta(combos.srcTable.value);
-    combos.srcCol.setOptions(columnOptions(data).map(c => ({ value: c, label: c })), q?.sourceCol);
-  }
-  combos.srcTable.onChange(refreshSrcCol);
-  await refreshSrcCol();
-
-  // La colonne de destination "texte" suit toujours la table active (celle qu'on a choisi
-  // d'écrire ailleurs, sinon la table principale) : jamais besoin d'ouvrir "Écrire dans une
-  // autre table" juste pour voir où la réponse ira, seulement pour CHANGER la table.
-  combos.writeTable.setOptions(tableItems, q?.writeTable ?? state.mainTableIdCache);
-  async function refreshWriteCol() {
-    if (!combos.writeTable.value) { combos.writeCol.setOptions([]); return; }
-    const data = await fetchMeta(combos.writeTable.value);
-    combos.writeCol.setOptions(columnOptions(data).map(c => ({ value: c, label: c })), q?.writeCol);
-  }
-  combos.writeTable.onChange(refreshWriteCol);
-  await refreshWriteCol();
-
-  // Conditions combinées : N critères (question source = valeur), combinés en ET (toutes vraies)
-  // ou en OU (au moins une) — voir normalizeCondition (links.js) pour les deux formats acceptés.
-  // condRules est la donnée de travail de cette carte ; body.getCondition() la relit à
-  // l'enregistrement (saveQuestionFromCard n'a pas d'autre accès à cette fermeture).
-  const condNorm = normalizeCondition(q?.condition);
-  const condRules = (condNorm?.rules?.length ? condNorm.rules : [{ questionId: '', value: '' }])
-    .map(r => ({ questionId: r.questionId, value: r.value }));
-  let condMode = condNorm?.mode === 'any' ? 'any' : 'all';
-  const condModeEl = body.querySelector('.qf-cond-mode');
-  const condRulesEl = body.querySelector('.qf-cond-rules');
-  const condRuleCombos = [];
-
-  function setCondMode(m) {
-    condMode = m;
-    condModeEl.querySelectorAll('.qf-cond-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === m));
-  }
-
-  async function refreshRuleValue(i) {
-    const srcId = condRules[i].questionId;
-    const combo = condRuleCombos[i];
-    if (!srcId) { combo.setOptions([]); return; }
-    const src = state.cfgQuestions.find(x => x.id === srcId);
-    if (src?.kind === 'select') {
-      combo.setOptions((src.choices || []).map(v => ({ value: v, label: v })), condRules[i].value);
-    } else if (src?.kind === 'choice') {
-      const data = await fetchMeta(src.sourceTable);
-      combo.setOptions((data[src.sourceCol] || []).map(v => ({ value: v, label: v })), condRules[i].value);
-    } else {
-      combo.setOptions([]);
-    }
-  }
-
-  async function renderCondRules() {
-    condModeEl.classList.toggle('hidden', condRules.length < 2);
-    setCondMode(condMode);
-    condRulesEl.innerHTML = condRules.map((r, i) => `
-      <div class="qf-cond-rule" data-idx="${i}">
-        <div class="qf-cond-rule-head">
-          <label>Afficher si</label>
-          ${condRules.length > 1 ? `<button type="button" class="icon-btn danger qf-cond-remove" data-idx="${i}" title="Retirer cette condition">${ICONS.trash}</button>` : ''}
-        </div>
-        <select class="qf-condQ" data-idx="${i}"><option value="">— choisir une question —</option>${condCandidates.map(c => `<option value="${c.id}" ${c.id === r.questionId ? 'selected' : ''}>${esc(c.label)}</option>`).join('')}</select>
-        <label>égale</label><div class="combo-host"></div>
-      </div>`).join('');
-    condRuleCombos.length = 0;
-    const rows = [...condRulesEl.querySelectorAll('.qf-cond-rule')];
-    rows.forEach((row, i) => {
-      const combo = mountCombo(row.querySelector('.combo-host'));
-      condRuleCombos[i] = combo;
-      combo.onChange((v) => { condRules[i].value = v; });
-      row.querySelector('.qf-condQ').addEventListener('change', (e) => {
-        condRules[i].questionId = e.target.value;
-        condRules[i].value = '';
-        refreshRuleValue(i);
-      });
-      row.querySelector('.qf-cond-remove')?.addEventListener('click', () => { condRules.splice(i, 1); renderCondRules(); });
-    });
-    await Promise.all(rows.map((_, i) => refreshRuleValue(i)));
-  }
-  await renderCondRules();
-  body.querySelector('.qf-cond-add').addEventListener('click', () => { condRules.push({ questionId: '', value: '' }); renderCondRules(); });
-  condModeEl.querySelectorAll('.qf-cond-mode-btn').forEach(b => b.addEventListener('click', () => setCondMode(b.dataset.mode)));
-
-  body.getCondition = () => {
-    const rules = condRules
-      .filter(r => r.questionId && r.value !== '' && r.value != null)
-      .map(r => ({ questionId: r.questionId, op: 'equals', value: r.value }));
-    return rules.length ? { mode: condMode, rules } : null;
-  };
-
-  body.querySelector('.qf-cancel').addEventListener('click', () => { state.expandedId = null; renderQuestionList(); });
-  body.querySelector('.qf-save').addEventListener('click', () => saveQuestionFromCard(id, body, q, combos));
-
-  // Édition directe : quitter le titre, la description ou les options, ou cocher "Obligatoire",
-  // enregistre tout seul (pas de bouton). rerender=isNew : une question qui existe déjà n'a pas
-  // besoin de reconstruire toute la liste pour un simple changement de texte, seule une toute
-  // nouvelle question a besoin de ce passage pour quitter l'emplacement "__new__". Les sélecteurs
-  // de type/table/condition restent volontairement en dehors de cet auto-enregistrement : une
-  // nouvelle question ne doit se créer qu'une fois qu'elle a un contenu, jamais au simple survol
-  // des options du sélecteur de type.
-  // Chaîne les appels entre eux (même principe que saveChain dans saveConfig) ET met à jour `q`
-  // avec le résultat de chaque sauvegarde réussie : un second blur déclenché avant la fin du
-  // premier aller-retour réseau attend que celui-ci se termine, puis repart de la question qu'il
-  // vient de créer/modifier au lieu d'un `existing` resté figé sur `null` ou sur l'ancienne valeur.
-  let autoSaving = Promise.resolve();
-  const autoSave = () => {
-    autoSaving = autoSaving
-      .then(() => saveQuestionFromCard(id, body, q, combos, { rerender: isNew }))
-      .then((saved) => { if (saved) q = saved; });
-    return autoSaving;
-  };
-  ['.qf-label', '.qf-desc', '.qf-desc-long', '.qf-choices'].forEach(sel => {
-    body.querySelector(sel).addEventListener('blur', autoSave);
-  });
-  body.querySelector('.qf-required').addEventListener('change', autoSave);
-
-  body.querySelector('[data-del]')?.addEventListener('click', async () => {
-    // Retire aussi toute règle de condition qui référençait cette question ailleurs : sans ce
-    // nettoyage, la question dépendante reste masquée pour toujours (sa condition ne peut plus
-    // jamais être vraie), sans qu'aucun message ne le signale, et la règle cassée est réenregistrée
-    // telle quelle au moindre autre changement.
-    state.cfgQuestions = state.cfgQuestions
-      .filter(x => x.id !== id)
-      .map(x => {
-        const cond = normalizeCondition(x.condition);
-        if (!cond) return x;
-        const rules = cond.rules.filter(r => r.questionId !== id);
-        if (rules.length === cond.rules.length) return x;
-        return { ...x, condition: rules.length ? { ...cond, rules } : null };
-      });
-    state.expandedId = null;
-    await saveConfig(state.options.publicUrl, state.options.viewRef);
-    renderQuestionList();
-  });
-  body.querySelector('[data-dup]')?.addEventListener('click', async () => {
-    // Relit l'entrée depuis state.cfgQuestions plutôt que de faire confiance à `q` : si un
-    // auto-enregistrement est encore en vol (chaîné sur autoSaving ci-dessus), state.cfgQuestions
-    // reflète déjà la dernière valeur upsertée dès qu'elle est disponible, sans attendre.
-    const current = state.cfgQuestions.find(x => x.id === id) || q;
-    const copy = { ...current, id: uid(), label: (current.label || '') + ' (copie)' };
-    delete copy.importedFrom; // la copie n'est plus liée au champ natif d'origine
-    state.cfgQuestions = [...state.cfgQuestions, copy];
-    await saveConfig(state.options.publicUrl, state.options.viewRef);
-    renderQuestionList();
-  });
+  await wireSourceAndWriteCombos(body, q, tableItems, combos);
+  await wireConditionEditor(body, q, condCandidates);
+  wireCardFooter(id, body, q, combos, isNew);
 }
 
 // Remplace l'entrée existante EN PLACE (même position dans la liste) plutôt que de la retirer
