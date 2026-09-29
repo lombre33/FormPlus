@@ -4,12 +4,14 @@ Point d'entrée unique pour tout ce qui touche aux tests de FormPlus.
 
 ## Suite de non-régression du widget
 
-`poc/widget.html#test` exécute ~238 vérifications hors ligne (aucune requête
+`poc/widget.html#test` exécute ~336 vérifications hors ligne (aucune requête
 réseau, `grist.docApi` et `fetch()` simulés) sur le code de `poc/js/` :
 fonctions pures, chaque type de question, conditions d'affichage combinées en
-ET/OU, import des champs natifs, réinitialisation, création d'un formulaire
-vide, construction des champs envoyés à l'API (y compris les pièces
-jointes). Détail du contenu et de l'organisation en modules :
+ET/OU et ouvertes à tous les types de question source, import des champs
+natifs, réinitialisation, création d'un formulaire vide, une question « Choix
+depuis une table » écrivant dans une autre table, construction des champs
+envoyés à l'API (y compris les pièces jointes). Détail du contenu et de
+l'organisation en modules :
 [`docs/04-architecture.md`](../docs/04-architecture.md), section « Suite de
 tests ».
 

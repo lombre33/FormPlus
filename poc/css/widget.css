@@ -134,7 +134,8 @@
   .qf-choice-fields, .qf-text-fields, .qf-table-override, .qf-condition, .qf-fixed-options, .qf-display-mode { margin-top: 6px; padding-top: 2px; }
   .qf-table-override { margin-top: 8px; }
   .qf-field-label { display: block; font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); margin: 8px 0 3px; }
-  .qcard .combo-input { padding: 6px 9px; font-size: .86rem; }
+  .qcard .combo-input, .qcard .qf-cond-freevalue { padding: 6px 9px; font-size: .86rem; }
+  .qf-choice-table-hint { margin-top: 6px; }
   .qf-choices { font-size: .86rem; }
   .qgrip { cursor: grab; display: flex; align-items: center; color: var(--muted); flex-shrink: 0; touch-action: none; padding: 4px; }
   .qgrip:active { cursor: grabbing; }

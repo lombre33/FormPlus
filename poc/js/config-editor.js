@@ -463,8 +463,16 @@ export async function moveQuestion(id, dir) {
   renderQuestionList();
 }
 
-export function choiceQuestionsBefore(excludeId) {
-  return state.cfgQuestions.filter(q => (q.kind === 'choice' || q.kind === 'select') && q.id !== excludeId);
+// Questions utilisables comme SOURCE d'une condition d'affichage : tous les types qui
+// collectent une réponse comparable (pas les blocs de mise en page, pas les pièces jointes —
+// un fichier n'a pas de valeur à comparer). Longtemps limité à choice/select seulement (écart
+// fonctionnel relevé par l'audit du 21 sept 2026) : Oui/non, Nombre, Texte, Texte long et Choix
+// multiples peuvent désormais aussi déclencher une condition — voir refreshRuleValue plus bas
+// pour la façon dont chaque type propose ses valeurs, et conditionMet (respond.js) pour la
+// comparaison à l'affichage (singleValueOf gère Oui/non, Choix multiples se compare par
+// inclusion plutôt que par égalité stricte).
+export function conditionSourceCandidates(excludeId) {
+  return state.cfgQuestions.filter(q => !LAYOUT_KINDS.has(q.kind) && q.kind !== 'attachments' && q.id !== excludeId);
 }
 
 // Combobox de recherche, remplace un <select> pour les listes de tables/colonnes qui peuvent
@@ -526,8 +534,8 @@ export async function renderCardBody(id, body) {
   let tables = [];
   try { tables = await grist.docApi.listTables(); } catch (e) { tables = []; }
   const tableItems = tables.map(t => ({ value: t, label: t }));
-  const condCandidates = choiceQuestionsBefore(isNew ? null : id);
-  const tableOverrideOpen = !!(q && q.kind !== 'choice' && q.writeTable && q.writeTable !== state.mainTableIdCache);
+  const condCandidates = conditionSourceCandidates(isNew ? null : id);
+  const tableOverrideOpen = !!(q && q.writeTable && q.writeTable !== state.mainTableIdCache);
   const conditionOpen = !!q?.condition;
   const kind = q?.kind || 'text';
   const currentKind = KINDS.find(k => k.id === kind) || KINDS[0];
@@ -569,10 +577,13 @@ export async function renderCardBody(id, body) {
       <button type="button" class="qf-display-btn" data-display="radio" title="Boutons radio">${ICONS.radio}</button>
     </div>
     <div class="qf-text-fields hidden">
-      <label class="qf-field-label">Colonne de destination</label><div class="combo-host" data-combo="writeCol"></div>
+      <div class="qf-write-col-field">
+        <label class="qf-field-label">Colonne de destination</label><div class="combo-host" data-combo="writeCol"></div>
+      </div>
       <button type="button" class="qf-link" data-reveal="table">${ICONS.settings}<span>Écrire dans une autre table</span></button>
       <div class="qf-table-override ${tableOverrideOpen ? '' : 'hidden'}">
         <label class="qf-field-label">Table de destination</label><div class="combo-host" data-combo="writeTable"></div>
+        <p class="qf-choice-table-hint muted hidden">« Choix depuis une table » crée sa propre colonne (référence cachée) dans la table choisie : rien à régler pour la colonne, seulement la table.</p>
       </div>
     </div>
     <button type="button" class="qf-link" data-reveal="condition">${ICONS.branch}<span>Condition d'affichage</span></button>
@@ -607,7 +618,13 @@ export async function renderCardBody(id, body) {
     body.querySelector('.qf-choice-fields').classList.toggle('hidden', k !== 'choice');
     body.querySelector('.qf-fixed-options').classList.toggle('hidden', k !== 'select' && k !== 'multiselect');
     body.querySelector('.qf-display-mode').classList.toggle('hidden', !SINGLE_CHOICE_KINDS.has(k));
-    body.querySelector('.qf-text-fields').classList.toggle('hidden', k === 'choice' || layout);
+    // "Choix depuis une table" gère sa propre colonne (référence cachée, voir ensureChoiceField) :
+    // pas de "colonne de destination" à choisir, mais la table de destination reste réglable
+    // (écart fonctionnel corrigé le 29 sept 2026 : ce type ne pouvait jamais écrire ailleurs que
+    // la table principale, sans que l'interface ne le signale).
+    body.querySelector('.qf-text-fields').classList.toggle('hidden', layout);
+    body.querySelector('.qf-write-col-field').classList.toggle('hidden', k === 'choice');
+    body.querySelector('.qf-choice-table-hint').classList.toggle('hidden', k !== 'choice');
     body.querySelector('.qf-required-row').classList.toggle('hidden', layout);
     body.querySelector('.qf-desc-label-short').classList.toggle('hidden', k === 'info');
     body.querySelector('.qf-desc').classList.toggle('hidden', k === 'info');
@@ -671,23 +688,45 @@ export async function renderCardBody(id, body) {
   let condMode = condNorm?.mode === 'any' ? 'any' : 'all';
   const condModeEl = body.querySelector('.qf-cond-mode');
   const condRulesEl = body.querySelector('.qf-cond-rules');
-  const condRuleCombos = [];
 
   function setCondMode(m) {
     condMode = m;
     condModeEl.querySelectorAll('.qf-cond-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === m));
   }
 
+  // Les types Nombre/Texte/Texte long n'ont pas de valeurs prédéfinies à choisir dans une liste :
+  // leur cellule "égale" est une simple saisie libre plutôt qu'un combo de recherche.
+  const FREE_ENTRY_KINDS = new Set(['number', 'text', 'longtext']);
+
+  // Reconstruit la cellule "égale" de la règle i selon le TYPE de la question source choisie :
+  // combo de recherche pour Choix/Choix multiples/Choix depuis une table/Oui-non (valeurs
+  // connues d'avance), saisie libre pour Nombre/Texte/Texte long. Rebâtir plutôt que muter :
+  // le type de widget change avec la source, bien plus simple que de faire cohabiter les deux
+  // formes dans le même élément.
   async function refreshRuleValue(i) {
     const srcId = condRules[i].questionId;
-    const combo = condRuleCombos[i];
-    if (!srcId) { combo.setOptions([]); return; }
+    const cell = condRulesEl.querySelector(`.qf-cond-value[data-idx="${i}"]`);
+    if (!cell) return;
     const src = state.cfgQuestions.find(x => x.id === srcId);
-    if (src?.kind === 'select') {
+    if (srcId && FREE_ENTRY_KINDS.has(src?.kind)) {
+      cell.innerHTML = `<input type="${src.kind === 'number' ? 'number' : 'text'}" class="qf-cond-freevalue" value="${esc(condRules[i].value ?? '')}">`;
+      cell.querySelector('input').addEventListener('input', (e) => { condRules[i].value = e.target.value; });
+      return;
+    }
+    cell.innerHTML = '';
+    const combo = mountCombo(cell);
+    combo.onChange((v) => { condRules[i].value = v; });
+    if (!srcId) { combo.setOptions([]); return; }
+    if (src?.kind === 'select' || src?.kind === 'multiselect') {
       combo.setOptions((src.choices || []).map(v => ({ value: v, label: v })), condRules[i].value);
     } else if (src?.kind === 'choice') {
       const data = await fetchMeta(src.sourceTable);
       combo.setOptions((data[src.sourceCol] || []).map(v => ({ value: v, label: v })), condRules[i].value);
+    } else if (src?.kind === 'bool') {
+      // value === label ici à dessein (comme pour select/choice juste au-dessus) : conditionMet
+      // (respond.js) compare toujours au LABEL lu sur la source (singleValueOf), jamais à une
+      // valeur technique séparée — un value 'true'/'false' ne matcherait jamais le label 'Oui'/'Non'.
+      combo.setOptions([{ value: 'Oui', label: 'Oui' }, { value: 'Non', label: 'Non' }], condRules[i].value);
     } else {
       combo.setOptions([]);
     }
@@ -703,14 +742,10 @@ export async function renderCardBody(id, body) {
           ${condRules.length > 1 ? `<button type="button" class="icon-btn danger qf-cond-remove" data-idx="${i}" title="Retirer cette condition">${ICONS.trash}</button>` : ''}
         </div>
         <select class="qf-condQ" data-idx="${i}"><option value="">— choisir une question —</option>${condCandidates.map(c => `<option value="${c.id}" ${c.id === r.questionId ? 'selected' : ''}>${esc(c.label)}</option>`).join('')}</select>
-        <label>égale</label><div class="combo-host"></div>
+        <label>égale</label><div class="qf-cond-value" data-idx="${i}"></div>
       </div>`).join('');
-    condRuleCombos.length = 0;
     const rows = [...condRulesEl.querySelectorAll('.qf-cond-rule')];
     rows.forEach((row, i) => {
-      const combo = mountCombo(row.querySelector('.combo-host'));
-      condRuleCombos[i] = combo;
-      combo.onChange((v) => { condRules[i].value = v; });
       row.querySelector('.qf-condQ').addEventListener('change', (e) => {
         condRules[i].questionId = e.target.value;
         condRules[i].value = '';
@@ -841,9 +876,18 @@ export async function saveQuestionFromCard(id, body, existing, combos, { rerende
       if (!q.sourceTable || !q.sourceCol) { msg.innerHTML = '<span class="err">Choisissez une table source et sa colonne affichée.</span>'; return; }
       // La colonne de destination est TOUJOURS la référence cachée que crée/retrouve
       // ensureChoiceField, jamais un choix libre : c'est ce qui garantit que la lecture
-      // fonctionne aussi pour la session anonyme (voir docs/01, "piège visibleCol").
-      q.writeTable = mainTableId;
-      q.writeCol = await ensureChoiceField(mainTableId, state.currentFormSection.id, q.sourceTable, q.sourceCol);
+      // fonctionne aussi pour la session anonyme (voir docs/01, "piège visibleCol"). La TABLE de
+      // destination, elle, reste réglable comme pour les autres types (écart corrigé le 29 sept
+      // 2026 : ce type ne pouvait jamais écrire ailleurs que la table principale) : si elle
+      // diffère de la table principale, ensureTableGate lui ouvre d'abord son propre formulaire
+      // publié (même mécanisme que pour du texte/nombre écrit ailleurs), et c'est CE
+      // formulaire-là qui reçoit le champ caché — la référence doit vivre dans une section qui
+      // affiche déjà sa propre table, jamais la section du formulaire principal.
+      q.writeTable = combos.writeTable.value || mainTableId;
+      const targetSectionId = q.writeTable === mainTableId
+        ? state.currentFormSection.id
+        : (await ensureTableGate(q.writeTable, state.currentFormSection.viewRef)).sectionId;
+      q.writeCol = await ensureChoiceField(q.writeTable, targetSectionId, q.sourceTable, q.sourceCol);
     } else {
       if (kind === 'select' || kind === 'multiselect') {
         q.choices = body.querySelector('.qf-choices').value.split('\n').map(s => s.trim()).filter(Boolean);

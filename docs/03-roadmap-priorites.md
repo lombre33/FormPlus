@@ -44,6 +44,23 @@ multiligne devient une question « Texte long », un champ Attachments natif dev
 « Pièces jointes » ; seuls DateTime et Liste de références restent hors périmètre côté types de
 question. Suite de tests étendue à 238 vérifications (`poc/js/tests.js`), toutes au vert.
 
+**Mise à jour du 29 septembre 2026 : conditions ouvertes à tous les types de question, « Choix
+depuis une table » peut écrire ailleurs, secours `#form=` réparé.** Trois écarts relevés par
+l'audit du 21 septembre 2026 (`audit-formplus-2026-09-21.md`), non corrigés sur le moment faute de
+feu vert, développés ce jour avec le feu vert d'Antoine : 1) une condition d'affichage peut
+désormais prendre pour source n'importe quel type de question qui collecte une réponse comparable
+(Oui/non, Nombre, Texte, Texte long, Choix multiples — plus seulement Choix/Choix depuis une
+table), avec une saisie adaptée à chaque type (liste pour les valeurs connues d'avance, champ libre
+pour Nombre/Texte/Texte long, comparaison par inclusion plutôt qu'égalité stricte pour Choix
+multiples) ; 2) une question « Choix depuis une table » peut désormais écrire dans une autre table
+que la principale, comme tous les autres types (`ensureTableGate` retourne maintenant l'id de la
+section ouverte, pour y attacher la colonne Référence cachée à la bonne table) ; 3) le secours
+`widget.html#form=<lien>` annoncé sur l'écran standalone, qui ne fonctionnait en fait jamais (le
+code sortait avant de lire ce fragment hors iframe), fonctionne réellement. Reste explicitement
+HORS de ce correctif : un champ natif Grist non importé ne peut toujours ni déclencher ni recevoir
+une condition — pas un oubli, un report volontaire (voir note sous la fusion native/questions
+ci-dessous). Suite de tests étendue en conséquence, toutes au vert.
+
 ## 1. Principes d'interface
 
 Le différenciateur n'est pas technique, c'est la simplicité. Référence : Google Forms.
@@ -74,7 +91,7 @@ les deux divergent (stockage de la définition, TypeScript/Vite jamais introduit
 
 ### V1, le socle : indispensable et à forte valeur
 
-**Fusion visuelle des champs natifs et des questions supplémentaires, et passage à des cartes sobres** (ce qui viole aujourd'hui le principe n°1 ci-dessus et bloque la sortie du jalon J2) : repris par le chantier de refonte de l'UI qu'Antoine a demandé séparément le 18 septembre 2026 (deux maquettes proposées, façon Google Forms), pas par ce point de la feuille de route — voir ce fil-là pour l'avancement. C'est désormais le seul point qui reste à faire pour fermer J2 : le reste du socle fonctionnel de V1 est fait (conditions ET/OU et types de question compris, voir « Déjà fait » ci-dessous).
+**Fusion visuelle des champs natifs et des questions supplémentaires, et passage à des cartes sobres** (ce qui viole aujourd'hui le principe n°1 ci-dessus et bloque la sortie du jalon J2) : repris par le chantier de refonte de l'UI qu'Antoine a demandé séparément le 18 septembre 2026 (deux maquettes proposées, façon Google Forms), pas par ce point de la feuille de route — voir ce fil-là pour l'avancement. C'est désormais le seul point qui reste à faire pour fermer J2 : le reste du socle fonctionnel de V1 est fait (conditions ET/OU et types de question compris, voir « Déjà fait » ci-dessous). Cette fusion referme aussi, sans travail dédié, le dernier écart connu sur les conditions d'affichage : un champ natif NON importé ne peut aujourd'hui ni déclencher ni recevoir une condition (report volontaire du 29 septembre 2026, voir bilan ci-dessus) — une fois tout champ natif traité comme une question à part entière, il héritera de la même mécanique de condition que les autres, sans mécanisme séparé à construire puis à jeter.
 
 **Explicitement hors de portée : toute charte DSFR.** Antoine l'a rappelé le 18 septembre 2026 : FormPlus n'a pas le droit d'utiliser la charte graphique DSFR, réservée aux services de l'État — ce n'est pas un ministère. Le principe n°6 ci-dessus et la personnalisation de couleur restent sur une palette libre, jamais une présélection DSFR.
 
@@ -89,6 +106,7 @@ les deux divergent (stockage de la définition, TypeScript/Vite jamais introduit
 - ~~Message de fin personnalisé, redirection après envoi, réinitialisation des questions~~ faits le 16 septembre 2026.
 - ~~Assistant « Publier »~~ partiellement fait le 16 septembre 2026 : bouton « Créer un formulaire natif vide » qui prépare la table et la section Formulaire, ne laissant plus que Publier + Copier le lien à la charge du concepteur (ces deux clics restent hors de portée de l'API plugin, voir V2 pour l'automatisation complète).
 - ~~Conditions combinées en ET/OU~~ et ~~types de question « Texte long » et « Pièces jointes »~~ faits le 18 septembre 2026 (voir bilan ci-dessus) : ne restent hors périmètre, côté types de question, que date+heure et liste de références.
+- ~~Conditions d'affichage ouvertes à tous les types de question~~, ~~« Choix depuis une table » écrivant dans une autre table~~ et ~~secours `#form=` réparé~~ faits le 29 septembre 2026 (écarts relevés par l'audit du 21 septembre, voir bilan ci-dessus) : ne reste hors périmètre qu'un champ natif Grist non importé comme source/cible de condition, reporté à la fusion native/questions ci-dessus.
 
 **Qualité, à ne pas laisser de côté avant de considérer V1 vraiment fini :**
 - Vérification d'accessibilité réelle (lecteur d'écran) sur l'écran répondant : le principe RGAA est posé depuis le début mais n'a encore été vérifié qu'à l'œil, jamais avec un lecteur d'écran.

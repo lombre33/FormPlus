@@ -29,7 +29,18 @@ applyTheme(getStoredTheme());
   if (hashParams.has('test')) { await runTests(); return; }
   const inIframe = window.self !== window.top;
   const ok = inIframe && await loadPluginApi();
-  if (!ok) { diag({ event: 'standalone', inIframe }); show('standalone'); return; }
+  if (!ok) {
+    diag({ event: 'standalone', inIframe });
+    // Secours annoncé sur l'écran standalone lui-même : #form=<lien> doit fonctionner ICI, hors
+    // iframe/sans connexion Grist, puisque c'est exactement le cas où ce texte s'affiche. Avant
+    // ce correctif (écart relevé par l'audit du 21 sept 2026), le code sortait toujours avant de
+    // lire ce fragment : le secours promis ne fonctionnait en fait jamais. renderFill() ne
+    // dépend pas de `grist` pour lire le formulaire (fetch direct de l'API REST publique) ;
+    // state.options reste vide, donc sans les questions supplémentaires (comme public-form.html).
+    if (fragmentFormLink) { await renderFill(); return; }
+    show('standalone');
+    return;
+  }
   grist.ready({ requiredAccess: 'full', onEditOptions: () => showConfig() });
   const timeout = setTimeout(() => { if (!state.connected) { diag({ event: 'timeout' }); show('standalone'); } }, 4000);
   grist.onOptions(async (opts, settings) => {
