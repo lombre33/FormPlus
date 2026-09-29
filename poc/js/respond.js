@@ -81,6 +81,10 @@ export function singleValueOf(container) {
   if (!container) return { value: '', label: '' };
   const sel = container.tagName === 'SELECT' ? container : container.querySelector('select');
   if (sel) return { value: sel.value, label: sel.selectedOptions[0]?.dataset.label ?? sel.value };
+  // Question "Oui/non" (l'élément eq-<id> EST directement la case à cocher, pas un conteneur
+  // englobant) : .value d'une case à cocher vaut toujours "on", coché ou non — sans ce cas, une
+  // condition basée sur un Oui/non lisait toujours la même valeur, jamais son état réel.
+  if (container.type === 'checkbox') return { value: String(container.checked), label: container.checked ? 'Oui' : 'Non' };
   const checked = container.querySelector('input[type=radio]:checked');
   if (checked) return { value: checked.value, label: checked.dataset.label ?? checked.value };
   if (container.querySelector('input[type=radio]')) return { value: '', label: '' };
@@ -95,7 +99,9 @@ export function radioGroup(name, choices) {
 // ou en OU (au moins une) — voir normalizeCondition (links.js) pour les deux formats acceptés en
 // entrée. Chaque critère se lit sur le conteneur #eq-<questionId> de sa question source, avec la
 // même lecture que la soumission (singleValueOf) : un seul point de lecture pour les deux usages.
-export function conditionMet(condition) {
+// extraQuestions permet de retrouver le TYPE de chaque question source : nécessaire pour "Choix
+// multiples", seul type dont la comparaison n'est pas une égalité simple (voir plus bas).
+export function conditionMet(condition, extraQuestions) {
   const cond = normalizeCondition(condition);
   if (!cond?.rules?.length) return true;
   const results = cond.rules.map(r => {
@@ -106,6 +112,14 @@ export function conditionMet(condition) {
     // trois questions (A masque B, B masque C) reste évaluée sur la valeur PÉRIMÉE de B une fois
     // B masqué par le changement de A, et C reste affiché à tort.
     if (el?.closest('.q')?.classList.contains('cond-hidden')) return false;
+    const src = (extraQuestions || []).find(q => q.id === r.questionId);
+    // "Choix multiples" coche plusieurs cases à la fois : la condition est vraie si la valeur
+    // attendue fait partie de la sélection, jamais une égalité stricte (qui ne matcherait jamais
+    // qu'une réponse à un seul choix coché).
+    if (src?.kind === 'multiselect') {
+      const checked = [...(el?.querySelectorAll('input:checked') || [])].map(i => i.value);
+      return checked.includes(r.value);
+    }
     return singleValueOf(el).label === r.value;
   });
   return cond.mode === 'any' ? results.some(Boolean) : results.every(Boolean);
@@ -284,10 +298,14 @@ export async function renderFill() {
     // jamais celui de la source de q — sans cet événement synthétique, un masquage en chaîne (A
     // masque B, B masque C) ne réveille jamais le check de C quand B se masque à son tour.
     const check = () => {
-      target.classList.toggle('cond-hidden', !conditionMet(q.condition));
+      target.classList.toggle('cond-hidden', !conditionMet(q.condition, extraQuestions));
       $(`eq-${q.id}`)?.dispatchEvent(new Event('change', { bubbles: true }));
     };
-    cond.rules.map(r => $(`eq-${r.questionId}`)).filter(Boolean).forEach(c => c.addEventListener('change', check));
+    // 'input' en plus de 'change' : une source Nombre/Texte/Texte long ne déclenche 'change' qu'au
+    // blur, ce qui masquerait/afficherait la question dépendante avec un temps de retard sensible
+    // par rapport aux sources à choix (select/radio/case), qui réagissent immédiatement.
+    cond.rules.map(r => $(`eq-${r.questionId}`)).filter(Boolean)
+      .forEach(c => ['input', 'change'].forEach(evt => c.addEventListener(evt, check)));
     check();
   }
 

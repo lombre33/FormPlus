@@ -32,19 +32,6 @@ export async function getFormTableId(vsId) {
   if (idx < 0) return null;
   return tableIdOfRef(sections.tableRef[idx]);
 }
-// Tables ayant un formulaire natif PUBLIÉ sur la page donnée (nécessaire pour qu'une clé
-// accorde l'écriture — voir ACLRulesReader._addRulesForShare).
-export async function formTablesOnPage(viewRef) {
-  const s = await fetchMeta('_grist_Views_section');
-  const out = [];
-  for (let i = 0; i < s.id.length; i++) {
-    if (s.parentId[i] !== viewRef || s.parentKey[i] !== 'form') continue;
-    let opt = {}; try { opt = JSON.parse(s.shareOptions[i] || '{}') || {}; } catch (e) { /* ignore */ }
-    if (opt.publish && opt.form) out.push(s.tableRef[i]);
-  }
-  return Promise.all(out.map(tableIdOfRef));
-}
-
 // Retrouve, pour une page déjà publiée, la clé de partage déjà générée par « Publier » — sans
 // que le concepteur ait besoin de la copier-coller. D'après docs/01-etude-comparative.md
 // (ACLRulesReader.ts, vérifié dans le code source) : _grist_Pages.shareRef pointe vers la ligne
@@ -110,10 +97,18 @@ export async function clearAutoFields(vsId) {
 // concepteur n'a jamais choisi de publier cette table. Réutilise le partage déjà en place sur
 // cette page, n'en crée jamais un nouveau.
 export async function ensureTableGate(tableId, viewRef) {
-  const already = (await formTablesOnPage(viewRef)).includes(tableId);
-  if (already) return { created: false };
   const tref = await getTableRef(tableId);
   if (!tref) throw new Error(`Table « ${tableId} » introuvable.`);
+  // sectionId du formulaire déjà publié pour CETTE table sur cette page, s'il existe : les
+  // appelants qui n'ont besoin que d'ouvrir le droit d'écriture (texte/nombre/... écrits
+  // ailleurs) l'ignorent, mais une question "Choix depuis une table" écrivant ailleurs en a
+  // besoin pour y attacher son champ Référence caché (ensureChoiceField, config-editor.js).
+  const sections = await fetchMeta('_grist_Views_section');
+  for (let i = 0; i < sections.id.length; i++) {
+    if (sections.parentId[i] !== viewRef || sections.tableRef[i] !== tref || sections.parentKey[i] !== 'form') continue;
+    let opt = {}; try { opt = JSON.parse(sections.shareOptions[i] || '{}') || {}; } catch (e) { /* ignore */ }
+    if (opt.publish && opt.form) return { created: false, sectionId: sections.id[i] };
+  }
   const sectionId = await createFormSection(tref, viewRef, tableId);
   await clearAutoFields(sectionId);
   await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section', sectionId, { shareOptions: JSON.stringify({ publish: true, form: true }) }]]);

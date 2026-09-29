@@ -4,7 +4,7 @@ import { hexToRgb, softenColor, contrastText } from './theme.js';
 import { KINDS } from './kinds.js';
 import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet } from './respond.js';
 import {
-  questionSummary, choiceQuestionsBefore, renderCardBody,
+  questionSummary, conditionSourceCandidates, renderCardBody,
   importNativeFields, resetQuestions, createEmptyForm, populateFormPicker, generate, saveConfig,
 } from './config-editor.js';
 import { findExistingShareKey, ensureTableGate } from './grist-meta.js';
@@ -169,9 +169,14 @@ export async function runTests() {
     assert('softenColor en clair se rapproche du blanc', !!m && Number(m[1]) > 180 && Number(m[2]) > 180);
   });
 
-  await group('choiceQuestionsBefore', () => {
-    state.cfgQuestions = [{ id: 'a', kind: 'choice' }, { id: 'b', kind: 'select' }, { id: 'c', kind: 'text' }, { id: 'd', kind: 'section' }];
-    assertEqual('choice + select seulement, exclut la question courante', choiceQuestionsBefore('a').map(q => q.id), ['b']);
+  await group('conditionSourceCandidates : tous les types comparables, jamais les blocs de mise en page ni les pièces jointes', () => {
+    state.cfgQuestions = [
+      { id: 'a', kind: 'choice' }, { id: 'b', kind: 'select' }, { id: 'c', kind: 'text' },
+      { id: 'd', kind: 'section' }, { id: 'e', kind: 'info' }, { id: 'f', kind: 'attachments' },
+      { id: 'g', kind: 'bool' }, { id: 'h', kind: 'number' }, { id: 'i', kind: 'multiselect' }, { id: 'j', kind: 'longtext' },
+    ];
+    assertEqual('tous les types comparables, exclut la question courante, section/info/pièces jointes',
+      conditionSourceCandidates('a').map(q => q.id), ['b', 'c', 'g', 'h', 'i', 'j']);
   });
 
   await group('questionSummary', () => {
@@ -208,6 +213,15 @@ export async function runTests() {
     plain.value = 'texte';
     assertEqual('repli sur un champ simple', singleValueOf(plain), { value: 'texte', label: 'texte' });
     assertEqual('conteneur nul', singleValueOf(null), { value: '', label: '' });
+
+    // Oui/non (eq-<id> EST directement la case à cocher) : .value d'une case vaut toujours "on"
+    // qu'elle soit cochée ou non — sans le cas dédié, une condition sur un Oui/non lisait
+    // toujours la même valeur (écart corrigé le 29 sept 2026, audit du 21 sept).
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    assertEqual('case décochée', singleValueOf(checkbox), { value: 'false', label: 'Non' });
+    checkbox.checked = true;
+    assertEqual('case cochée', singleValueOf(checkbox), { value: 'true', label: 'Oui' });
   });
 
   await group('conditionMet : combinaisons ET/OU', () => {
@@ -234,6 +248,36 @@ export async function runTests() {
     assert('règle sur une question actuellement masquée -> jamais vraie, même si la valeur DOM correspond', !conditionMet({ mode: 'all', rules: [{ questionId: 'b', value: 'P' }] }));
     host.querySelector('.q').classList.remove('cond-hidden');
     assert('la même règle redevient vraie une fois la question de nouveau visible', conditionMet({ mode: 'all', rules: [{ questionId: 'b', value: 'P' }] }));
+  });
+
+  await group('conditionMet : sources Oui/non, Choix multiples, Nombre, Texte (écart fonctionnel de l’audit du 21 sept corrigé le 29 sept)', () => {
+    const host = mount(document.createElement('div'));
+    host.innerHTML = `
+      <input id="eq-bool" type="checkbox">
+      <div id="eq-multi"><input type="checkbox" value="Fr"><input type="checkbox" value="En"></div>
+      <input id="eq-num" type="number">
+      <input id="eq-txt" type="text">`;
+    const extraQuestions = [
+      { id: 'bool', kind: 'bool' }, { id: 'multi', kind: 'multiselect' },
+      { id: 'num', kind: 'number' }, { id: 'txt', kind: 'text' },
+    ];
+    assert('Oui/non non coché ne matche pas "Oui"', !conditionMet({ mode: 'all', rules: [{ questionId: 'bool', value: 'Oui' }] }, extraQuestions));
+    $('eq-bool').checked = true;
+    assert('Oui/non coché matche "Oui"', conditionMet({ mode: 'all', rules: [{ questionId: 'bool', value: 'Oui' }] }, extraQuestions));
+    assert('Oui/non coché ne matche pas "Non"', !conditionMet({ mode: 'all', rules: [{ questionId: 'bool', value: 'Non' }] }, extraQuestions));
+
+    assert('choix multiples : rien coché ne matche jamais', !conditionMet({ mode: 'all', rules: [{ questionId: 'multi', value: 'Fr' }] }, extraQuestions));
+    host.querySelector('#eq-multi input[value="En"]').checked = true;
+    assert('choix multiples : la valeur cochée matche par inclusion, pas égalité stricte sur toute la sélection', conditionMet({ mode: 'all', rules: [{ questionId: 'multi', value: 'En' }] }, extraQuestions));
+    assert('choix multiples : une valeur non cochée -> false, même si une autre l’est', !conditionMet({ mode: 'all', rules: [{ questionId: 'multi', value: 'Fr' }] }, extraQuestions));
+
+    $('eq-num').value = '42';
+    assert('nombre : égalité sur la valeur saisie', conditionMet({ mode: 'all', rules: [{ questionId: 'num', value: '42' }] }, extraQuestions));
+    assert('nombre : valeur différente -> false', !conditionMet({ mode: 'all', rules: [{ questionId: 'num', value: '43' }] }, extraQuestions));
+
+    $('eq-txt').value = 'Oui je confirme';
+    assert('texte : égalité exacte sur la saisie', conditionMet({ mode: 'all', rules: [{ questionId: 'txt', value: 'Oui je confirme' }] }, extraQuestions));
+    assert('texte : valeur différente -> false', !conditionMet({ mode: 'all', rules: [{ questionId: 'txt', value: 'autre chose' }] }, extraQuestions));
   });
 
   await group('isAnswered', () => {
@@ -331,7 +375,9 @@ export async function runTests() {
       assertEqual(`${k} : bloc "table source" (choice seul)`, hidden('.qf-choice-fields'), k !== 'choice', k);
       assertEqual(`${k} : bloc "options fixes" (select/multiselect)`, hidden('.qf-fixed-options'), !(k === 'select' || k === 'multiselect'), k);
       assertEqual(`${k} : bloc "affichage menu/radio" (select/choice)`, hidden('.qf-display-mode'), !(k === 'select' || k === 'choice'), k);
-      assertEqual(`${k} : bloc "destination" (pas choice/section/info)`, hidden('.qf-text-fields'), (k === 'choice' || k === 'section' || k === 'info'), k);
+      assertEqual(`${k} : bloc "destination" (pas section/info)`, hidden('.qf-text-fields'), (k === 'section' || k === 'info'), k);
+      assertEqual(`${k} : "colonne de destination" (pas choice, écart corrigé 29 sept : choice règle sa table mais pas sa colonne)`, hidden('.qf-write-col-field'), k === 'choice', k);
+      assertEqual(`${k} : indice "choix depuis une table" (choice seul)`, hidden('.qf-choice-table-hint'), k !== 'choice', k);
       assertEqual(`${k} : "obligatoire" (pas section/info)`, hidden('.qf-required-row'), (k === 'section' || k === 'info'), k);
       assertEqual(`${k} : description courte (pas info)`, hidden('.qf-desc'), k === 'info', k);
       assertEqual(`${k} : description longue (info seul)`, hidden('.qf-desc-long'), k !== 'info', k);
@@ -409,6 +455,46 @@ export async function runTests() {
     assert('bascule ET/OU de nouveau masquée', body.querySelector('.qf-cond-mode').classList.contains('hidden'));
   });
 
+  await group('renderCardBody : la cellule "égale" d’une condition s’adapte au type de la question source (écart fonctionnel de l’audit du 21 sept, corrigé le 29 sept)', async () => {
+    state.cfgQuestions = [
+      { id: 'srcSelect', kind: 'select', label: 'Statut', choices: ['Ouvert', 'Fermé'] },
+      { id: 'srcBool', kind: 'bool', label: 'Urgent' },
+      { id: 'srcNum', kind: 'number', label: 'Montant' },
+      { id: 'srcTxt', kind: 'text', label: 'Note' },
+    ];
+    state.mainTableIdCache = 'Main';
+    state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+    state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
+    window.grist = { docApi: { listTables: async () => ['Main'], fetchTable: async (t) => t === '_grist_Tables' ? { id: [1], tableId: ['Main'] } : { id: [10], colA: ['x'] } } };
+    const body = mount(document.createElement('div'));
+    await renderCardBody('__new__', body);
+    body.querySelector('[data-reveal="condition"]').click();
+    const cell = () => body.querySelector('.qf-cond-value[data-idx="0"]');
+    const pickSource = async (id) => { body.querySelector('.qf-condQ').value = id; body.querySelector('.qf-condQ').dispatchEvent(new Event('change')); await tick(); };
+
+    await pickSource('srcSelect');
+    assert('source à choix fixes -> combo de recherche', !!cell().querySelector('.combo-input'));
+
+    await pickSource('srcBool');
+    assert('source Oui/non -> combo (Oui/Non), pas une saisie libre', !!cell().querySelector('.combo-input'));
+    cell().querySelector('.combo-input').dispatchEvent(new Event('focus'));
+    assertEqual('valeurs proposées pour Oui/non : Oui et Non', [...cell().querySelectorAll('.combo-opt')].map(o => o.textContent), ['Oui', 'Non']);
+
+    await pickSource('srcNum');
+    assert('source Nombre -> saisie libre (pas de combo)', !!cell().querySelector('input[type=number].qf-cond-freevalue') && !cell().querySelector('.combo-input'));
+
+    await pickSource('srcTxt');
+    assert('source Texte -> saisie libre (pas de combo)', !!cell().querySelector('input[type=text].qf-cond-freevalue') && !cell().querySelector('.combo-input'));
+    cell().querySelector('input').value = 'valeur libre';
+    cell().querySelector('input').dispatchEvent(new Event('input'));
+    body.querySelector('.qf-label').value = 'Dépendante';
+    selectCombo(body.querySelector('[data-combo="writeCol"]'), 'colA');
+    body.querySelector('.qf-save').click();
+    await tick();
+    assertEqual('la valeur saisie librement est bien reprise à l’enregistrement', state.cfgQuestions.find(q => q.label === 'Dépendante')?.condition,
+      { mode: 'all', rules: [{ questionId: 'srcTxt', op: 'equals', value: 'valeur libre' }] });
+  });
+
   await group('renderCardBody / saveQuestionFromCard : condition à plusieurs règles, chargement puis changement ET/OU', async () => {
     state.cfgQuestions = [
       { id: 'src1', kind: 'select', label: 'Statut', choices: ['Ouvert', 'Fermé'] },
@@ -466,6 +552,68 @@ export async function runTests() {
     assertEqual('sourceTable', state.cfgQuestions[0]?.sourceTable, 'Autre');
     assertEqual('sourceCol', state.cfgQuestions[0]?.sourceCol, 'nom');
     assert('writeCol calculé (référence cachée)', typeof state.cfgQuestions[0]?.writeCol === 'string' && state.cfgQuestions[0].writeCol.startsWith('FormPlus_src_'));
+  });
+
+  await group('saveQuestionFromCard : choix depuis une table, écriture dans une autre table (écart fonctionnel de l’audit du 21 sept, corrigé le 29 sept)', async () => {
+    state.cfgQuestions = [];
+    state.mainTableIdCache = 'Main';
+    state.currentFormSection = { id: 1, viewRef: 7, tableRef: 1 };
+    let sectionsState = { id: [], parentId: [], parentKey: [], tableRef: [], shareOptions: [] };
+    let fieldsState = { id: [], parentId: [], colRef: [], widgetOptions: [] };
+    let nextSectionId = 900, nextFieldId = 9000;
+    window.grist = makeGristStub({
+      listTables: ['Main', 'Autre', 'Secondaire'],
+      fetchTable: (t) => {
+        if (t === '_grist_Tables') return { id: [1, 2, 3], tableId: ['Main', 'Autre', 'Secondaire'] };
+        if (t === '_grist_Tables_column') return { id: [], colId: [], parentId: [], type: [], visibleCol: [] };
+        if (t === '_grist_Views_section') return { ...sectionsState };
+        if (t === '_grist_Views_section_field') return { ...fieldsState };
+        if (t === 'Autre') return { id: [1, 2], nom: ['Alpha', 'Beta'] };
+        return {};
+      },
+      onAction: (a) => {
+        if (a[0] === 'CreateViewSection') {
+          const newId = nextSectionId++;
+          sectionsState = {
+            id: [...sectionsState.id, newId], parentId: [...sectionsState.parentId, a[2]],
+            parentKey: [...sectionsState.parentKey, 'form'], tableRef: [...sectionsState.tableRef, a[1]],
+            shareOptions: [...sectionsState.shareOptions, '{}'],
+          };
+          // Comme un vrai document Grist (voir createFormSection, grist-meta.js) : l'id créé
+          // est renvoyé directement dans retValues, jamais retrouvé en re-lisant les tables.
+          return { sectionRef: newId };
+        } else if (a[0] === 'UpdateRecord' && a[1] === '_grist_Views_section') {
+          const idx = sectionsState.id.indexOf(a[2]);
+          if (idx >= 0 && a[3].shareOptions !== undefined) {
+            const arr = [...sectionsState.shareOptions]; arr[idx] = a[3].shareOptions; sectionsState.shareOptions = arr;
+          }
+        } else if (a[0] === 'AddRecord' && a[1] === '_grist_Views_section_field') {
+          fieldsState = {
+            id: [...fieldsState.id, nextFieldId++], parentId: [...fieldsState.parentId, a[3].parentId],
+            colRef: [...fieldsState.colRef, a[3].colRef], widgetOptions: [...fieldsState.widgetOptions, a[3].widgetOptions],
+          };
+        }
+      },
+    }).grist;
+    state.options = { publicUrl: 'https://x', viewRef: 7, vsId: 1, questions: [] };
+    const body = mount(document.createElement('div'));
+    await renderCardBody('__new__', body);
+    body.querySelector('[data-kind="choice"]').click();
+    body.querySelector('.qf-label').value = 'Departement';
+    selectCombo(body.querySelector('[data-combo="srcTable"]'), 'Autre');
+    await tick();
+    selectCombo(body.querySelector('[data-combo="srcCol"]'), 'nom');
+    body.querySelector('[data-reveal="table"]').click();
+    selectCombo(body.querySelector('[data-combo="writeTable"]'), 'Secondaire');
+    body.querySelector('.qf-save').click();
+    await tick();
+    const q = state.cfgQuestions[0];
+    assertEqual('une question créée', state.cfgQuestions.length, 1, JSON.stringify(state.cfgQuestions));
+    assertEqual('écrit dans la table choisie, pas la table principale', q?.writeTable, 'Secondaire');
+    assert('writeCol calculé (référence cachée)', typeof q?.writeCol === 'string' && q.writeCol.startsWith('FormPlus_src_'));
+    assertEqual('un formulaire publié a été créé pour "Secondaire" (ensureTableGate)', sectionsState.tableRef.filter(t => t === 3).length, 1);
+    const gateSectionId = sectionsState.id[sectionsState.tableRef.indexOf(3)];
+    assertEqual('le champ Référence caché est attaché à CE formulaire, pas au formulaire principal', fieldsState.parentId, [gateSectionId]);
   });
 
   await group('renderCardBody : deux enregistrements automatiques rapides sur une question neuve ne créent qu’une seule entrée', async () => {
@@ -999,6 +1147,7 @@ export async function runTests() {
     window.grist = grist;
     const result = await ensureTableGate('Secondaire', 7);
     assert('section signalée comme créée', result.created === true);
+    assertEqual('sectionId de la section créée renvoyé (utilisé par "Choix depuis une table" écrivant ailleurs)', result.sectionId, 900);
     assertEqual('plus aucun champ sur la section une fois publiée : réellement vide', fieldsState.id.length, 0);
     const allActions = calls.flatMap(a => a);
     const removeCalls = allActions.filter(a => a[0] === 'RemoveRecord' && a[1] === '_grist_Views_section_field');
@@ -1012,6 +1161,7 @@ export async function runTests() {
     const callsBefore = calls.length;
     const result2 = await ensureTableGate('Secondaire', 7);
     assertEqual('déjà ouvert : aucune nouvelle section', result2.created, false);
+    assertEqual('déjà ouvert : renvoie quand même le sectionId de la section existante', result2.sectionId, 900);
     assertEqual('aucun nouvel appel', calls.length, callsBefore);
   });
 
