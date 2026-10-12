@@ -1,7 +1,7 @@
 # Form builder Grist : étude comparative et options de lien dédié
 
 Date : 16 septembre 2026.
-Sources : code source `gristlabs/grist-core` (branche main), dépôt `isaytoo/grist-form-builder-widget` (dernier commit 22 juin 2026), aide Grist (support.getgrist.com), forum grist.libre.sh, dépôts `gristgouv`, `gristlabs/grist-form-submit`.
+Sources : code source `gristlabs/grist-core` (branche main), dépôt `isaytoo/grist-form-builder-widget` (dernier commit 22 juin 2026), dépôt `nic01asFr/Widgets-Grist` (sous-dossier `projects/grist_forms`, ajouté le 12 octobre 2026), aide Grist (support.getgrist.com), forum grist.libre.sh, dépôts `gristgouv`, `gristlabs/grist-form-submit`.
 
 Légende : ✅ oui · 🟡 partiel ou avec réserve · ❌ non · n/a sans objet.
 
@@ -269,9 +269,70 @@ Un seul moteur de formulaire, plusieurs transports interchangeables selon le con
 
 ---
 
+## 6. Un deuxième widget observé : Form Builder (nic01asFr)
+
+Question posée le 12 octobre 2026 : le fil de forum *« Form Builder (Grist Forms), générateur de formulaires pour Grist »* (https://forum.grist.libre.sh/t/form-builder-generateur-de-formulaires/1591) décrit-il un widget déjà croisé dans ce document ? Réponse : non, c'est un projet distinct d'isaytoo (section 2), jamais mentionné ici avant ce jour. Comparatif ci-dessous.
+
+### 6.1 Présentation
+
+- **Projet** : « Form Builder », widget personnalisé Grist de nic01asFr, annoncé le 25 juillet 2025 dans la catégorie Développement du forum.
+- **Dépôt** : `nic01asFr/Widgets-Grist`, sous-dossier `projects/grist_forms`, licence MIT. S'installe comme un widget personnalisé classique pointant vers `https://nic01asfr.github.io/Widgets-Grist/grist_forms/builder.html`, avec accès complet au document.
+- **Différence structurelle avec isaytoo et avec FormPlus** : c'est un widget personnalisé « ordinaire », sans proxy ni table de config à part — chaque question cible directement une colonne Grist existante ou créée à la demande. Pas de lien public à base de clé de partage réutilisée documenté : la page publiée se partage « comme toute page Grist, avec les droits choisis ».
+
+### 6.2 Fonctionnalités principales (README du dépôt et fil du forum)
+
+- 11 types de question : texte/paragraphe/nombre, oui-non, liste et cases à cocher (avec option « Autre » + précision), échelle (curseur), classement (grille), date et date-heure, référence (`Ref`/`RefList`), fichier/photo, lieu sur carte, dessin/signature.
+- Carte intégrée (MapLibre, fonds IGN Géoplateforme, tracé via terra-draw) pour poser un point, une ligne ou un contour.
+- Étapes (pages) avec progression affichée, logique conditionnelle par question, et saut d'une étape entière selon les réponses.
+- Reconnaissance de la personne qui ouvre le formulaire (connectée ou non, adresse, groupe) pour réserver certaines questions — « confort, non sécurité » selon l'auteur, qui rappelle que seuls les droits Grist protègent une donnée sensible.
+- Publication en page dédiée dans le document, plusieurs versions pouvant coexister (la suivante se prépare pendant que le public répond à la précédente).
+- Synthèse des réponses en lecture seule, qui reconstitue le sens des questions complexes (échelle, classement).
+- Aucune option de personnalisation graphique décrite (couleur, logo, thème).
+
+### 6.3 Tableau comparatif face à FormPlus
+
+| Fonctionnalité | Grist natif | Form Builder (nic01asFr) | FormPlus (notre widget) |
+|---|---|---|---|
+| Champs simples (texte, nombre, date, oui/non) | ✅ | ✅ | ✅ |
+| Texte long / paragraphe | ✅ multiligne | ✅ | ✅ |
+| Choix, choix multiples, option « Autre » + précision | ✅ sans « Autre » dédié | ✅ avec plafond et « Autre » | 🟡 choix et choix multiples, pas d'option « Autre » dédiée |
+| Référence simple / Liste de références | ✅ | ✅ `Ref` et `RefList` | 🟡 `Ref` seule (« Choix depuis une table ») ; `RefList` hors périmètre |
+| Date et heure (`DateTime`) | ✅ | ✅ | ❌ hors périmètre déclaré de la feuille de route |
+| Pièces jointes, capture photo mobile | ✅ upload | ✅ upload + prise de photo | 🟡 upload seul |
+| Échelle (curseur), classement | ❌ | ✅ | ❌ non prévu sur la feuille de route |
+| Lieu sur carte (point, tracé, contour) | ❌ | ✅ MapLibre + IGN | ❌ non prévu sur la feuille de route |
+| Dessin, signature | ❌ | ✅ en pièce jointe | ❌ non prévu sur la feuille de route |
+| Logique conditionnelle par question | ❌ issue #955 | 🟡 annoncée ; signalée peu fiable en pratique par un testeur ANCT (21 oct. 2025) | ✅ ET/OU combinés, sur tout type de question comparable |
+| Étapes/pages, saut d'étape conditionnel | 🟡 sections sans pagination | ✅ | ❌ V2 de la feuille de route (multi-pages) |
+| Réservation de questions selon l'identité du répondant | 🟡 règles d'accès | ✅ dédiée (confort, pas sécurité) | ❌ non prévu |
+| Multi-tables en écriture, ouverture automatique des droits | ❌ une table | 🟡 mentionné, mécanisme non détaillé | ✅ `ensureTableGate`, ouverture en un clic |
+| Multi-tables en lecture (options depuis une autre table) | 🟡 tables référencées | ✅ | ✅ |
+| Lien public sans compte, document non exposé | n/a | 🟡 « partage explicite » requis, pas de réutilisation documentée d'une clé de partage | ✅ transport 1, clé de partage native réutilisée, zéro règle d'accès à écrire |
+| Personnalisation visuelle (couleur, logo, thème) | ❌ | ❌ aucune option décrite | ✅ couleur d'accent, logo, thème clair/sombre côté répondant |
+| Versions multiples en parallèle (prochaine version en préparation) | ❌ | ✅ | ❌ non prévu |
+| Synthèse des réponses dans le widget, sans repasser par la grille | 🟡 tableaux Grist | ✅ reconstitue le sens (échelle, classement) | ❌ V2 de la feuille de route |
+| Licence | n/a | MIT | Apache-2.0 |
+
+### 6.4 Retours d'utilisateurs relevés dans le fil du forum
+
+- **Guillaume (26 juillet 2025)** : lien Sites Faciles non fonctionnel, champ texte illisible en thème sombre.
+- **Jmarchal (28 juillet – 1er août 2025)** : pas de lien de partage direct, bouton défaillant hors Grist, seuls 28 champs sur 41 proposés sur un cas réel.
+- **audezu, ANCT (21 octobre 2025)** : sur une table de 80 colonnes, certains champs n'apparaissaient pas et les conditions ne fonctionnaient pas en pratique ; point positif, le multi-pages.
+- **fabshd (19 janvier 2026)** : le document d'exemple contenait une liste nominative (noms, emails) — alerte RGPD, données retirées par l'auteur après coup.
+- **ailepet (13 février 2026)** : case « obligatoire » parfois sans effet, booléen affiché comme texte « False », erreur après renommage d'une table ou d'une colonne.
+- **mikaels (11 octobre 2026)** : hébergé hors Grist, l'envoi échoue (« Unknown forward destination: grist ») ; la portabilité annoncée dans une version antérieure n'a pas été reprise dans la V2 actuelle.
+
+### 6.5 Conclusion
+
+Form Builder va plus loin que FormPlus sur des types de question que notre feuille de route n'a jamais inscrite (carte, dessin/signature, échelle, classement, saut d'étape) : à garder en tête comme pistes V3 si un client les demande, mais rien n'impose de les ajouter aujourd'hui. À l'inverse, deux points où FormPlus est déjà plus solide ou plus simple pour un agent sans droits serveur : le lien public sans aucune règle d'accès à écrire (transport 1, clé de partage native réutilisée), et la personnalisation visuelle côté répondant. Les retours du forum (conditions peu fiables sur de gros documents, bugs de casse après renommage) confirment l'intérêt de la suite de tests maintenue dans ce dépôt plutôt que d'une fonctionnalité non vérifiée.
+
+---
+
 ## Références
 
 - isaytoo/grist-form-builder-widget : https://github.com/isaytoo/grist-form-builder-widget
+- nic01asFr/Widgets-Grist, widget Form Builder : https://github.com/nic01asFr/Widgets-Grist/tree/main/projects/grist_forms
+- Fil forum Form Builder (nic01asFr) : https://forum.grist.libre.sh/t/form-builder-generateur-de-formulaires/1591
 - Fil forum Form Builder Pro : https://forum.grist.libre.sh/t/constructeur-de-formulaires-visuel/2957 et https://forum.grist.libre.sh/t/creation-de-formulaires/3636
 - Aide Grist Formulaires : https://support.getgrist.com/widget-form/
 - Aide Grist Widgets personnalisés : https://support.getgrist.com/widget-custom/
