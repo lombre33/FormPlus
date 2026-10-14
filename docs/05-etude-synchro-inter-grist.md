@@ -25,7 +25,9 @@ Trois corrections à l'idée de départ :
 2. **La CIBLE ne peut pas « comparer et mettre à jour » avec la clé du formulaire**, qui n'autorise
    que l'ajout. La mise à jour se calcule dans la CIBLE : un journal en ajout seul, plus une table
    de synthèse qui garde la dernière version de chaque ligne (vérifié, section 3). Une vraie table
-   éditable mise à jour en place demande un relais muni d'une clé d'API ou d'un compte de service.
+   éditable mise à jour en place demande soit un widget FormPlus dans la CIBLE qui recopie le
+   journal quand un éditeur ouvre la page (design C, section 5), soit un relais muni d'une clé
+   d'API ou d'un compte de service (design B).
 3. **Les suppressions ne sont jamais transmises** (Grist ne connaît que « ajout » et
    « modification ») : il faut une suppression logique côté SOURCE.
 
@@ -210,13 +212,31 @@ geste qui sert aussi de resynchronisation périodique pour rattraper d'éventuel
 | | A. Miroir sans serveur | B. Relais avec upsert | C. Widget CIBLE consolidateur |
 |---|---|---|---|
 | Transport | Webhook → clé de formulaire `?flat=1` → `Journal` | Webhook → petite fonction hébergée → `PUT` upsert | Webhook → clé de formulaire → `Journal` |
-| Mise à jour côté CIBLE | Table de synthèse, en lecture seule | Table normale, éditable | Le widget applique les versions dans une table éditable |
-| Tourne sans personne | Oui | Oui | Non, seulement page ouverte |
+| Mise à jour côté CIBLE | Table de synthèse, en lecture seule | Table normale, éditable | Le widget recopie les dernières versions de `Journal` (table A) dans une table éditable (table B) |
+| Tourne sans personne | Oui | Oui | Transport oui ; consolidation seulement quand un éditeur ouvre la page de B |
 | Tables avec Références ou mise en forme | Non (table d'export plate) | Oui (le relais filtre) | Non (même transport que A) |
 | Secret à gérer | Aucun | Clé d'API ou compte de service | Aucun |
 | Hébergement | Aucun | Une fonction serverless (quasi gratuite à ce volume) | Aucun |
 | Conditions DINUM | Son propre domaine autorisé | Domaine du relais autorisé (`.gouv.fr` ou démarche RSSI) | Comme A |
-| État | Vérifié en local | Vérifié en local | Non testé |
+| État | Vérifié en local | Vérifié en local | Transport vérifié (comme A) ; consolidation non testée, déduite du code |
+
+**Précision sur C (proposée par Antoine le 14 octobre 2026).** La limite « la clé n'autorise que
+l'ajout » ne concerne que le transport. La consolidation de C ne passe pas par la clé : le widget,
+ouvert dans la CIBLE par un éditeur avec l'accès complet, lit `Journal` (`grist.docApi.fetchTable`)
+et écrit dans la table B avec les droits de cette personne (`grist.docApi.applyUserActions`, déjà
+utilisé par FormPlus pour écrire dans d'autres tables). Conditions pour que ce soit fiable :
+
+- la consolidation n'a lieu que si un éditeur ouvre la page qui porte le widget (même replié) ; B
+  consultée autrement, ou par un lecteur, reste en retard, comme tout ce qui la lit entre deux
+  ouvertures (formules, exports, autres vues) ;
+- pour ne pas écraser une retouche faite à la main dans B par une version plus ancienne, B garde
+  pour chaque ligne l'identifiant de la dernière ligne de `Journal` appliquée, et seules les
+  versions plus récentes sont recopiées ;
+- deux éditeurs qui ouvrent la page en même temps ne posent pas de problème si l'écriture se fait
+  par clé source (`BulkAddOrUpdateRecord` avec `require`) : appliquer deux fois la même version
+  donne le même résultat ;
+- `Journal` grossit toujours : le widget peut le purger des versions déjà appliquées, puisqu'il
+  écrit avec les droits d'un éditeur.
 
 Écartés : le widget observateur côté SOURCE (section 1) et `REQUEST()` (désactivée par défaut).
 Le design B correspond au « relais serveur (transport 3) » déjà classé V3 dans la feuille de
@@ -243,18 +263,13 @@ formulaire natif d'un même document.
 
 Le forum Grist francophone (animateurs, rien d'officiel) indique que les webhooks DINUM sont
 filtrés par liste blanche et que les domaines `.gouv.fr` sont autorisés « de facto ». Si c'est
-le cas, `grist.numerique.gouv.fr` s'autorise lui-même et le design A fonctionne tel quel ; sinon
-il est impossible là-bas. Test décisif, par un propriétaire, sur un site d'équipe (les liens de
-partage anonymes ne fonctionnent pas sur un site personnel) :
-
-1. Dans un document CIBLE : une table `Journal` avec exactement les mêmes identifiants de colonnes
-   que la table SOURCE de test (sans Référence ni mise en forme conditionnelle côté SOURCE), un
-   formulaire publié sur `Journal`, son lien copié pour en extraire la clé.
-2. Dans le document SOURCE : Paramètres du document, section API, « Gérer les webhooks » ; adresse
-   `https://grist.numerique.gouv.fr/api/s/<clé>/tables/Journal/records?flat=1`, événements ajout
-   et modification.
-3. Un refus « Provided url is forbidden » à l'enregistrement : le design A est impossible sur
-   DINUM. Sinon, ajouter une ligne dans la SOURCE et vérifier qu'elle apparaît dans `Journal`.
+le cas, `grist.numerique.gouv.fr` s'autorise lui-même et les designs A et C fonctionnent tels
+quels ; sinon ils sont impossibles là-bas. La procédure de test pas à pas (10 à 15 minutes, avec
+les libellés de l'interface en français et la lecture de chaque message d'erreur possible) est
+dans [`05-annexe-test-dinum.md`](05-annexe-test-dinum.md). En résumé : un formulaire publié sur
+une table `Journal` dans un document CIBLE, un webhook dans un document SOURCE vers
+`<début du lien du formulaire>/api/s/<clé>/tables/Journal/records?flat=1`, puis un ajout et une
+modification dans la SOURCE.
 
 Restent aussi inconnus sur DINUM : la présence de Redis (persistance de la file), l'activation des
 comptes de service et de `REQUEST()`, le plafond de lignes par document.
