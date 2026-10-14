@@ -48,11 +48,21 @@ Les libellés ci-dessous sont ceux de l'interface Grist en français.
 Ce contrôle sépare deux causes d'échec possibles (la clé et `?flat=1` d'un côté, le réglage des
 webhooks de l'autre). Au choix :
 
-**Depuis un terminal :**
+**Depuis l'invite de commandes Windows (`cmd`)** : les guillemets intérieurs doivent être
+précédés d'une barre oblique inverse, `cmd` ne comprenant pas les apostrophes :
+
+```
+curl -sS -X POST "<URL du webhook>" -H "Content-Type: application/json" -d "[{\"Nom\":\"Test curl\",\"Ville\":\"Paris\"}]"
+```
+
+**Depuis un terminal macOS ou Linux :**
 
 ```
 curl -sS -X POST "<URL du webhook>" -H "Content-Type: application/json" -d '[{"Nom":"Test curl","Ville":"Paris"}]'
 ```
+
+Une réponse `Unexpected token … is not valid JSON` veut seulement dire que les guillemets ont été
+mal passés par le terminal (cas typique : la version macOS/Linux lancée dans `cmd`).
 
 **Ou depuis le navigateur**, sur n'importe quelle page de grist.numerique.gouv.fr, ouvre la console
 des outils de développement (F12, onglet Console) et colle :
