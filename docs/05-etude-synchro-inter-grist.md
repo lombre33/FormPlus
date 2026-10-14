@@ -31,9 +31,9 @@ Trois corrections à l'idée de départ :
 3. **Les suppressions ne sont jamais transmises** (Grist ne connaît que « ajout » et
    « modification ») : il faut une suppression logique côté SOURCE.
 
-Le seul point bloquant non vérifié est un réglage de l'instance DINUM : la variable
-`ALLOWED_WEBHOOK_DOMAINS` doit autoriser `grist.numerique.gouv.fr` lui-même. Un test de dix minutes
-le tranche (section 7).
+Le seul point bloquant était un réglage de l'instance DINUM : la variable
+`ALLOWED_WEBHOOK_DOMAINS` doit autoriser `grist.numerique.gouv.fr` lui-même. **Le test réel du
+14 octobre 2026 l'a confirmé : la chaîne fonctionne sur DINUM** (section 7).
 
 Le rôle naturel de FormPlus n'est donc pas d'être le moteur de la synchro mais son **assistant de
 configuration** : préparer les tables et le formulaire dédié côté CIBLE, puis créer le webhook côté
@@ -271,8 +271,24 @@ une table `Journal` dans un document CIBLE, un webhook dans un document SOURCE v
 `<début du lien du formulaire>/api/s/<clé>/tables/Journal/records?flat=1`, puis un ajout et une
 modification dans la SOURCE.
 
-Restent aussi inconnus sur DINUM : la présence de Redis (persistance de la file), l'activation des
-comptes de service et de `REQUEST()`, le plafond de lignes par document.
+**Résultat du test réel, 14 octobre 2026 (Antoine, sur grist.numerique.gouv.fr) : ça marche.**
+
+- Étape 2 : un `POST` anonyme `?flat=1` par la clé du formulaire répond `{"records":[{"id":3}]}`,
+  donc la version de l'instance accepte le format des webhooks.
+- Étape 3 : le webhook vers `grist.numerique.gouv.fr` lui-même est accepté à la création (Statut
+  `idle`, pas de « Provided url is forbidden »), donc `ALLOWED_WEBHOOK_DOMAINS` autorise
+  l'instance elle-même.
+- Étape 4 : le premier envoi a été livré à la CIBLE, qui a répondu `400 Invalid column "C"` (la
+  colonne `C` par défaut restait dans la SOURCE) : l'aller-retour DINUM vers DINUM passe le proxy
+  sortant. Supprimer `C` côté SOURCE n'a pas suffi, car l'envoi en échec, en tête de file, bloquait
+  les suivants (6 en attente) ; après « Effacer la file d'attente », les nouvelles lignes sont
+  arrivées dans `Journal`.
+- Piège pratique : sous l'invite de commandes Windows, `curl` exige des guillemets échappés
+  (`\"`) et pas d'apostrophes (variante ajoutée à l'annexe).
+
+Les designs A et C sont donc réalisables sur DINUM sans serveur. Restent inconnus : la présence de
+Redis (persistance de la file), l'activation des comptes de service et de `REQUEST()`, le plafond
+de lignes par document.
 
 ## 8. État de l'art
 
