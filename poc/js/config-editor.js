@@ -539,6 +539,7 @@ function wireKindSelector(body, kind, displayMode) {
     body.querySelector('.qf-text-fields').classList.toggle('hidden', layout);
     body.querySelector('.qf-write-col-field').classList.toggle('hidden', k === 'choice');
     body.querySelector('.qf-choice-table-hint').classList.toggle('hidden', k !== 'choice');
+    body.querySelector('.qf-attachments-hint').classList.toggle('hidden', k !== 'attachments');
     body.querySelector('.qf-required-row').classList.toggle('hidden', layout);
     body.querySelector('.qf-desc-label-short').classList.toggle('hidden', k === 'info');
     body.querySelector('.qf-desc').classList.toggle('hidden', k === 'info');
@@ -816,6 +817,7 @@ export async function renderCardBody(id, body) {
         <p class="qf-choice-table-hint muted hidden">« Choix depuis une table » crée sa propre colonne (référence cachée) dans la table choisie : rien à régler pour la colonne, seulement la table.</p>
       </div>
     </div>
+    <p class="qf-attachments-hint muted hidden">⚠️ L'envoi de pièces jointes par un répondant échoue encore sur certaines instances Grist (limitation connue de Grist pour les fichiers envoyés de façon anonyme, pas un réglage de ce widget) : à tester sur votre instance avant de compter sur cette question.</p>
     <button type="button" class="qf-link" data-reveal="condition">${ICONS.branch}<span>Condition d'affichage</span></button>
     <div class="qf-condition ${conditionOpen ? '' : 'hidden'}">
       <div class="qf-cond-mode hidden">

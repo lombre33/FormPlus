@@ -295,3 +295,49 @@ touche FormPlus hors synchro. Reproduit sur Grist 1.7.21, par clé de partage, d
 Les questions « Pièces jointes » et les champs natifs Pièces jointes ne fonctionneraient donc pas
 pour un répondant réel, alors que la suite de tests hors ligne (qui simule `fetch`) les voit
 passer. À traiter dans un chantier dédié.
+
+### Suite (14 oct 2026) : le point 1 est corrigé, le point 2 est une limitation de Grist
+
+Repris dans un fil dédié, avec reproduction sur un Grist 1.7.21 local (Docker), par clé de
+partage, avec une vraie requête cross-origin dans Chromium (deux origines `localhost` de ports
+différents, équivalent à `github.io` face à l'instance Grist) :
+
+- **Point 1 (401), corrigé** : `poc/js/respond.js` envoie désormais `X-Requested-With:
+  XMLHttpRequest` avec le fichier, comme l'exige la protection CSRF de Grist pour toute requête
+  anonyme de modification sans corps JSON. Avant correctif, le navigateur voyait exactement
+  `TypeError: Failed to fetch` (vérifié) ; après correctif, l'envoi réussit (`200`, un identifiant
+  de pièce jointe valide est renvoyé).
+- **Point 2 (403 « Cannot access attachment »), confirmé comme une limitation de la plateforme
+  Grist, pas un réglage à corriger côté FormPlus.** Vérifié dans le code de `grist-core` : Grist
+  lie l'autorisation de référencer une pièce jointe anonyme à la session (cookie) qui l'a
+  envoyée (`user.SessionID`, calculé par requête depuis un `altSessionId` stocké côté serveur
+  dans la session Express). Et Grist **refuse explicitement tout cookie sur une requête
+  cross-origin dont l'origine n'est pas la sienne** (`trustOrigin`/`allowHost` : seule une origine
+  qui correspond au propre nom d'hôte de l'instance Grist est « de confiance » — jamais un
+  domaine tiers comme `github.io`, pas de réglage d'instance pour l'y ajouter). Testé directement :
+  avec un cookie malgré tout envoyé en cross-origin, Grist répond `403 "Credentials not supported
+  for cross-origin requests"` — une erreur différente, qui confirme que ce chemin est fermé par
+  conception. Sans cookie du tout (le comportement actuel du widget), chaque requête obtient une
+  session anonyme différente, donc l'upload et la ligne qui le référence n'ont jamais la même
+  identité → `403 "Cannot access attachment"`, de façon systématique.
+  - Piste explorée et écartée : `grist.docApi.getAccessToken()` (jeton passé en paramètre d'URL
+    `?auth=`, pas un cookie, donc pas bloqué par la même règle). Mais (a) elle suppose un widget
+    réellement connecté à une page Grist (jamais le cas en mode autonome `#form=`, et `docApi` ne
+    propose de toute façon aucune méthode d'upload — l'envoi du fichier reste une requête HTTP
+    directe dans tous les cas) ; (b) des tickets ouverts chez Grist Labs (PR #1614, issue #1853)
+    décrivent le même échec « Cannot access attachment » pour un jeton émis à une identité
+    anonyme — un jeton ne contourne donc pas le problème pour un répondant non connecté.
+- **Conséquence pratique** : une question « Pièces jointes » (native ou FormPlus) échoue pour
+  tout répondant passant par le widget, qu'il soit anonyme ou connecté — ce n'est pas spécifique
+  aux visiteurs anonymes, c'est l'appel direct depuis l'origine du widget qui pose problème.
+- **Ce qui a été fait, sans bidouille côté session** : correctif du point 1 (en-tête manquant,
+  commit de ce fil) ; message d'erreur affiché au répondant tiré du message réel renvoyé par
+  Grist plutôt que d'un code HTTP brut ; avertissement ajouté dans l'éditeur de question sur le
+  type « Pièces jointes » pour prévenir le concepteur du formulaire avant qu'un répondant ne soit
+  bloqué en production ; nouveau test (hors ligne) qui vérifie que l'en-tête est bien envoyé, pour
+  que cette régression précise ne puisse plus repasser inaperçue malgré le mock de `fetch`.
+- **Reste ouvert** : aucun correctif FormPlus ne peut rendre l'envoi de pièces jointes fiable pour
+  un répondant tant que l'upload doit passer par une requête cross-origin depuis l'origine du
+  widget. Une vraie résolution demanderait soit un correctif côté `grist-core` (jeton d'accès
+  réellement stable pour une identité anonyme), soit d'héberger FormPlus sur le même nom d'hôte
+  que l'instance Grist (hors de portée d'un widget tiers).

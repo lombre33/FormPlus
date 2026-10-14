@@ -1229,6 +1229,32 @@ export async function runTests() {
     assertEqual('pièce jointe : upload puis écriture séparée vers la table Pieces', extraTableWrites[1]?.[0], ['AddRecord', 'Pieces', null, { PJ: ['L', 99] }]);
   });
 
+  await group('onSubmit : l’envoi d’une pièce jointe porte l’en-tête anti-CSRF attendu par Grist', async () => {
+    // Sans cet en-tête (ou un Content-Type: application/json, impossible ici puisque le corps
+    // est un FormData), Grist refuse en 401 toute requête anonyme de modification — vu par le
+    // navigateur comme une simple erreur réseau (bug constaté en production, jamais détecté par
+    // cette suite tant que le mock ci-dessous ne vérifiait pas l'en-tête réellement envoyé).
+    const form = { formTableId: 'Reponses', formFieldsById: {} };
+    const link = { api: 'https://fake/api/s/KEY' };
+    const formEl = mount(document.createElement('form'));
+    formEl.innerHTML = `<input type="text" name="_website" value="" style="display:none">
+      <div class="q pv-q" data-native="1" data-type="Attachments" data-col="PJ" data-required="0"><input type="file" multiple></div>
+      <span id="fill-status"></span><button type="submit"></button>`;
+    const dt = new DataTransfer();
+    dt.items.add(new File(['contenu'], 'x.pdf', { type: 'application/pdf' }));
+    formEl.querySelector('input[type=file]').files = dt.files;
+    let capturedHeaders = null;
+    window.fetch = async (url, opts) => {
+      if (String(url).includes('/attachments')) { capturedHeaders = opts.headers; return { ok: true, json: async () => ([1]) }; }
+      if (String(url).includes('/tables/Reponses/records')) return { ok: true, json: async () => ({ records: [{ id: 1 }] }) };
+      return { ok: true, json: async () => ({}) };
+    };
+    state.options = {};
+    await onSubmit({ preventDefault() {}, target: formEl }, form, link, []);
+    await tick();
+    assertEqual('X-Requested-With: XMLHttpRequest envoyé avec le fichier', capturedHeaders?.['X-Requested-With'], 'XMLHttpRequest');
+  });
+
   await group('onSubmit : un échec sur une table secondaire ne s’affiche jamais comme un succès complet', async () => {
     const form = { formTableId: 'Reponses', formFieldsById: {} };
     const link = { api: 'https://fake/api/s/KEY' };

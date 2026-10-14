@@ -430,8 +430,19 @@ export async function onSubmit(ev, form, link, extraQuestions) {
       try {
         const fd = new FormData();
         up.files.forEach(file => fd.append('upload', file));
-        const r = await fetch(`${link.api}/attachments`, { method: 'POST', body: fd });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        // Grist refuse toute requête anonyme de modification (POST/PUT/PATCH/DELETE) sans l'un
+        // de ces deux signaux anti-CSRF ; le JSON envoyé plus bas (Content-Type: application/
+        // json) en tient lieu pour les autres appels, mais un envoi de fichier est forcément en
+        // multipart/form-data, donc sans cet en-tête explicite. Sans lui, Grist répond 401 sans
+        // en-tête CORS, que le navigateur affiche comme une simple erreur réseau.
+        const r = await fetch(`${link.api}/attachments`, {
+          method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd,
+        });
+        if (!r.ok) {
+          let serverMessage = null;
+          try { serverMessage = (await r.json()).error; } catch (e2) { /* ignore */ }
+          throw new Error(serverMessage || `HTTP ${r.status}`);
+        }
         const ids = await r.json();
         if (ids.length !== up.files.length) throw new Error(`${ids.length}/${up.files.length} fichier(s) accepté(s)`);
         fieldsByTable[up.table] = fieldsByTable[up.table] || {};
