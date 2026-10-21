@@ -8,7 +8,7 @@ import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSu
 import {
   questionSummary, conditionSourceCandidates, renderCardBody, saveQuestionFromCard,
   customizeNativeField, resetQuestions, createEmptyForm, populateFormPicker, generate, saveConfig,
-  renderQuestionList, showEditorTab, showConfig,
+  renderQuestionList, showEditorTab, showConfig, loadResponsesSummary,
 } from './config-editor.js';
 import { findExistingShareKey, ensureTableGate, ensureFreeColumn } from './grist-meta.js';
 import { loadPluginApi } from './plugin-loader.js';
@@ -1216,6 +1216,75 @@ export async function runTests() {
     await customizeNativeField('200');
     await tick();
     assertEqual('aucune question créée pour un type sans correspondance', state.cfgQuestions.length, 0);
+  });
+
+  await group('loadResponsesSummary : synthèse lisible des réponses (V2 de la feuille de route, demandée par Antoine le 21 oct)', async () => {
+    state.cfgQuestions = [
+      { id: 'q1', kind: 'text', label: 'Nom', writeTable: 'Main', writeCol: 'Nom' },
+      { id: 'q2', kind: 'scale', label: 'Satisfaction', writeTable: 'Main', writeCol: 'Satisf', scaleMax: 5, scaleLowLabel: 'Pas satisfait', scaleHighLabel: 'Très satisfait' },
+      { id: 'q3', kind: 'bool', label: 'Accepte', writeTable: 'Main', writeCol: 'Accepte' },
+      { id: 'q4', kind: 'choice', label: 'Ville', writeTable: 'Main', writeCol: 'Ville', sourceTable: 'Villes', sourceCol: 'nom' },
+      { id: 'q5', kind: 'multiselect', label: 'Langues', writeTable: 'Main', writeCol: 'Langues' },
+      { id: 'q6', kind: 'ranking', label: 'Classement', writeTable: 'Main', writeCol: 'Classmt' },
+      { id: 'q7', kind: 'map', label: 'Lieu', writeTable: 'Main', writeCol: 'Lieu' },
+      { id: 'q8', kind: 'attachments', label: 'Justificatif', writeTable: 'Main', writeCol: 'PJ' },
+      { id: 'q9', kind: 'text', label: 'Commentaire secondaire', writeTable: 'Autre', writeCol: 'Com' },
+      { id: 'q10', kind: 'section', label: 'Titre', writeTable: 'Main' },
+    ];
+    state.mainTableIdCache = 'Main';
+    window.grist = makeGristStub({
+      fetchTable: (t) => {
+        if (t === 'Main') {
+          return {
+            id: [10, 11],
+            Nom: ['Alice', 'Bob'],
+            Satisf: [4, null],
+            Accepte: [true, false],
+            Ville: [100, 999], // 999 : référence vers une ligne qui n'existe plus
+            Langues: [['L', 'FR', 'EN'], null],
+            Classmt: ['Rouge, Vert, Bleu', null],
+            Lieu: ['48.8566, 2.3522', null],
+            PJ: [['L', 55, 56], null],
+          };
+        }
+        if (t === 'Villes') return { id: [100, 101], nom: ['Paris', 'Lyon'] };
+        return { id: [] };
+      },
+    }).grist;
+    await loadResponsesSummary();
+    const html = $('responses-summary').innerHTML;
+    assert('compte affiché', html.includes(I18n.t('form.editor.responsesCount', { n: 2, table: 'Main' })));
+    const cards = [...document.querySelectorAll('#responses-summary .resp-card')];
+    assertEqual('une carte par réponse, la plus récente en premier', cards.length, 2);
+    const valueFor = (card, label) => [...card.querySelectorAll('.resp-row')].find(r => r.querySelector('.resp-label').textContent === label)?.querySelector('.resp-value').textContent;
+    assertEqual('ligne 11 affichée avant la ligne 10 (la plus récente d’abord)', cards[0].querySelector('.resp-card-title').textContent, I18n.t('form.editor.responseCardTitle', { n: 11 }));
+    assertEqual('échelle : valeur sur le maximum avec ses bornes', valueFor(cards[1], 'Satisfaction'), '4/5 (Pas satisfait → Très satisfait)');
+    assertEqual('bool : "Oui" plutôt que "true"', valueFor(cards[1], 'Accepte'), I18n.t('form.respond.yes'));
+    assertEqual('bool : "Non" plutôt que "false"', valueFor(cards[0], 'Accepte'), I18n.t('form.editor.responseNo'));
+    assertEqual('choix depuis une table : libellé résolu, pas l’id brut', valueFor(cards[1], 'Ville'), 'Paris');
+    assert('choix vers une ligne supprimée : signalé plutôt qu’un id muet', valueFor(cards[0], 'Ville').includes('999'));
+    assertEqual('choix multiple : indicateur de type retiré, valeurs jointes', valueFor(cards[1], 'Langues'), 'FR, EN');
+    assertEqual('classement : numéroté plutôt que la simple liste brute', valueFor(cards[1], 'Classement'), '1. Rouge · 2. Vert · 3. Bleu');
+    assert('carte (coordonnées) : lien vers une carte en ligne ajouté', cards[1].querySelector('.resp-value a[href*="openstreetmap"]') != null);
+    assertEqual('pièces jointes : compte plutôt que le tableau technique', valueFor(cards[1], 'Justificatif'), I18n.t('form.editor.responseAttachmentsCount', { n: 2 }));
+    assertEqual('valeur absente (null) : un tiret, jamais "null"', valueFor(cards[0], 'Satisfaction'), I18n.t('form.editor.responseEmptyValue'));
+    assert('question écrivant dans une autre table : jamais mêlée aux cartes de "Main"', !html.includes('Commentaire secondaire'));
+    assert('table secondaire nommée plutôt que silencieusement ignorée', html.includes('Autre'));
+    assert('bloc de mise en page (section) : jamais une ligne de réponse', !html.includes('>Titre<'));
+  });
+
+  await group('loadResponsesSummary : au-delà de la limite d’aperçu, une note renvoie vers la table plutôt que tout afficher', async () => {
+    state.cfgQuestions = [{ id: 'q1', kind: 'text', label: 'Nom', writeTable: 'Main', writeCol: 'Nom' }];
+    state.mainTableIdCache = 'Main';
+    const ids = Array.from({ length: 13 }, (_, i) => i + 1);
+    window.grist = makeGristStub({
+      fetchTable: (t) => (t === 'Main' ? { id: ids, Nom: ids.map(i => `R${i}`) } : { id: [] }),
+    }).grist;
+    await loadResponsesSummary();
+    const cards = [...document.querySelectorAll('#responses-summary .resp-card')];
+    assertEqual('aperçu limité aux 10 réponses les plus récentes', cards.length, 10);
+    assertEqual('la plus récente (id 13) en tête', cards[0].querySelector('.resp-card-title').textContent, I18n.t('form.editor.responseCardTitle', { n: 13 }));
+    assert('note sur les réponses non affichées (3 de plus)', $('responses-summary').innerHTML.includes(I18n.t('form.editor.responsesMoreNotShown', { n: 3 })));
   });
 
   await group('resetQuestions : démasque uniquement les champs importés', async () => {

@@ -335,18 +335,122 @@ $('editor').addEventListener('click', (e) => {
   showEditorTab(btn.dataset.etab);
 });
 
+// Synthèse lisible des réponses (V2 de la feuille de route, demandée par Antoine le 21 oct) :
+// jusqu'à ce nombre de réponses les plus récentes sont reconstituées en clair, le reste reste
+// derrière "voir la table" (jamais de pagination complète à maintenir ici, la grille Grist le
+// fait déjà très bien).
+const RESPONSES_PREVIEW_LIMIT = 10;
+
+// Reconstitue le SENS d'une valeur brute (celle écrite par onSubmit, respond.js), plutôt que la
+// forme technique qu'affiche la grille Grist telle quelle : un id de référence seul (Choix depuis
+// une table), un tableau préfixé par son indicateur de type (ChoiceList/RefList/Pièces jointes),
+// une Date/DateTime en secondes depuis l'epoch, une Échelle sans ses bornes. Retourne du HTML déjà
+// échappé (jamais de texte brut), ou null si rien à afficher pour cette réponse.
+// Limite connue de cet environnement (sans accès réseau à un vrai Grist, voir docs/01 et la note
+// correspondante) : la forme exacte renvoyée par fetchMeta pour ChoiceList/RefList (ici supposée
+// alignée sur ce qu'écrit déjà onSubmit, un tableau dont le premier élément est un indicateur à
+// retirer) n'a pas pu être vérifiée contre un document réel — à confirmer par Antoine.
+function formatResponseValue(q, raw, refLabelMaps) {
+  if (raw == null || raw === '') return null;
+  const locale = I18n.language === 'fr' ? 'fr-FR' : 'en-US';
+  switch (q.kind) {
+    case 'bool':
+      return raw === true ? esc(I18n.t('form.respond.yes')) : esc(I18n.t('form.editor.responseNo'));
+    case 'scale': {
+      const bounds = (q.scaleLowLabel || q.scaleHighLabel) ? ` (${esc(q.scaleLowLabel || '')} → ${esc(q.scaleHighLabel || '')})` : '';
+      return `${esc(raw)}/${esc(q.scaleMax ?? 5)}${bounds}`;
+    }
+    case 'ranking': {
+      const items = String(raw).split(', ').filter(Boolean);
+      return items.length ? items.map((it, i) => `${i + 1}. ${esc(it)}`).join(' · ') : null;
+    }
+    case 'date':
+      return esc(new Date(Number(raw) * 1000).toLocaleDateString(locale));
+    case 'datetime':
+      return esc(new Date(Number(raw) * 1000).toLocaleString(locale));
+    case 'choice': {
+      const label = refLabelMaps.get(`${q.sourceTable}:${q.sourceCol}`)?.get(raw);
+      return label != null ? esc(label) : `#${esc(raw)} ${esc(I18n.t('form.editor.responseRefDeleted'))}`;
+    }
+    case 'reflist': {
+      if (!Array.isArray(raw)) return null;
+      const map = refLabelMaps.get(`${q.sourceTable}:${q.sourceCol}`);
+      const ids = raw.slice(1);
+      return ids.length ? ids.map(id => (map?.get(id) != null ? esc(map.get(id)) : `#${esc(id)} ${esc(I18n.t('form.editor.responseRefDeleted'))}`)).join(', ') : null;
+    }
+    case 'multiselect': {
+      if (!Array.isArray(raw)) return null;
+      const items = raw.slice(1);
+      return items.length ? items.map(esc).join(', ') : null;
+    }
+    case 'attachments':
+    case 'signature': {
+      if (!Array.isArray(raw)) return null;
+      const n = raw.length - 1;
+      return n > 0 ? esc(I18n.t('form.editor.responseAttachmentsCount', { n })) : null;
+    }
+    case 'map': {
+      const [lat, lng] = String(raw).split(',').map(s => s.trim());
+      if (!lat || !lng) return esc(raw);
+      const url = `https://www.openstreetmap.org/?mlat=${encodeURIComponent(lat)}&mlon=${encodeURIComponent(lng)}#map=16/${encodeURIComponent(lat)}/${encodeURIComponent(lng)}`;
+      return `${esc(raw)} — <a href="${esc(url)}" target="_blank" rel="noopener">${esc(I18n.t('form.editor.responseMapLink'))}</a>`;
+    }
+    default:
+      return esc(raw);
+  }
+}
+
 // Compte réel des réponses déjà enregistrées (fetchMeta renvoie des tableaux parallèles ;
-// data.id est la liste des id de ligne, sa longueur est donc le nombre de réponses). Jamais de
-// contenu décoratif : si la table n'est pas encore connue, l'onglet le dit plutôt que d'afficher
-// un faux chiffre.
+// data.id est la liste des id de ligne, sa longueur est donc le nombre de réponses), puis la
+// synthèse lisible des RESPONSES_PREVIEW_LIMIT dernières (voir formatResponseValue ci-dessus).
+// Jamais de contenu décoratif : si la table n'est pas encore connue, l'onglet le dit plutôt que
+// d'afficher un faux chiffre. Seules les questions écrivant dans la table principale sont reprises
+// ici (une question "écrire ailleurs" reste dans sa propre table, jamais jointe automatiquement) ;
+// ces tables secondaires sont nommées plutôt que silencieusement ignorées.
 export async function loadResponsesSummary() {
   const el = $('responses-summary');
   if (!state.mainTableIdCache) { el.textContent = I18n.t('form.editor.noFormLinkedYet'); return; }
+  el.classList.remove('muted');
   el.textContent = I18n.t('form.loadingGeneric');
   try {
     const data = await fetchMeta(state.mainTableIdCache);
-    const count = (data.id || []).length;
+    const ids = data.id || [];
+    const count = ids.length;
+    const mainQuestions = state.cfgQuestions.filter(q => !LAYOUT_KINDS.has(q.kind) && (q.writeTable || state.mainTableIdCache) === state.mainTableIdCache);
+    const secondaryTables = [...new Set(state.cfgQuestions.filter(q => !LAYOUT_KINDS.has(q.kind) && q.writeTable && q.writeTable !== state.mainTableIdCache).map(q => q.writeTable))];
+
+    const refLabelMaps = new Map();
+    for (const q of mainQuestions) {
+      if (!TABLE_SOURCED_KINDS.has(q.kind) || !q.sourceTable || !q.sourceCol) continue;
+      const key = `${q.sourceTable}:${q.sourceCol}`;
+      if (refLabelMaps.has(key)) continue;
+      try {
+        const srcData = await fetchMeta(q.sourceTable);
+        const map = new Map();
+        (srcData.id || []).forEach((id, i) => map.set(id, srcData[q.sourceCol]?.[i]));
+        refLabelMaps.set(key, map);
+      } catch (e) { refLabelMaps.set(key, new Map()); }
+    }
+
+    const previewIds = ids.slice(-RESPONSES_PREVIEW_LIMIT).reverse();
+    const cardsHtml = previewIds.map(id => {
+      const rowIndex = ids.indexOf(id);
+      // Toujours une ligne par question (même sans réponse, un tiret) : la même liste de questions
+      // d'une carte à l'autre, plus facile à parcourir que des cartes dont la forme change selon ce
+      // qui a été répondu.
+      const rows = mainQuestions.map(q => {
+        const html = formatResponseValue(q, data[q.writeCol]?.[rowIndex], refLabelMaps) ?? esc(I18n.t('form.editor.responseEmptyValue'));
+        return `<div class="resp-row"><div class="resp-label">${esc(q.label)}</div><div class="resp-value">${html}</div></div>`;
+      }).join('');
+      return `<div class="resp-card"><div class="resp-card-title">${esc(I18n.t('form.editor.responseCardTitle', { n: id }))}</div>${rows}</div>`;
+    }).join('');
+    const moreHtml = count > RESPONSES_PREVIEW_LIMIT
+      ? `<p class="muted">${I18n.t('form.editor.responsesMoreNotShown', { n: count - RESPONSES_PREVIEW_LIMIT })}</p>` : '';
+    const secondaryHtml = secondaryTables.length
+      ? `<p class="muted">${I18n.t('form.editor.responsesSecondaryNote', { tables: secondaryTables.map(esc).join(', ') })}</p>` : '';
+
     el.innerHTML = `<p>${I18n.t('form.editor.responsesCount', { n: count, table: esc(state.mainTableIdCache) })}</p>
+      ${cardsHtml}${moreHtml}${secondaryHtml}
       <p class="muted">${I18n.t('form.editor.responsesHint')}</p>`;
   } catch (e) {
     el.innerHTML = `<span class="err">${I18n.t('form.editor.responsesReadError', { message: esc(e.message) })}</span>`;

@@ -149,6 +149,14 @@
   .qf-display-btn + .qf-display-btn { border-left: 1px solid var(--border-strong); }
   .qf-display-btn.active { background: var(--accent-soft); color: var(--accent-ink); }
 
+  /* Onglet "Réponses" : une carte par réponse (synthèse lisible, V2 de la feuille de route). */
+  .resp-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 10px 14px; margin-bottom: 10px; }
+  .resp-card-title { font-weight: 700; font-size: .85rem; margin-bottom: 4px; }
+  .resp-row { display: flex; gap: 10px; padding: 4px 0; border-top: 1px solid var(--border); }
+  .resp-row:first-of-type { border-top: none; }
+  .resp-label { flex: 0 0 42%; color: var(--text-muted); font-size: .85rem; }
+  .resp-value { flex: 1; font-size: .9rem; word-break: break-word; }
+
   /* Bascule à deux choix textuels (démarrage "nouvelle/table existante", réglages coins/ambiance) —
      distincte de .qf-display-mode/.qf-display-btn ci-dessus qui, elle, n'habille que la bascule
      compacte menu déroulant/radio DANS la carte de question (même nom utilisé par les tests). */

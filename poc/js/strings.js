@@ -213,6 +213,20 @@ export const STRINGS = {
   },
   'form.editor.responsesHint': { fr: 'Pour consulter le détail de chaque réponse, ouvrez cette table dans Grist.', en: 'To see each response in detail, open this table in Grist.' },
   'form.editor.responsesReadError': { fr: 'Impossible de lire les réponses ({message}).', en: 'Could not read the responses ({message}).' },
+  'form.editor.responseCardTitle': { fr: 'Réponse n°{n}', en: 'Response #{n}' },
+  'form.editor.responseEmptyValue': { fr: '—', en: '—' },
+  'form.editor.responseNo': { fr: 'Non', en: 'No' },
+  'form.editor.responseRefDeleted': { fr: '(réponse supprimée depuis)', en: '(deleted since)' },
+  'form.editor.responseAttachmentsCount': { fr: '{n} {n|pièce jointe|pièces jointes}', en: '{n} {n|attachment|attachments}' },
+  'form.editor.responseMapLink': { fr: 'Voir sur la carte', en: 'View on map' },
+  'form.editor.responsesMoreNotShown': {
+    fr: '… et {n} {n|réponse supplémentaire|réponses supplémentaires} — voir la table pour tout consulter.',
+    en: '… and {n} more {n|response|responses} — see the table to view them all.',
+  },
+  'form.editor.responsesSecondaryNote': {
+    fr: 'Les questions écrivant dans une autre table ({tables}) ne sont pas reprises ici : ouvrez ces tables dans Grist pour les consulter.',
+    en: 'Questions writing to another table ({tables}) are not included here: open those tables in Grist to see them.',
+  },
 
   // Types de question (pastille + popover)
   'form.editor.kind.text': { fr: 'Texte', en: 'Text' },
