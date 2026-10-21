@@ -311,7 +311,7 @@ Question posée le 12 octobre 2026 : le fil de forum *« Form Builder (Grist For
 | Personnalisation visuelle (couleur, logo, thème) | ❌ | ❌ aucune option décrite | ✅ couleur d'accent, logo, thème clair/sombre côté répondant |
 | Versions multiples en parallèle (prochaine version en préparation) | ❌ | ✅ | ❌ non prévu |
 | Synthèse des réponses dans le widget, sans repasser par la grille | 🟡 tableaux Grist | ✅ reconstitue le sens (échelle, classement) | ❌ V2 de la feuille de route |
-| Licence | n/a | MIT | Apache-2.0 |
+| Licence | n/a | MIT | GPL-3.0 (Apache-2.0 jusqu'au 21 oct. 2026, passée à GPL-3.0 ce jour-là, décision du porteur de GFS) |
 
 ### 6.4 Retours d'utilisateurs relevés dans le fil du forum
 
@@ -325,6 +325,8 @@ Question posée le 12 octobre 2026 : le fil de forum *« Form Builder (Grist For
 ### 6.5 Conclusion
 
 **Mise à jour (21 oct. 2026)** : les écarts de types de question relevés ci-dessus (échelle, classement, dessin/signature, lieu sur carte, saut d'étape conditionnel) ont été ajoutés à FormPlus — voir le tableau 6.3 ci-dessus, désormais à jour. Seul le lieu sur carte reste partiel (point seul, pas de tracé/contour) et grisé par défaut, car c'est la toute première dépendance d'exécution externe du widget (Leaflet) ; voir docs/06-carte-interactive.md pour l'activer sur une plateforme qui l'autorise. Ce qui reste hors périmètre, sciemment : les tracés/contours sur la carte, et la réservation de questions selon l'identité du répondant (connectée ou non), qui n'a pas d'équivalent dans FormPlus. Les deux points où FormPlus est déjà plus solide ou plus simple pour un agent sans droits serveur restent valables : le lien public sans aucune règle d'accès à écrire (transport 1, clé de partage native réutilisée), et la personnalisation visuelle côté répondant. Les retours du forum (conditions peu fiables sur de gros documents, bugs de casse après renommage) confirment l'intérêt de la suite de tests maintenue dans ce dépôt plutôt que d'une fonctionnalité non vérifiée.
+
+**Nouvelle vérification (21 oct. 2026, fin de journée)**, demandée par Antoine après la mise à jour ci-dessus : relecture ligne par ligne du tableau 6.3 contre l'état réel du code (vérifiée indépendamment pour chacun des quatre points). Un seul écart trouvé, purement documentaire : la case « Licence » indiquait encore Apache-2.0, alors que la licence du dépôt est passée à la GPL-3.0 le même jour (voir `GFS-ETAT.md`) — corrigée ci-dessus. Les trois ❌ encore ouverts (réservation par identité du répondant, versions en parallèle, synthèse des réponses dans le widget) restent exacts : aucune trace dans le code actuel, y compris après le lot de travail du jour sur le kit commun GFS et l'accessibilité, qui ne les a pas touchés. Rien d'autre à combler dans ce comparatif pour l'instant.
 
 ---
 
