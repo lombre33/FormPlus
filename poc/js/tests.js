@@ -1,8 +1,8 @@
 import { $, show } from './dom.js';
 import { parseFormLink, buildPublicUrl, parseCustomView, migrateLegacy, hostOrgFromReferrer, normalizeCondition } from './links.js';
 import { hexToRgb, softenColor, contrastText } from './theme.js';
-import { KINDS, TABLE_SOURCED_KINDS, FIXED_LIST_KINDS } from './kinds.js';
-import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet } from './respond.js';
+import { KINDS, LAYOUT_KINDS, TABLE_SOURCED_KINDS, FIXED_LIST_KINDS, mapFeatureEnabled } from './kinds.js';
+import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet, splitIntoPages, wirePages } from './respond.js';
 import {
   questionSummary, conditionSourceCandidates, renderCardBody,
   importNativeFields, resetQuestions, createEmptyForm, populateFormPicker, generate, saveConfig,
@@ -21,6 +21,11 @@ import { state } from './state.js';
 export async function runTests() {
   show('test');
   $('test-summary').textContent = 'Exécution…';
+  // Carte interactive (Leaflet) : grisée par défaut (voir mapFeatureEnabled, kinds.js). La suite
+  // active le réglage pour exercer le même chemin de code qu'une plateforme qui l'autorise (ex.
+  // GFS) ; le comportement "désactivé par défaut" a son propre test dédié ci-dessous, qui
+  // désactive puis réactive le réglage localement.
+  window.FORMPLUS_ENABLE_MAP = true;
   const results = [];
   const record = (name, pass, detail) => results.push({ name, pass, detail });
   const assert = (name, cond, detail) => record(name, !!cond, detail);
@@ -370,6 +375,13 @@ export async function runTests() {
 
     host.innerHTML = renderExtraQuestion({ id: 'q16', kind: 'map', label: 'Lieu' });
     assert('carte : un conteneur de carte et un champ caché pour les coordonnées', !!host.querySelector('.pv-map-canvas') && host.querySelector('input[type=hidden]#eq-q16') != null);
+    window.FORMPLUS_ENABLE_MAP = false;
+    try {
+      host.innerHTML = renderExtraQuestion({ id: 'q16b', kind: 'map', label: 'Lieu' });
+      assert('carte grisée (hors GFS) : repli en champ texte visible, pas de canvas', host.querySelector('.pv-map-canvas') == null && host.querySelector('input[type=text]#eq-q16b') != null);
+    } finally {
+      window.FORMPLUS_ENABLE_MAP = true;
+    }
 
     host.innerHTML = renderExtraQuestion({ id: 'q17', kind: 'attachments', label: 'Photo', allowCapture: true });
     assertEqual('pièces jointes, capture activée : attribut capture posé', host.querySelector('#eq-q17')?.getAttribute('capture'), 'environment');
@@ -388,6 +400,93 @@ export async function runTests() {
 
     host.innerHTML = renderExtraQuestion({ id: 'q10', kind: 'info', label: 'Aide', description: 'contenu' });
     assert('bloc d’info : <details><summary>, pas de champ', host.querySelector('details.q-info summary')?.textContent === 'Aide' && host.querySelector('.err-msg') == null);
+  });
+
+  await group('splitIntoPages : découpe sur les marqueurs de type "page"', () => {
+    assertEqual('aucun marqueur : une seule page avec tout', splitIntoPages([{ id: 'a', kind: 'text' }, { id: 'b', kind: 'text' }]).map(p => p.items.map(q => q.id)), [['a', 'b']]);
+    const withBreak = splitIntoPages([
+      { id: 'a', kind: 'text' },
+      { id: 'brk', kind: 'page', label: 'Page 2', condition: { mode: 'all', rules: [{ questionId: 'a', op: 'eq', value: 'x' }] } },
+      { id: 'b', kind: 'text' },
+    ]);
+    assertEqual('un marqueur : deux pages', withBreak.length, 2);
+    assertEqual('page 1 : ce qui précède le marqueur (jamais de condition)', { items: withBreak[0].items.map(q => q.id), condition: withBreak[0].condition }, { items: ['a'], condition: null });
+    assertEqual('page 2 : ce qui suit, avec la condition portée par le marqueur (le marqueur lui-même n’est pas une question)', { items: withBreak[1].items.map(q => q.id), condition: withBreak[1].condition }, { items: ['b'], condition: { mode: 'all', rules: [{ questionId: 'a', op: 'eq', value: 'x' }] } });
+  });
+
+  await group('wirePages : navigation Précédent/Suivant, "obligatoire" bloque page par page', () => {
+    const extraQuestions = [
+      { id: 'q1', kind: 'text', label: 'Nom', required: true },
+      { id: 'brk', kind: 'page', label: 'Page 2', condition: null },
+      { id: 'q2', kind: 'text', label: 'Détail' },
+    ];
+    const pages = splitIntoPages(extraQuestions);
+    const card = mount(document.createElement('div'));
+    card.innerHTML = `<form id="f">
+      <div class="pv-page" data-page-index="0">${renderExtraQuestion(pages[0].items[0])}</div>
+      <div class="pv-page" data-page-index="1" hidden>${renderExtraQuestion(pages[1].items[0])}</div>
+      <p id="pv-page-indicator"></p>
+      <div class="pv-pager-nav"><button type="button" id="pv-prev" class="hidden">Précédent</button><button type="button" id="pv-next">Suivant</button></div>
+      <button type="submit" id="pv-submit-btn" class="hidden">Envoyer</button>
+    </form>`;
+    wirePages(card, pages, extraQuestions);
+
+    assertEqual('page 1 affichée au départ', card.querySelector('.pv-page[data-page-index="0"]').hidden, false);
+    assertEqual('page 2 masquée au départ', card.querySelector('.pv-page[data-page-index="1"]').hidden, true);
+    assertEqual('indicateur "Page 1 / 2"', $('pv-page-indicator').textContent, 'Page 1 / 2');
+    assert('Précédent masqué sur la première page', $('pv-prev').classList.contains('hidden'));
+    assert('Suivant visible (une page éligible après)', !$('pv-next').classList.contains('hidden'));
+    assert('Envoyer masqué (pas encore la dernière page)', $('pv-submit-btn').classList.contains('hidden'));
+
+    $('pv-next').click();
+    assert('Suivant bloqué : "Nom" obligatoire est vide -> invalid posé', card.querySelector('[data-extra="q1"]').classList.contains('invalid'));
+    assertEqual('reste sur la page 1', card.querySelector('.pv-page[data-page-index="0"]').hidden, false);
+
+    $('eq-q1').value = 'Jean';
+    $('eq-q1').dispatchEvent(new Event('input'));
+    $('pv-next').click();
+    assert('"Nom" rempli : invalid retiré', !card.querySelector('[data-extra="q1"]').classList.contains('invalid'));
+    assertEqual('passe à la page 2', card.querySelector('.pv-page[data-page-index="1"]').hidden, false);
+    assertEqual('page 1 masquée', card.querySelector('.pv-page[data-page-index="0"]').hidden, true);
+    assertEqual('indicateur "Page 2 / 2"', $('pv-page-indicator').textContent, 'Page 2 / 2');
+    assert('Précédent visible sur la dernière page', !$('pv-prev').classList.contains('hidden'));
+    assert('Suivant masqué (dernière page)', $('pv-next').classList.contains('hidden'));
+    assert('Envoyer visible (dernière page, bug corrigé : le modèle posait l’attribut "hidden", jamais retiré par show(), qui ne touche que la classe)', !$('pv-submit-btn').classList.contains('hidden'));
+
+    $('pv-prev').click();
+    assertEqual('Précédent revient à la page 1', card.querySelector('.pv-page[data-page-index="0"]').hidden, false);
+    assertEqual('indicateur revenu à "Page 1 / 2"', $('pv-page-indicator').textContent, 'Page 1 / 2');
+  });
+
+  await group('wirePages : page sautée par sa condition, propagation en cascade (cond-hidden) comme une question', () => {
+    const extraQuestions = [
+      { id: 'q1', kind: 'text', label: 'Code' },
+      { id: 'brk', kind: 'page', label: 'Page 2', condition: { mode: 'all', rules: [{ questionId: 'q1', op: 'eq', value: 'details' }] } },
+      { id: 'q2', kind: 'text', label: 'Détail' },
+    ];
+    const pages = splitIntoPages(extraQuestions);
+    const card = mount(document.createElement('div'));
+    card.innerHTML = `<form id="f">
+      <div class="pv-page" data-page-index="0">${renderExtraQuestion(pages[0].items[0])}</div>
+      <div class="pv-page" data-page-index="1" hidden>${renderExtraQuestion(pages[1].items[0])}</div>
+      <p id="pv-page-indicator"></p>
+      <div class="pv-pager-nav"><button type="button" id="pv-prev" class="hidden">Précédent</button><button type="button" id="pv-next">Suivant</button></div>
+      <button type="submit" id="pv-submit-btn" class="hidden">Envoyer</button>
+    </form>`;
+    wirePages(card, pages, extraQuestions);
+
+    assert('page 2 sautée dès le départ (condition fausse) : son champ prend cond-hidden', card.querySelector('[data-extra="q2"]').classList.contains('cond-hidden'));
+    assertEqual('une seule page éligible -> indicateur "Page 1 / 1"', $('pv-page-indicator').textContent, 'Page 1 / 1');
+    assert('Suivant masqué : aucune page éligible après', $('pv-next').classList.contains('hidden'));
+    assert('Envoyer visible directement (page 1 est la seule éligible)', !$('pv-submit-btn').classList.contains('hidden'));
+
+    $('eq-q1').value = 'details';
+    $('eq-q1').dispatchEvent(new Event('input'));
+    assert('condition devenue vraie : cond-hidden retiré, en cascade comme une question', !card.querySelector('[data-extra="q2"]').classList.contains('cond-hidden'));
+
+    $('pv-next').click();
+    assertEqual('Suivant (recalculé au clic) avance bien à la page 2 devenue éligible', card.querySelector('.pv-page[data-page-index="1"]').hidden, false);
+    assertEqual('indicateur "Page 2 / 2"', $('pv-page-indicator').textContent, 'Page 2 / 2');
   });
 
   await group('renderNativeField : colId échappé à l’affichage, jamais altéré pour la lecture (dataset.col)', () => {
@@ -422,13 +521,40 @@ export async function runTests() {
       assertEqual(`${k} : bloc "réponse libre Autre" (select/multiselect seuls, pas ranking)`, hidden('.qf-other-option'), !(k === 'select' || k === 'multiselect'), k);
       assertEqual(`${k} : bloc "affichage menu/radio" (select/choice)`, hidden('.qf-display-mode'), !(k === 'select' || k === 'choice'), k);
       assertEqual(`${k} : bloc "échelle" (scale seul)`, hidden('.qf-scale-fields'), k !== 'scale', k);
-      assertEqual(`${k} : bloc "destination" (pas section/info)`, hidden('.qf-text-fields'), (k === 'section' || k === 'info'), k);
+      assertEqual(`${k} : bloc "destination" (pas mise en page)`, hidden('.qf-text-fields'), LAYOUT_KINDS.has(k), k);
       assertEqual(`${k} : "colonne de destination" (pas choice/reflist, écart corrigé 29 sept : choice règle sa table mais pas sa colonne)`, hidden('.qf-write-col-field'), TABLE_SOURCED_KINDS.has(k), k);
       assertEqual(`${k} : indice "choix depuis une table/liste de références" (choice/reflist)`, hidden('.qf-choice-table-hint'), !TABLE_SOURCED_KINDS.has(k), k);
       assertEqual(`${k} : case "prise de photo" (attachments seul)`, hidden('.qf-capture-option'), k !== 'attachments', k);
-      assertEqual(`${k} : "obligatoire" (pas section/info)`, hidden('.qf-required-row'), (k === 'section' || k === 'info'), k);
+      assertEqual(`${k} : "obligatoire" (pas mise en page)`, hidden('.qf-required-row'), LAYOUT_KINDS.has(k), k);
       assertEqual(`${k} : description courte (pas info)`, hidden('.qf-desc'), k === 'info', k);
       assertEqual(`${k} : description longue (info seul)`, hidden('.qf-desc-long'), k !== 'info', k);
+    }
+  });
+
+  await group('renderCardBody : carte interactive grisée par défaut (hors GFS)', async () => {
+    window.FORMPLUS_ENABLE_MAP = false;
+    try {
+      state.mainTableIdCache = 'Main';
+      state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+      window.grist = makeGristStub({
+        listTables: ['Main', 'Autre'],
+        fetchTable: (t) => (t === '_grist_Tables' ? { id: [1, 2], tableId: ['Main', 'Autre'] } : { id: [10], colA: ['x'] }),
+      }).grist;
+      const body = mount(document.createElement('div'));
+      await renderCardBody('__new__', body);
+      assert('mapFeatureEnabled() renvoie faux tant que window.FORMPLUS_ENABLE_MAP n’est pas posé à true', !mapFeatureEnabled());
+      const mapBtn = body.querySelector('[data-kind="map"]');
+      assert('bouton "Lieu sur carte" désactivé dans le popover de type', mapBtn.disabled);
+      mapBtn.click();
+      assertEqual('le clic sur un type désactivé ne change pas le type courant (reste "text")', body.querySelector('.qtype-opt.active')?.dataset.kind, 'text');
+      // Une question "map" déjà configurée (ex. importée d’une config faite sous GFS) reste
+      // éditable : le bouton de son propre type n’est pas désactivé quand il est déjà actif.
+      state.cfgQuestions = [{ id: 'q1', kind: 'map', label: 'Lieu' }];
+      const body2 = mount(document.createElement('div'));
+      await renderCardBody('q1', body2);
+      assert('le bouton "map" n’est pas désactivé quand c’est déjà le type de la question', !body2.querySelector('[data-kind="map"]').disabled);
+    } finally {
+      window.FORMPLUS_ENABLE_MAP = true;
     }
   });
 

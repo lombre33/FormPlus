@@ -267,6 +267,10 @@
   .pv-signature-canvas { width: 100%; height: 160px; touch-action: none; border: 1px dashed var(--border); border-radius: var(--radius-field-pv); background: var(--card); cursor: crosshair; display: block; }
   .pv-sign-clear { margin-top: 6px; }
 
+  /* Pages (saut d'étape conditionnel) */
+  .pv-page-indicator { text-align: center; margin: -8px 0 14px; }
+  .pv-pager-nav { display: flex; gap: 8px; }
+
   /* Lieu sur carte */
   .pv-map-canvas { width: 100%; height: 260px; border-radius: var(--radius-field-pv); border: 1px solid var(--border); background: var(--bg); }
   .pv-map-coords { margin: 6px 0 0; }

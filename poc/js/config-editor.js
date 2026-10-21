@@ -2,7 +2,7 @@ import { $, esc, uid, show } from './dom.js';
 import { ICONS } from './icons.js';
 import {
   KINDS, LAYOUT_KINDS, SINGLE_CHOICE_KINDS, NON_COMPARABLE_KINDS, FREE_ENTRY_KINDS,
-  TABLE_SOURCED_KINDS, FIXED_LIST_KINDS,
+  TABLE_SOURCED_KINDS, FIXED_LIST_KINDS, mapFeatureEnabled,
 } from './kinds.js';
 import { parseFormLink, buildPublicUrl, migrateLegacy, hostOrgFromReferrer, normalizeCondition } from './links.js';
 import { diag } from './diag.js';
@@ -798,7 +798,11 @@ export async function renderCardBody(id, body) {
         ${ICONS.chevronDown}
       </button>
       <div class="qtype-popover hidden">
-        ${KINDS.map(k => `<button type="button" class="qtype-opt${k.id === kind ? ' active' : ''}" data-kind="${k.id}" title="${esc(k.label)}">${k.icon}</button>`).join('')}
+        ${KINDS.map(k => {
+          const disabled = k.id === 'map' && k.id !== kind && !mapFeatureEnabled();
+          const title = disabled ? "Carte interactive désactivée sur cette version (nécessite une dépendance externe, voir le README)" : k.label;
+          return `<button type="button" class="qtype-opt${k.id === kind ? ' active' : ''}${disabled ? ' qtype-opt-disabled' : ''}" data-kind="${k.id}" title="${esc(title)}" ${disabled ? 'disabled' : ''}>${k.icon}</button>`;
+        }).join('')}
       </div>
     </div>
     <div class="qf-choice-fields hidden">
@@ -846,7 +850,7 @@ export async function renderCardBody(id, body) {
     </label>
     <p class="qf-attachments-hint muted hidden">⚠️ L'envoi de pièces jointes par un répondant échoue encore sur certaines instances Grist (limitation connue de Grist pour les fichiers envoyés de façon anonyme, pas un réglage de ce widget) : à tester sur votre instance avant de compter sur cette question.</p>
     <p class="qf-signature-hint muted hidden">La signature est envoyée comme une image, dans une colonne « Pièces jointes » (même limitation d'envoi anonyme que ci-dessus sur certaines instances Grist, à tester avant de compter sur cette question).</p>
-    <p class="qf-map-hint muted hidden">Le point posé sur la carte est enregistré comme texte "latitude,longitude" dans une colonne Texte. Carte OpenStreetMap (bibliothèque Leaflet, chargée depuis un CDN) : seule question de ce widget à charger un script externe, voir le README.</p>
+    <p class="qf-map-hint muted hidden">Le point posé sur la carte est enregistré comme texte "latitude,longitude" dans une colonne Texte. Carte OpenStreetMap (bibliothèque Leaflet, chargée depuis un CDN) : seule question de ce widget à charger un script externe, grisée par défaut sur cette version (voir le README) — en son absence, le répondant saisit directement les coordonnées.</p>
     <button type="button" class="qf-link" data-reveal="condition">${ICONS.branch}<span>Condition d'affichage</span></button>
     <div class="qf-condition ${conditionOpen ? '' : 'hidden'}">
       <div class="qf-cond-mode hidden">
@@ -903,7 +907,7 @@ export async function saveQuestionFromCard(id, body, existing, combos, { rerende
   const msg = body.querySelector('.qf-msg');
   const kind = body.querySelector('.qtype-opt.active')?.dataset.kind || 'text';
   const label = body.querySelector('.qf-label').value.trim() ||
-    (kind === 'choice' ? 'Votre choix' : kind === 'section' ? 'Section' : kind === 'info' ? "Bloc d'info" : 'Réponse');
+    (kind === 'choice' ? 'Votre choix' : kind === 'section' ? 'Section' : kind === 'info' ? "Bloc d'info" : kind === 'page' ? 'Nouvelle page' : 'Réponse');
   const description = (kind === 'info' ? body.querySelector('.qf-desc-long') : body.querySelector('.qf-desc')).value.trim();
   const condition = body.getCondition ? body.getCondition() : null;
 
