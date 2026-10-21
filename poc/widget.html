@@ -3,6 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- CSP en <meta> : repli acceptable pour un widget statique sans serveur applicatif (pas de
+     frame-ancestors ici, ignoré par les navigateurs dans un <meta> — Grist encadre déjà le
+     widget dans son iframe, voir le README). unpkg.com : uniquement Leaflet (carte GPS),
+     chargé à la demande, jamais au démarrage (js/kinds.js, js/respond.js). img-src et
+     connect-src restent ouverts à tout https : logo et lien de formulaire sont saisis par qui
+     configure le widget, vers un hôte Grist qu'il choisit, jamais fixé par cette page. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https:; connect-src 'self' https:; object-src 'none'; base-uri 'none'">
 <title>FormPlus</title>
 <link rel="stylesheet" href="../kit/css/tokens.css">
 <link rel="stylesheet" href="../kit/css/windows.css">
@@ -82,9 +89,9 @@
         <p class="muted" data-i18n="form.questions.hint">En plus des champs du formulaire natif. Cliquez une question pour la régler.</p>
         <div id="qlist"></div>
         <p id="qlist-empty" class="empty-hint hidden" data-i18n="form.questions.empty">Aucune question supplémentaire pour l'instant.</p>
-        <button id="qadd" type="button" class="add-question-btn"></button>
+        <button id="qadd" type="button" class="add-question-btn" data-i18n-aria="form.main.addQuestionBtn" aria-label="Ajouter une question"></button>
         <div class="row" style="margin-top:10px">
-          <button id="qreset" type="button" class="qf-link"></button>
+          <button id="qreset" type="button" class="qf-link" data-i18n-aria="form.main.resetBtn" aria-label="Réinitialiser les questions"></button>
         </div>
         <p id="import-msg" class="muted"></p>
       </div>

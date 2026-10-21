@@ -1,0 +1,16 @@
+[
+  {
+    "widgetId": "formplus",
+    "name": "FormPlus",
+    "url": "poc/widget.html",
+    "description": "Formulaire personnalisé pour Grist : éditeur WYSIWYG et écran répondant, au-dessus d'un formulaire natif Grist.",
+    "accessLevel": "full"
+  },
+  {
+    "widgetId": "formplus-public-form",
+    "name": "FormPlus — réponse seule",
+    "url": "poc/public-form.html",
+    "description": "Écran répondant seul (clé de partage), sans ajout comme widget dans un document.",
+    "accessLevel": "none"
+  }
+]
