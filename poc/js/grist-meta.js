@@ -142,6 +142,31 @@ export async function ensureChoiceField(mainTableId, formSectionId, sourceTable,
   return hiddenColId;
 }
 
+// Même mécanisme qu'ensureChoiceField ci-dessus, pour une question "Liste de références" :
+// colonne RefList cachée (plusieurs lignes choisies, pas une seule), même convention de nom
+// déterministe par (table, colonne), même fixation de la colonne affichée (visibleCol) pour que
+// la session de partage anonyme lise le libellé plutôt que l'identifiant numérique.
+export async function ensureRefListField(mainTableId, formSectionId, sourceTable, sourceCol) {
+  const hiddenColId = `FormPlus_srcL_${sourceTable}_${sourceCol}`.replace(/[^A-Za-z0-9_]/g, '_');
+  if (!(await colExists(mainTableId, hiddenColId))) {
+    await grist.docApi.applyUserActions([['AddColumn', mainTableId, hiddenColId, { type: `RefList:${sourceTable}` }]]);
+  }
+  const colRef = await getColRef(mainTableId, hiddenColId);
+  const srcColRef = await getColRef(sourceTable, sourceCol);
+  if (srcColRef) {
+    await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Tables_column', colRef, { visibleCol: srcColRef }]]);
+  }
+  const fields = await fetchMeta('_grist_Views_section_field');
+  let already = false;
+  for (let i = 0; i < fields.id.length; i++) if (fields.parentId[i] === formSectionId && fields.colRef[i] === colRef) already = true;
+  if (!already) {
+    await grist.docApi.applyUserActions([['AddRecord', '_grist_Views_section_field', null, {
+      parentId: formSectionId, colRef, widgetOptions: JSON.stringify({ formIsHidden: true }),
+    }]]);
+  }
+  return hiddenColId;
+}
+
 // Duplique un formulaire natif déjà publié en une nouvelle section, sur la MÊME page : une clé
 // de partage porte sur la PAGE (_grist_Pages.shareRef), jamais sur une section précise (voir
 // docs/01-etude-comparative.md, "toutes les sections d'une même page appartiennent au même

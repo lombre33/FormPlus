@@ -1,7 +1,7 @@
 import { $, show } from './dom.js';
 import { parseFormLink, buildPublicUrl, parseCustomView, migrateLegacy, hostOrgFromReferrer, normalizeCondition } from './links.js';
 import { hexToRgb, softenColor, contrastText } from './theme.js';
-import { KINDS } from './kinds.js';
+import { KINDS, TABLE_SOURCED_KINDS, FIXED_LIST_KINDS } from './kinds.js';
 import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet } from './respond.js';
 import {
   questionSummary, conditionSourceCandidates, renderCardBody,
@@ -169,14 +169,15 @@ export async function runTests() {
     assert('softenColor en clair se rapproche du blanc', !!m && Number(m[1]) > 180 && Number(m[2]) > 180);
   });
 
-  await group('conditionSourceCandidates : tous les types comparables, jamais les blocs de mise en page ni les pièces jointes', () => {
+  await group('conditionSourceCandidates : tous les types comparables, jamais les blocs de mise en page ni les types sans valeur comparable', () => {
     state.cfgQuestions = [
       { id: 'a', kind: 'choice' }, { id: 'b', kind: 'select' }, { id: 'c', kind: 'text' },
       { id: 'd', kind: 'section' }, { id: 'e', kind: 'info' }, { id: 'f', kind: 'attachments' },
       { id: 'g', kind: 'bool' }, { id: 'h', kind: 'number' }, { id: 'i', kind: 'multiselect' }, { id: 'j', kind: 'longtext' },
+      { id: 'k', kind: 'datetime' }, { id: 'l', kind: 'scale' }, { id: 'm', kind: 'reflist' }, { id: 'n', kind: 'ranking' }, { id: 'o', kind: 'signature' }, { id: 'p', kind: 'map' },
     ];
-    assertEqual('tous les types comparables, exclut la question courante, section/info/pièces jointes',
-      conditionSourceCandidates('a').map(q => q.id), ['b', 'c', 'g', 'h', 'i', 'j']);
+    assertEqual('tous les types comparables (dont date et heure, échelle), jamais section/info/pièces jointes/liste de références/classement/signature/carte',
+      conditionSourceCandidates('a').map(q => q.id), ['b', 'c', 'g', 'h', 'i', 'j', 'k', 'l']);
   });
 
   await group('questionSummary', () => {
@@ -302,6 +303,17 @@ export async function runTests() {
     assertEqual('masquée par condition -> hors calcul (null)', isAnswered(qs[6]), null);
     qs[0].querySelector('input').value = '   ';
     assertEqual('texte rempli uniquement d’espaces -> false (pas répondu)', isAnswered(qs[0]), false);
+
+    const ranking = document.createElement('div');
+    ranking.className = 'q'; ranking.dataset.kind = 'ranking';
+    assertEqual('classement -> toujours répondu (même l’ordre par défaut)', isAnswered(ranking), true);
+
+    const sigEmpty = document.createElement('div');
+    sigEmpty.className = 'q'; sigEmpty.dataset.kind = 'signature';
+    sigEmpty.innerHTML = '<div class="pv-signature" data-drawn="0"></div>';
+    assertEqual('signature non dessinée -> false', isAnswered(sigEmpty), false);
+    sigEmpty.querySelector('.pv-signature').dataset.drawn = '1';
+    assertEqual('signature dessinée -> true', isAnswered(sigEmpty), true);
   });
 
   await group('renderExtraQuestion : forme du HTML par type', () => {
@@ -338,6 +350,39 @@ export async function runTests() {
     host.innerHTML = renderExtraQuestion({ id: 'q8', kind: 'choice', label: 'C' });
     assert('choix depuis une table : conteneur en attente, pas encore de select', host.querySelector('#eq-q8') != null && host.querySelector('#eq-q8 select') == null);
 
+    host.innerHTML = renderExtraQuestion({ id: 'q11', kind: 'reflist', label: 'Refs' });
+    assert('liste de références : conteneur en attente, comme "choix depuis une table"', host.querySelector('#eq-q11') != null && host.querySelector('#eq-q11 input') == null);
+
+    host.innerHTML = renderExtraQuestion({ id: 'q12', kind: 'datetime', label: 'DH' });
+    assert('date et heure : input type=datetime-local', !!host.querySelector('input[type="datetime-local"]#eq-q12'));
+
+    host.innerHTML = renderExtraQuestion({ id: 'q13', kind: 'scale', label: 'Note', scaleMin: 0, scaleMax: 10 });
+    const range = host.querySelector('input[type=range]#eq-q13');
+    assertEqual('échelle : curseur min/max repris', range && { min: range.min, max: range.max }, { min: '0', max: '10' });
+    assert('échelle : valeur courante affichée', !!host.querySelector('#eq-q13-value'));
+
+    host.innerHTML = renderExtraQuestion({ id: 'q14', kind: 'ranking', label: 'Classement', choices: ['A', 'B', 'C'] });
+    assertEqual('classement : une ligne par option, dans l’ordre fourni', [...host.querySelectorAll('.pv-ranking-item')].map(li => li.dataset.value), ['A', 'B', 'C']);
+    assertEqual('classement : des boutons monter/descendre', host.querySelectorAll('[data-rank]').length, 6);
+
+    host.innerHTML = renderExtraQuestion({ id: 'q15', kind: 'signature', label: 'Signez' });
+    assert('signature : un canvas et un bouton Effacer', !!host.querySelector('canvas') && !!host.querySelector('.pv-sign-clear'));
+
+    host.innerHTML = renderExtraQuestion({ id: 'q16', kind: 'map', label: 'Lieu' });
+    assert('carte : un conteneur de carte et un champ caché pour les coordonnées', !!host.querySelector('.pv-map-canvas') && host.querySelector('input[type=hidden]#eq-q16') != null);
+
+    host.innerHTML = renderExtraQuestion({ id: 'q17', kind: 'attachments', label: 'Photo', allowCapture: true });
+    assertEqual('pièces jointes, capture activée : attribut capture posé', host.querySelector('#eq-q17')?.getAttribute('capture'), 'environment');
+    host.innerHTML = renderExtraQuestion({ id: 'q17b', kind: 'attachments', label: 'Photo' });
+    assert('pièces jointes, capture non activée : pas d’attribut capture', !host.querySelector('#eq-q17b')?.hasAttribute('capture'));
+
+    host.innerHTML = renderExtraQuestion({ id: 'q18', kind: 'select', label: 'S', choices: ['A', 'B'], allowOther: true });
+    assertEqual('select + Autre : une option de plus, et un champ de précision caché', host.querySelector('#eq-q18').options.length, 4);
+    assert('select + Autre : champ de précision présent (masqué)', host.querySelector('#eq-q18-other')?.classList.contains('hidden'));
+
+    host.innerHTML = renderExtraQuestion({ id: 'q19', kind: 'multiselect', label: 'M', choices: ['A', 'B'], allowOther: true });
+    assertEqual('multiselect + Autre : une case de plus', host.querySelectorAll('#eq-q19 input[type=checkbox]').length, 3);
+
     host.innerHTML = renderExtraQuestion({ id: 'q9', kind: 'section', label: 'Titre section', description: 'sous-texte' });
     assert('section : titre + pas de champ ni message d’erreur', host.querySelector('h2')?.textContent === 'Titre section' && host.querySelector('.err-msg') == null);
 
@@ -372,12 +417,15 @@ export async function runTests() {
     for (const k of KINDS.map(x => x.id)) {
       body.querySelector(`[data-kind="${k}"]`).click();
       const hidden = (sel) => body.querySelector(sel).classList.contains('hidden');
-      assertEqual(`${k} : bloc "table source" (choice seul)`, hidden('.qf-choice-fields'), k !== 'choice', k);
-      assertEqual(`${k} : bloc "options fixes" (select/multiselect)`, hidden('.qf-fixed-options'), !(k === 'select' || k === 'multiselect'), k);
+      assertEqual(`${k} : bloc "table source" (choice/reflist)`, hidden('.qf-choice-fields'), !TABLE_SOURCED_KINDS.has(k), k);
+      assertEqual(`${k} : bloc "options fixes" (select/multiselect/ranking)`, hidden('.qf-fixed-options'), !FIXED_LIST_KINDS.has(k), k);
+      assertEqual(`${k} : bloc "réponse libre Autre" (select/multiselect seuls, pas ranking)`, hidden('.qf-other-option'), !(k === 'select' || k === 'multiselect'), k);
       assertEqual(`${k} : bloc "affichage menu/radio" (select/choice)`, hidden('.qf-display-mode'), !(k === 'select' || k === 'choice'), k);
+      assertEqual(`${k} : bloc "échelle" (scale seul)`, hidden('.qf-scale-fields'), k !== 'scale', k);
       assertEqual(`${k} : bloc "destination" (pas section/info)`, hidden('.qf-text-fields'), (k === 'section' || k === 'info'), k);
-      assertEqual(`${k} : "colonne de destination" (pas choice, écart corrigé 29 sept : choice règle sa table mais pas sa colonne)`, hidden('.qf-write-col-field'), k === 'choice', k);
-      assertEqual(`${k} : indice "choix depuis une table" (choice seul)`, hidden('.qf-choice-table-hint'), k !== 'choice', k);
+      assertEqual(`${k} : "colonne de destination" (pas choice/reflist, écart corrigé 29 sept : choice règle sa table mais pas sa colonne)`, hidden('.qf-write-col-field'), TABLE_SOURCED_KINDS.has(k), k);
+      assertEqual(`${k} : indice "choix depuis une table/liste de références" (choice/reflist)`, hidden('.qf-choice-table-hint'), !TABLE_SOURCED_KINDS.has(k), k);
+      assertEqual(`${k} : case "prise de photo" (attachments seul)`, hidden('.qf-capture-option'), k !== 'attachments', k);
       assertEqual(`${k} : "obligatoire" (pas section/info)`, hidden('.qf-required-row'), (k === 'section' || k === 'info'), k);
       assertEqual(`${k} : description courte (pas info)`, hidden('.qf-desc'), k === 'info', k);
       assertEqual(`${k} : description longue (info seul)`, hidden('.qf-desc-long'), k !== 'info', k);
@@ -385,7 +433,7 @@ export async function runTests() {
   });
 
   await group('saveQuestionFromCard : réponses simples, colonne par défaut', async () => {
-    for (const k of ['text', 'longtext', 'number', 'date', 'bool', 'select', 'multiselect', 'attachments']) {
+    for (const k of ['text', 'longtext', 'number', 'date', 'datetime', 'bool', 'select', 'multiselect', 'ranking', 'attachments', 'scale', 'signature', 'map']) {
       state.cfgQuestions = [];
       state.mainTableIdCache = 'Main';
       state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
@@ -398,15 +446,82 @@ export async function runTests() {
       await renderCardBody('__new__', body);
       body.querySelector(`[data-kind="${k}"]`).click();
       body.querySelector('.qf-label').value = `Question ${k}`;
-      if (k === 'select' || k === 'multiselect') body.querySelector('.qf-choices').value = 'Un\nDeux';
+      if (FIXED_LIST_KINDS.has(k)) body.querySelector('.qf-choices').value = 'Un\nDeux';
       selectCombo(body.querySelector('[data-combo="writeCol"]'), 'colA');
       body.querySelector('.qf-save').click();
       await tick();
       assertEqual(`${k} : une question créée`, state.cfgQuestions.length, 1, JSON.stringify(state.cfgQuestions));
       assertEqual(`${k} : bon type conservé`, state.cfgQuestions[0]?.kind, k);
       assertEqual(`${k} : colonne de destination`, state.cfgQuestions[0]?.writeCol, 'colA');
-      if (k === 'select' || k === 'multiselect') assertEqual(`${k} : options`, state.cfgQuestions[0]?.choices, ['Un', 'Deux']);
+      if (FIXED_LIST_KINDS.has(k)) assertEqual(`${k} : options`, state.cfgQuestions[0]?.choices, ['Un', 'Deux']);
+      if (k === 'scale') {
+        assertEqual(`${k} : min par défaut`, state.cfgQuestions[0]?.scaleMin, 1);
+        assertEqual(`${k} : max par défaut`, state.cfgQuestions[0]?.scaleMax, 5);
+      }
     }
+  });
+
+  await group('saveQuestionFromCard : liste de références (reflist), même mécanisme que "choix depuis une table"', async () => {
+    state.cfgQuestions = [];
+    state.mainTableIdCache = 'Main';
+    state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+    const sectionFields = { id: [], parentId: [], colRef: [], widgetOptions: [] };
+    window.grist = makeGristStub({
+      listTables: ['Main', 'Autre'],
+      fetchTable: (t) => {
+        if (t === '_grist_Tables') return { id: [1, 2], tableId: ['Main', 'Autre'] };
+        if (t === '_grist_Tables_column') return { id: [], colId: [], parentId: [], type: [], visibleCol: [] };
+        if (t === '_grist_Views_section_field') return sectionFields;
+        if (t === 'Autre') return { id: [1, 2], nom: ['Alpha', 'Beta'] };
+        return {};
+      },
+    }).grist;
+    state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
+    const body = mount(document.createElement('div'));
+    await renderCardBody('__new__', body);
+    body.querySelector('[data-kind="reflist"]').click();
+    body.querySelector('.qf-label').value = 'Compétences';
+    selectCombo(body.querySelector('[data-combo="srcTable"]'), 'Autre');
+    await tick();
+    selectCombo(body.querySelector('[data-combo="srcCol"]'), 'nom');
+    body.querySelector('.qf-save').click();
+    await tick();
+    assertEqual('une question créée', state.cfgQuestions.length, 1, JSON.stringify(state.cfgQuestions));
+    assertEqual('sourceTable', state.cfgQuestions[0]?.sourceTable, 'Autre');
+    assertEqual('sourceCol', state.cfgQuestions[0]?.sourceCol, 'nom');
+    assert('writeCol calculé (référence cachée, liste)', typeof state.cfgQuestions[0]?.writeCol === 'string' && state.cfgQuestions[0].writeCol.startsWith('FormPlus_srcL_'));
+  });
+
+  await group('saveQuestionFromCard : option "Autre" (select/multiselect) et capture photo (attachments)', async () => {
+    state.cfgQuestions = [];
+    state.mainTableIdCache = 'Main';
+    state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+    window.grist = makeGristStub({
+      listTables: ['Main'],
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [1], tableId: ['Main'] } : { id: [10], colA: ['x'] }),
+    }).grist;
+    state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
+    const body = mount(document.createElement('div'));
+    await renderCardBody('__new__', body);
+    body.querySelector('[data-kind="select"]').click();
+    body.querySelector('.qf-label').value = 'Q';
+    body.querySelector('.qf-choices').value = 'Un\nDeux';
+    body.querySelector('.qf-allow-other').click();
+    selectCombo(body.querySelector('[data-combo="writeCol"]'), 'colA');
+    body.querySelector('.qf-save').click();
+    await tick();
+    assertEqual('allowOther enregistré (select)', state.cfgQuestions[0]?.allowOther, true);
+
+    state.cfgQuestions = [];
+    const body2 = mount(document.createElement('div'));
+    await renderCardBody('__new__', body2);
+    body2.querySelector('[data-kind="attachments"]').click();
+    body2.querySelector('.qf-label').value = 'Photo';
+    body2.querySelector('.qf-allow-capture').click();
+    selectCombo(body2.querySelector('[data-combo="writeCol"]'), 'colA');
+    body2.querySelector('.qf-save').click();
+    await tick();
+    assertEqual('allowCapture enregistré (attachments)', state.cfgQuestions[0]?.allowCapture, true);
   });
 
   await group('saveQuestionFromCard : affichage radio persisté', async () => {
@@ -724,8 +839,9 @@ export async function runTests() {
     assertEqual('Choice -> select', kindByLabel.Q5, 'select');
     assertEqual('ChoiceList -> multiselect', kindByLabel.Q6, 'multiselect');
     assertEqual('Attachments -> attachments', kindByLabel.Q7, 'attachments');
+    assertEqual('DateTime -> datetime', kindByLabel.Q8, 'datetime');
     assertEqual('Text multiligne -> longtext', kindByLabel.Q9, 'longtext');
-    assertEqual('seul DateTime ignoré (8 importés sur 9)', state.cfgQuestions.length, 8);
+    assertEqual('tous les 9 champs importés (plus aucun type ignoré)', state.cfgQuestions.length, 9);
     assertEqual('colonne existante reprise telle quelle pour Attachments', state.cfgQuestions.find(q => q.label === 'Q7')?.writeCol, 'g');
     assertEqual('options reprises pour Choice', state.cfgQuestions.find(q => q.label === 'Q5')?.choices, ['X', 'Y']);
     assert('importedFrom renseigné', state.cfgQuestions.every(q => !!q.importedFrom));
@@ -1182,6 +1298,10 @@ export async function runTests() {
       { id: 'q11', kind: 'text', label: 'Commentaire', writeTable: 'Autre', writeCol: 'Texte' },
       { id: 'q12', kind: 'longtext', label: 'Remarques', writeTable: 'Reponses', writeCol: 'Remarques' },
       { id: 'q13', kind: 'attachments', label: 'Justificatif', writeTable: 'Pieces', writeCol: 'PJ' },
+      { id: 'q14', kind: 'datetime', label: 'RDV', writeTable: 'Reponses', writeCol: 'RDV' },
+      { id: 'q15', kind: 'scale', label: 'Note', scaleMin: 0, scaleMax: 10, writeTable: 'Reponses', writeCol: 'NoteCol' },
+      { id: 'q16', kind: 'ranking', label: 'Classement', choices: ['A', 'B', 'C'], writeTable: 'Reponses', writeCol: 'Classement' },
+      { id: 'q17', kind: 'reflist', label: 'Refs', writeTable: 'Reponses', writeCol: 'RefsCol' },
     ];
     const formEl = mount(document.createElement('form'));
     formEl.innerHTML = `<input type="text" name="_website" value="" style="display:none">${extraQuestions.map(renderExtraQuestion).join('')}<span id="fill-status"></span><button type="submit"></button>`;
@@ -1199,6 +1319,18 @@ export async function runTests() {
     const dt = new DataTransfer();
     dt.items.add(new File(['contenu'], 'justif.pdf', { type: 'application/pdf' }));
     formEl.querySelector('#eq-q13').files = dt.files;
+    formEl.querySelector('#eq-q14').value = '2026-01-02T10:30';
+    formEl.querySelector('#eq-q15').value = '7';
+    // Simule le résultat d'un clic sur "descendre" (voir le câblage dans renderFill, non rejoué
+    // ici) : déplace le premier élément en fin de liste, A/B/C -> B/C/A. onSubmit relit l'ordre
+    // des <li> dans le DOM tel quel, peu importe comment on l'y a amené.
+    { const list = formEl.querySelector('#eq-q16'); list.appendChild(list.children[0]); }
+    // Simule le résultat du chargement des options d'une "liste de références" (voir la boucle
+    // de chargement dans renderFill, non rejouée ici) : des cases à cocher, deux cochées.
+    formEl.querySelector('#eq-q17').innerHTML = '<div class="pv-pill-group">' +
+      '<label class="pv-pill"><input type="checkbox" name="eqm-q17" value="1"><span>Alpha</span></label>' +
+      '<label class="pv-pill"><input type="checkbox" name="eqm-q17" value="2"><span>Beta</span></label></div>';
+    formEl.querySelectorAll('#eq-q17 input[type=checkbox]').forEach(c => { c.checked = true; });
 
     const extraTableWrites = [];
     window.grist = { docApi: { applyUserActions: async (a) => { extraTableWrites.push(a); return {}; } } };
@@ -1221,12 +1353,50 @@ export async function runTests() {
     assertEqual('choix multiples', fields.Langues, ['L', 'En']);
     assertEqual('choix depuis une table (radio, numérique)', fields.Dept, 5);
     assertEqual('texte long', fields.Remarques, 'Sur plusieurs lignes');
+    assertEqual('date et heure : chaîne ISO conservée telle quelle', fields.RDV, '2026-01-02T10:30');
+    assertEqual('échelle : convertie en nombre', fields.NoteCol, 7);
+    assertEqual('classement : ordre du DOM, joint en texte', fields.Classement, 'B, C, A');
+    assertEqual('liste de références : toutes les cases cochées, en RefList', fields.RefsCol, ['L', 1, 2]);
     assert('titre de section absent des champs envoyés', !('Section' in fields));
     assert('bloc d’info absent des champs envoyés', !('Info' in fields));
     assert('pièces jointes absentes des champs de la table principale (envoyées à part)', !('Justificatif' in fields) && !('PJ' in fields));
     await tick();
     assertEqual('écriture séparée vers la table Autre', extraTableWrites[0]?.[0], ['AddRecord', 'Autre', null, { Texte: 'Bonjour' }]);
     assertEqual('pièce jointe : upload puis écriture séparée vers la table Pieces', extraTableWrites[1]?.[0], ['AddRecord', 'Pieces', null, { PJ: ['L', 99] }]);
+  });
+
+  await group('onSubmit : signature envoyée comme pièce jointe (jamais en texte, voir docs/01)', async () => {
+    const form = { formTableId: 'Reponses', formFieldsById: {} };
+    const link = { api: 'https://fake/api/s/KEY' };
+    const q = { id: 'qsig', kind: 'signature', label: 'Signature', required: true, writeTable: 'Pieces', writeCol: 'Sig' };
+    const formEl = mount(document.createElement('form'));
+    formEl.innerHTML = `<input type="text" name="_website" value="" style="display:none">${renderExtraQuestion(q)}<span id="fill-status"></span><button type="submit"></button>`;
+
+    let uploadedFiles = null;
+    window.grist = { docApi: { applyUserActions: async () => ({}) } };
+    window.fetch = async (url, opts) => {
+      if (String(url).includes('/attachments')) { uploadedFiles = [...opts.body.getAll('upload')]; return { ok: true, json: async () => ([77]) }; }
+      if (String(url).includes('/tables/Reponses/records')) return { ok: true, json: async () => ({ records: [{ id: 1 }] }) };
+      return { ok: true, json: async () => ({}) };
+    };
+    state.options = {};
+
+    // Rien dessiné : "obligatoire" doit bloquer l'envoi, jamais de requête réseau.
+    await onSubmit({ preventDefault() {}, target: formEl }, form, link, [q]);
+    await tick();
+    assert('signature vide + obligatoire : la carte est marquée invalide', formEl.querySelector('.pv-signature').closest('.q').classList.contains('invalid'));
+    assertEqual('signature vide + obligatoire : aucun envoi tenté', uploadedFiles, null);
+
+    // Dessine un trait (canvas réel, ce test tourne dans un vrai Chromium, pas un DOM simulé).
+    const canvas = formEl.querySelector('canvas');
+    const ctx = canvas.getContext('2d');
+    ctx.fillRect(10, 10, 50, 50);
+    formEl.querySelector('.pv-signature').dataset.drawn = '1';
+
+    await onSubmit({ preventDefault() {}, target: formEl }, form, link, [q]);
+    await tick();
+    assertEqual('signature dessinée : un seul fichier envoyé', uploadedFiles?.length, 1);
+    assertEqual('signature dessinée : image PNG, jamais du texte base64 dans une colonne', uploadedFiles?.[0]?.type, 'image/png');
   });
 
   await group('onSubmit : l’envoi d’une pièce jointe porte l’en-tête anti-CSRF attendu par Grist', async () => {
