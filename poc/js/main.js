@@ -8,6 +8,7 @@ import { I18n } from '../../kit/js/i18n.js';
 import { applyBranding, updateThemeToggleIcon } from './theme.js';
 import { STRINGS } from './strings.js';
 import { diag, hashParams, fragmentFormLink } from './diag.js';
+import { decideStartScreen } from './links.js';
 import { runRepair } from './grist-meta.js';
 import { state } from './state.js';
 import { showConfig } from './config-editor.js';
@@ -61,14 +62,14 @@ $('themeToggle').addEventListener('click', () => { Theme.set(Theme.isDark() ? 'l
     diag({ event: 'onOptions', optionKeys: Object.keys(state.options), hasFormLink: !!state.options.formLink, settings });
     if (hashParams.has('repair')) { if (!state.stayOnConfig) { state.stayOnConfig = true; runRepair(); } return; }
     // #form=<lien> dans l'URL du widget est le mode répondant explicite (secours quand l'adresse
-    // publique habituelle ne fonctionne pas, voir l'écran standalone) : on y répond directement.
-    // Sans cette URL spéciale, ouvrir ce widget (accès complet requis) affiche toujours la
-    // configuration au concepteur, jamais le formulaire à remplir, même une fois un formulaire
-    // déjà lié — voir #result pour "Voir le formulaire", le moyen explicite d'aller y répondre.
-    if (fragmentFormLink && !state.stayOnConfig) {
-      await renderFill();
-    } else if (!state.stayOnConfig) {
-      await showConfig();
+    // publique habituelle ne fonctionne pas, voir l'écran standalone). Sinon, decideStartScreen()
+    // (links.js) tranche selon l'accès réellement accordé par Grist pour CE visiteur : un visiteur
+    // sans accès complet (ex. visiteur externe anonyme sur l'adresse publique) va directement au
+    // formulaire s'il est déjà lié, jamais à la configuration — voir #result pour "Voir le
+    // formulaire", le moyen explicite d'y répondre depuis l'écran concepteur lui-même.
+    if (!state.stayOnConfig) {
+      const screen = decideStartScreen({ formLink: state.options.formLink, fragmentFormLink, accessLevel: settings?.accessLevel });
+      if (screen === 'fill') await renderFill(); else await showConfig();
     }
   });
 })();

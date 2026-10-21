@@ -1,5 +1,5 @@
 import { $, show } from './dom.js';
-import { parseFormLink, buildPublicUrl, parseCustomView, migrateLegacy, hostOrgFromReferrer, normalizeCondition } from './links.js';
+import { parseFormLink, buildPublicUrl, parseCustomView, migrateLegacy, hostOrgFromReferrer, normalizeCondition, decideStartScreen } from './links.js';
 import { hexToRgb, softenColor, contrastText, applyBranding } from './theme.js';
 import { I18n, KIT_STRINGS } from '../../kit/js/i18n.js';
 import { STRINGS } from './strings.js';
@@ -106,6 +106,25 @@ export async function runTests() {
     assert('lien invalide -> null', parseFormLink('pas un lien') === null);
     assert('lien vide -> null', parseFormLink('') === null);
     assertEqual('buildPublicUrl', buildPublicUrl(l1, 9), 'https://grist.numerique.gouv.fr/o/mon-equipe/s/ABC123/p/9?style=singlePage');
+  });
+
+  await group('decideStartScreen', () => {
+    // Bug du 21 oct 2026 : l'adresse à diffuser (buildPublicUrl, sans fragment #form=) ouvrait
+    // toujours la configuration pour un visiteur externe anonyme, jamais le formulaire, même une
+    // fois un formulaire lié. Reproduit ici sans fragment, avec l'accès réduit que Grist accorde
+    // réellement à ce type de visiteur.
+    assertEqual('visiteur sans accès complet, formulaire lié -> répondant',
+      decideStartScreen({ formLink: 'https://grist.example/o/t/forms/K/1', fragmentFormLink: null, accessLevel: 'read table' }), 'fill');
+    assertEqual('visiteur sans aucun accès, formulaire lié -> répondant',
+      decideStartScreen({ formLink: 'https://grist.example/o/t/forms/K/1', fragmentFormLink: null, accessLevel: 'none' }), 'fill');
+    assertEqual('visiteur sans accès complet, rien de lié -> configuration (rien à montrer)',
+      decideStartScreen({ formLink: null, fragmentFormLink: null, accessLevel: 'read table' }), 'config');
+    assertEqual('concepteur en accès complet -> configuration, même formulaire déjà lié',
+      decideStartScreen({ formLink: 'https://grist.example/o/t/forms/K/1', fragmentFormLink: null, accessLevel: 'full' }), 'config');
+    assertEqual('secours #form=<lien> explicite -> répondant même en accès complet',
+      decideStartScreen({ formLink: null, fragmentFormLink: 'https://grist.example/o/t/forms/K/1', accessLevel: 'full' }), 'fill');
+    assertEqual('aucun accessLevel connu (ex. ancien Grist), rien de lié -> configuration',
+      decideStartScreen({ formLink: null, fragmentFormLink: null, accessLevel: undefined }), 'config');
   });
 
   await group('parseCustomView', () => {
