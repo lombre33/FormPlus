@@ -24,7 +24,10 @@ Comme on ne sait pas à l'avance si la plateforme qui héberge le widget autoris
   même chaîne `"latitude,longitude"` dans les deux cas — changer le réglage n'affecte jamais les
   données déjà collectées ni la colonne Grist de destination).
 
-## Activer la carte interactive sur une plateforme qui l'autorise (ex. GFS)
+## Activer la carte interactive hors GFS (autonome)
+
+Sur GitHub Pages ou toute plateforme qui n'est pas Grist Factory Suite (GFS), c'est à l'hébergeur de
+l'autoriser lui-même :
 
 1. **Poser le réglage AVANT le chargement du widget**, dans la page qui l'héberge (avant la balise
    `<script type="module" src=".../main.js">`) :
@@ -40,6 +43,21 @@ Comme on ne sait pas à l'avance si la plateforme qui héberge le widget autoris
 
 Rien d'autre à faire côté Grist : la colonne de destination reste une colonne Texte ordinaire,
 comme pour tout autre type de question texte libre.
+
+## Dans GFS : un mécanisme différent, pas encore actif
+
+Le guide des apps de GFS (`consignes/form/001-guide-des-apps.md`, section 1.1, règle 9) range Leaflet
+dans la bibliothèque d'une **extension** (non native : FormPlus marche très bien sans elle). Dans ce
+cas, FormPlus ne doit **ni fixer lui-même l'adresse CDN, ni inventer sa propre CSP** : il se contente de
+**demander** l'identifiant et la version exacte dans son `GFS-ETAT.md` (fait le 21/10/2026, section
+« Demandes à GFS ») ; c'est GFS qui choisit l'adresse (CDN figé ou copie vendorisée pour un réseau
+fermé), l'ajoute à son catalogue et répond par une consigne.
+
+Tant que GFS n'a pas répondu (l'étape « liste des bibliothèques » du plan n'est pas commencée), le
+mécanisme autonome ci-dessus (`window.FORMPLUS_ENABLE_MAP` + adresse unpkg.com câblée dans
+`poc/js/kinds.js`) reste la version provisoire, valable **hors GFS**. Une fois la réponse reçue, cette
+page et `LEAFLET_CDN_URL`/`LEAFLET_CDN_CSS` seront mis à jour avec l'adresse que GFS donnera, sans rien
+changer côté répondant ni à la colonne Grist de destination.
 
 ## Où c'est implémenté
 
