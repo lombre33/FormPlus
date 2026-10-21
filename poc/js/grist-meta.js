@@ -377,6 +377,76 @@ export async function runRepair() {
   out.textContent = lines.join('\n');
 }
 
+// ───────────────────────── Mode interne : identité réelle du répondant ─────────────────────────
+// Mécanisme documenté par la communauté Grist, pas une API officielle (voir
+// formplus-identite-mode-interne.md, mémoire projet) : une colonne "formule déclencheur" (colonne
+// de données, pas une formule classique, mais calculée côté serveur une seule fois, à la création
+// de la ligne) peut lire `user.Email`, qui vaut la vraie adresse de qui exécute l'action — MAIS
+// seulement pour une session réellement authentifiée dans le document. Une session de partage
+// anonyme (le mode public habituel de FormPlus) reçoit toujours `anon@getgrist.com`, quelle que
+// soit la formule. C'est pour ça que le mode interne n'a de sens que pour un widget ouvert
+// directement sur une page Grist (grist.docApi disponible), jamais pour le lien public.
+//
+// Non vérifié en direct sur un vrai document Grist depuis cet environnement (pas d'accès réseau,
+// voir formplus-sandbox-network-limits, mémoire projet) : isFormula:false + formula posée +
+// recalcWhen:0 est la convention documentée pour "Appliquer aux nouveaux enregistrements" côté
+// serveur Grist. À confirmer par Antoine sur un document réel avant de s'y fier en production — le
+// mode interne reste de toute façon "confort, pas sécurité" (docs/01-etude-comparative.md, section
+// 6.5) : seules les règles d'accès du document protègent vraiment une donnée sensible, la
+// réservation de question n'est qu'un affichage adapté, jamais un contrôle d'accès réel.
+const RESPONDENT_PROBE_TABLE = 'FormPlus_Repondants';
+const RESPONDENT_EMAIL_COL = 'Email';
+
+// Crée, si elle manque encore, une table technique partagée par TOUS les formulaires du document
+// (pas une par formulaire : la même sonde d'identité sert à tous). Idempotent, rappelable sans
+// risque à chaque activation du mode interne dans l'éditeur.
+export async function ensureRespondentProbeTable() {
+  const colInfo = { type: 'Text', isFormula: false, formula: 'user.Email', recalcWhen: 0 };
+  if (!(await getTableRef(RESPONDENT_PROBE_TABLE))) {
+    await grist.docApi.applyUserActions([['AddTable', RESPONDENT_PROBE_TABLE, [{ id: RESPONDENT_EMAIL_COL, ...colInfo }]]]);
+    return RESPONDENT_PROBE_TABLE;
+  }
+  if (!(await colExists(RESPONDENT_PROBE_TABLE, RESPONDENT_EMAIL_COL))) {
+    await grist.docApi.applyUserActions([['AddColumn', RESPONDENT_PROBE_TABLE, RESPONDENT_EMAIL_COL, colInfo]]);
+  }
+  return RESPONDENT_PROBE_TABLE;
+}
+
+// Résout l'identité réelle de qui consulte CE widget EN CE MOMENT (jamais celle, figée, d'une
+// réponse déjà enregistrée) : pose une ligne jetable dans la table-sonde ci-dessus, relit la
+// valeur que Grist vient de calculer côté serveur pour CETTE ligne, puis la retire — aucune ligne
+// ne s'accumule au fil des consultations. Renvoie null si le mode interne n'a encore jamais été
+// activé (table absente), si l'écriture est refusée (répondant sans droit d'écriture réel sur ce
+// document, malgré un `window.grist` présent), ou si l'identité résolue est celle d'une session de
+// partage anonyme (`anon@getgrist.com`, ex. widget ouvert via #form= en aperçu) : dans tous ces
+// cas, traité comme une identité inconnue par l'appelant (respond.js), jamais comme une erreur
+// bloquante pour le reste du formulaire.
+export async function probeRespondentIdentity() {
+  const tref = await getTableRef(RESPONDENT_PROBE_TABLE);
+  if (!tref) return null;
+  let rowId;
+  try {
+    const res = await grist.docApi.applyUserActions([['AddRecord', RESPONDENT_PROBE_TABLE, null, {}]]);
+    rowId = res.retValues?.[0];
+    if (rowId == null) return null;
+  } catch (e) {
+    diag({ event: 'probeRespondentIdentity-addrecord-failed', message: e.message });
+    return null;
+  }
+  let email = null;
+  try {
+    const data = await fetchMeta(RESPONDENT_PROBE_TABLE);
+    const idx = (data.id || []).indexOf(rowId);
+    email = idx >= 0 ? (data[RESPONDENT_EMAIL_COL]?.[idx] || null) : null;
+  } catch (e) {
+    diag({ event: 'probeRespondentIdentity-reread-failed', message: e.message });
+  }
+  grist.docApi.applyUserActions([['RemoveRecord', RESPONDENT_PROBE_TABLE, rowId]])
+    .catch(e => diag({ event: 'probeRespondentIdentity-cleanup-failed', message: e.message }));
+  if (email === 'anon@getgrist.com') return null;
+  return email;
+}
+
 // Deux pistes écartées, chacune pour une raison précise et vérifiée :
 // - le paramètre "readonly" transmis à l'iframe reflète le mode du DOCUMENT, pas les droits
 //   réels de la session (une session de partage reçoit access=full, readonly=false, comme le

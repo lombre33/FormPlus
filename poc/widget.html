@@ -148,6 +148,13 @@
         <label for="opt-redirect" data-i18n="form.appearance.redirectLabel">Redirection après l'envoi (URL, facultatif)</label>
         <input id="opt-redirect" type="url" placeholder="https://…">
         <p id="appearance-msg" class="muted"></p>
+
+        <hr class="divider">
+
+        <h3 data-i18n="form.internal.heading">Mode interne</h3>
+        <p class="muted" data-i18n="form.internal.desc">Pour un formulaire ouvert directement sur une page de ce document Grist (pas via le lien public), par des personnes qui ont déjà un compte et un accès au document. Permet de réserver certaines questions à certaines adresses. Donnez d'abord à ces personnes un accès en écriture au document (règle d'accès ou rôle Éditeur) : sans ça, le mode interne ne peut pas fonctionner pour elles. Confort d'affichage, pas une protection : seules les règles d'accès du document protègent vraiment une donnée sensible.</p>
+        <label class="toggle"><input type="checkbox" id="opt-internal-mode"><span class="toggle-track"><span class="toggle-thumb"></span></span><span data-i18n="form.internal.toggleLabel">Activer le mode interne</span></label>
+        <p id="internal-mode-msg" class="muted"></p>
       </div>
     </div>
 

@@ -5,7 +5,7 @@ import './strings.js'; // enregistre form.* avant tout usage de I18n.t() au char
 import { LAYOUT_KINDS, SINGLE_CHOICE_KINDS, mapFeatureEnabled, LEAFLET_CDN_URL, LEAFLET_CDN_CSS } from './kinds.js';
 import { parseFormLink, migrateLegacy, normalizeCondition } from './links.js';
 import { applyBranding } from './theme.js';
-import { probeCanEdit } from './grist-meta.js';
+import { probeCanEdit, probeRespondentIdentity } from './grist-meta.js';
 import { diag, fragmentFormLink } from './diag.js';
 import { state } from './state.js';
 
@@ -130,6 +130,17 @@ export function radioGroup(name, choices, opts) {
 export const OTHER_SENTINEL = '__formplus_other__';
 function otherInputHtml(id) {
   return `<input type="text" id="eq-${id}-other" class="pv-other-input hidden" placeholder="${esc(I18n.t('form.respond.specifyPlaceholder'))}" aria-label="${esc(I18n.t('form.respond.specifyAria'))}">`;
+}
+
+// Réservation par identité (mode interne) : une question reste masquée si l'identité résolue du
+// répondant courant n'est pas dans sa liste — vide = tout le monde, identité null/inconnue = jamais
+// autorisée (repli le plus sûr : préférer cacher à tort plutôt que montrer à tort une question
+// réservée). reservedTo est déjà en minuscules à l'enregistrement (config-editor.js) ; `identity`
+// peut venir de Grist avec une casse différente, normalisée ici. Fonction pure (pas de lecture de
+// state.internalIdentity ici) pour rester testable seule, comme conditionMet ci-dessous.
+export function reservationOk(q, identity) {
+  if (!q.reservedTo?.length) return true;
+  return !!identity && q.reservedTo.includes(identity.toLowerCase());
 }
 
 // Une condition d'affichage combine N critères (question source = valeur) en ET (toutes vraies)
@@ -545,6 +556,15 @@ export async function renderFill() {
   diag({ event: 'canEdit', canEdit: state.canEdit });
   $('fill-toolbar').classList.toggle('hidden', !state.canEdit);
 
+  // Mode interne (réservation de questions par identité, voir kinds réservées plus bas) :
+  // seulement si le widget tourne réellement dans Grist (window.grist, jamais pour le lien public
+  // anonyme, voir probeRespondentIdentity dans grist-meta.js). Résolu une seule fois par
+  // consultation, avant la construction du formulaire : la réservation ne change jamais en cours
+  // de remplissage, pas besoin de la relire à chaque question.
+  state.internalIdentity = (state.options?.internalMode && window.grist)
+    ? await probeRespondentIdentity() : null;
+  diag({ event: 'internalIdentity', internalMode: !!state.options?.internalMode, resolved: !!state.internalIdentity });
+
   let form;
   try {
     const r = await fetch(`${link.api}/forms/${link.vsId}`);
@@ -727,21 +747,26 @@ export async function renderFill() {
 
   for (const q of extraQuestions) {
     const cond = normalizeCondition(q.condition);
-    if (!cond?.rules?.length) continue;
+    const hasCond = !!cond?.rules?.length;
+    if (!hasCond && !q.reservedTo?.length) continue;
     const target = card.querySelector(`[data-extra="${q.id}"]`);
     // Répercute le changement de visibilité sur les conditions EN CASCADE : une question qui
     // dépend de q (pas de sa propre source directe) n'écoute que le conteneur eq-<q.id> de q,
     // jamais celui de la source de q — sans cet événement synthétique, un masquage en chaîne (A
     // masque B, B masque C) ne réveille jamais le check de C quand B se masque à son tour.
     const check = () => {
-      target.classList.toggle('cond-hidden', !conditionMet(q.condition, extraQuestions));
+      target.classList.toggle('cond-hidden', !reservationOk(q, state.internalIdentity) || !conditionMet(q.condition, extraQuestions));
       $(`eq-${q.id}`)?.dispatchEvent(new Event('change', { bubbles: true }));
     };
     // 'input' en plus de 'change' : une source Nombre/Texte/Texte long ne déclenche 'change' qu'au
     // blur, ce qui masquerait/afficherait la question dépendante avec un temps de retard sensible
-    // par rapport aux sources à choix (select/radio/case), qui réagissent immédiatement.
-    cond.rules.map(r => $(`eq-${r.questionId}`)).filter(Boolean)
-      .forEach(c => ['input', 'change'].forEach(evt => c.addEventListener(evt, check)));
+    // par rapport aux sources à choix (select/radio/case), qui réagissent immédiatement. Une
+    // question réservée sans condition propre n'a rien à écouter : un seul check() plus bas suffit,
+    // sa visibilité ne change jamais en cours de remplissage.
+    if (hasCond) {
+      cond.rules.map(r => $(`eq-${r.questionId}`)).filter(Boolean)
+        .forEach(c => ['input', 'change'].forEach(evt => c.addEventListener(evt, check)));
+    }
     check();
   }
 

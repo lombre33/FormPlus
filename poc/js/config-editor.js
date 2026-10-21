@@ -14,6 +14,7 @@ import {
   findExistingShareKey, ensureTableGate, ensureChoiceField, ensureRefListField, ensureFreeColumn,
   findViewRefForSection, findMyWidgetPage, persistOptions, duplicateFormSection,
   clearAutoFields, createFormSection, getColumnType, KIND_TO_GRIST_TYPE,
+  ensureRespondentProbeTable,
 } from './grist-meta.js';
 import { state } from './state.js';
 import { renderFill, layoutOrder, renderNativeField } from './respond.js';
@@ -77,6 +78,7 @@ export async function saveConfig(publicUrl, widgetPage) {
     submitLabel: $('opt-submit').value.trim(),
     endMessage: $('opt-endmsg').value.trim(),
     redirectUrl: $('opt-redirect').value.trim(),
+    internalMode: $('opt-internal-mode').checked,
   };
   const run = async () => {
     const { self } = await findViewRefForSection(saved.vsId);
@@ -172,6 +174,24 @@ $('link').addEventListener('keydown', (e) => { if (e.key === 'Enter') generate()
     const persisted = await saveConfig(state.options.publicUrl, state.options.viewRef);
     saveMsg($('appearance-msg'), persisted, I18n.t('form.editor.savedGeneric'));
   });
+});
+// Mode interne : à l'activation, prépare tout de suite la table-sonde partagée (ensureRespondentProbeTable,
+// grist-meta.js) — un geste de SCHÉMA, qui a besoin des droits complets du concepteur, jamais de ceux d'un
+// répondant. Sans cette préparation ici, le premier répondant en mode interne tomberait sur une table encore
+// absente et resterait sans identité connue (voir probeRespondentIdentity, qui renvoie alors null sans
+// bloquer le reste du formulaire, mais sans jamais afficher une question réservée).
+$('opt-internal-mode').addEventListener('change', async () => {
+  if (!state.currentFormSection) return;
+  const msg = $('internal-mode-msg');
+  const turnedOn = $('opt-internal-mode').checked;
+  if (turnedOn) {
+    msg.textContent = I18n.t('form.internal.enabling');
+    try { await ensureRespondentProbeTable(); }
+    catch (e) { msg.innerHTML = `<span class="err">${I18n.t('form.internal.enableError', { message: esc(e.message) })}</span>`; $('opt-internal-mode').checked = false; return; }
+  }
+  const persisted = await saveConfig(state.options.publicUrl, state.options.viewRef);
+  saveMsg(msg, persisted, turnedOn ? I18n.t('form.internal.enabled') : I18n.t('form.editor.savedGeneric'));
+  renderQuestionList(); // affiche/masque le bouton "Réserver à..." de chaque carte selon le nouvel état
 });
 $('opt-accent-reset').addEventListener('click', async () => {
   $('opt-accent').value = '#3452e1';
@@ -467,6 +487,7 @@ export function questionSummary(q) {
   if (q.kind === 'select' || q.kind === 'multiselect' || q.kind === 'timeslot') parts.push(`${(q.choices || []).length} option(s)`);
   if (SINGLE_CHOICE_KINDS.has(q.kind) && q.displayMode === 'radio') parts.push('en radio');
   if (q.writeTable && q.writeTable !== state.mainTableIdCache) parts.push(`écrit dans « ${q.writeTable} »`);
+  if (q.reservedTo?.length) parts.push(`réservée à ${q.reservedTo.length} destinataire(s)`);
   const cond = normalizeCondition(q.condition);
   if (cond?.rules?.length) {
     const joiner = cond.mode === 'any' ? ' ou ' : ' et ';
@@ -988,6 +1009,13 @@ export async function renderCardBody(id, body) {
       <div class="qf-cond-rules"></div>
       <button type="button" class="qf-link qf-cond-add">${ICONS.plus}<span>${I18n.t('form.editor.addCondition')}</span></button>
     </div>
+    ${state.options?.internalMode ? `
+    <button type="button" class="qf-link" data-reveal="reserved">${ICONS.lock}<span>${I18n.t('form.editor.reservedButton')}</span></button>
+    <div class="qf-reserved ${q?.reservedTo?.length ? '' : 'hidden'}">
+      <label for="qf-reserved-${id}" class="qf-field-label">${I18n.t('form.editor.reservedLabel')}</label>
+      <textarea id="qf-reserved-${id}" class="qf-reserved-emails" rows="3" placeholder="${esc(I18n.t('form.editor.reservedPlaceholder'))}">${esc((q?.reservedTo || []).join('\n'))}</textarea>
+      <p class="muted qf-reserved-hint">${I18n.t('form.editor.reservedHint')}</p>
+    </div>` : ''}
     <p class="qf-msg muted"></p>
     <div class="qcard-footer">
       <div class="qcard-footer-left">
@@ -1007,8 +1035,8 @@ export async function renderCardBody(id, body) {
   wireKindSelector(body, kind, displayMode);
 
   body.querySelectorAll('[data-reveal]').forEach(b => b.addEventListener('click', () => {
-    const el = body.querySelector(b.dataset.reveal === 'table' ? '.qf-table-override' : '.qf-condition');
-    el.classList.toggle('hidden');
+    const sel = b.dataset.reveal === 'table' ? '.qf-table-override' : b.dataset.reveal === 'reserved' ? '.qf-reserved' : '.qf-condition';
+    body.querySelector(sel).classList.toggle('hidden');
   }));
 
   await wireSourceAndWriteCombos(body, q, tableItems, combos);
@@ -1060,6 +1088,17 @@ export async function saveQuestionFromCard(id, body, existing, combos, { rerende
     msg.textContent = I18n.t('form.editor.saving');
     const q = { id: existing?.id || uid(), kind, label, description, condition };
     if (existing?.importedFrom) q.importedFrom = existing.importedFrom;
+    // Réservation par identité (mode interne) : lue seulement si le champ existe réellement dans
+    // cette carte (state.options.internalMode au moment du rendu, voir renderCardBody) — sinon le
+    // réglage déjà enregistré est conservé tel quel, jamais effacé silencieusement par le simple
+    // fait que le mode interne soit décoché au moment où CETTE question est enregistrée.
+    const reservedField = body.querySelector('.qf-reserved-emails');
+    if (reservedField) {
+      const list = reservedField.value.split('\n').map(s => s.trim().toLowerCase()).filter(Boolean);
+      if (list.length) q.reservedTo = list;
+    } else if (existing?.reservedTo?.length) {
+      q.reservedTo = existing.reservedTo;
+    }
 
     if (LAYOUT_KINDS.has(kind)) {
       // Titre de section / bloc d'info : ne collecte rien, pas de destination ni d'obligatoire.
@@ -1343,6 +1382,7 @@ export function fillAppearanceFields(opts) {
   $('opt-submit').value = opts?.submitLabel || '';
   $('opt-endmsg').value = opts?.endMessage || '';
   $('opt-redirect').value = opts?.redirectUrl || '';
+  $('opt-internal-mode').checked = !!opts?.internalMode;
 }
 
 // Une fois un formulaire lié, l'écran de démarrage (tuiles + panneaux) n'a plus rien à faire à

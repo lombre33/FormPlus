@@ -20,4 +20,5 @@ export const state = {
   cornerStyle: 'soft',  // forme des coins de la page répondant : soft | bold
   bgMood: 'flat',       // ambiance de fond de la page répondant : flat | tinted
   generating: false,    // generate() en cours : bloque un second déclenchement concurrent (bouton + touche Entrée)
+  internalIdentity: null, // email résolu pour le répondant courant en mode interne, ou null (inconnue/non applicable)
 };

@@ -4,13 +4,13 @@ import { hexToRgb, softenColor, contrastText, applyBranding } from './theme.js';
 import { I18n, KIT_STRINGS } from '../../kit/js/i18n.js';
 import { STRINGS } from './strings.js';
 import { KINDS, LAYOUT_KINDS, TABLE_SOURCED_KINDS, FIXED_LIST_KINDS, mapFeatureEnabled } from './kinds.js';
-import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet, splitIntoPages, wirePages, resolveFormTitle } from './respond.js';
+import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet, reservationOk, splitIntoPages, wirePages, resolveFormTitle } from './respond.js';
 import {
   questionSummary, conditionSourceCandidates, renderCardBody, saveQuestionFromCard,
   customizeNativeField, resetQuestions, createEmptyForm, populateFormPicker, generate, saveConfig,
   renderQuestionList, showEditorTab, showConfig, loadResponsesSummary,
 } from './config-editor.js';
-import { findExistingShareKey, ensureTableGate, ensureFreeColumn } from './grist-meta.js';
+import { findExistingShareKey, ensureTableGate, ensureFreeColumn, ensureRespondentProbeTable, probeRespondentIdentity } from './grist-meta.js';
 import { loadPluginApi } from './plugin-loader.js';
 import { state } from './state.js';
 
@@ -654,6 +654,81 @@ export async function runTests() {
     assertEqual('la colonne suffixée est bien créée avec le bon type', addColumnCalls[0]?.[3], { type: 'Text' });
   });
 
+  await group('ensureRespondentProbeTable : crée la table-sonde puis la colonne manquantes, idempotent sinon (mode interne)', async () => {
+    let addCalls;
+    window.grist = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [], tableId: [] } : { id: [], colId: [], parentId: [], type: [] }),
+      onAction: (a) => { addCalls.push(a); },
+    }).grist;
+    addCalls = [];
+    await ensureRespondentProbeTable();
+    assertEqual('table absente -> une seule action AddTable', addCalls.map(c => c[0]), ['AddTable']);
+    assertEqual('nom de table et colonne email dans la même action', [addCalls[0][1], addCalls[0][2][0].id], ['FormPlus_Repondants', 'Email']);
+    assertEqual('formule déclencheur posée sur la colonne', [addCalls[0][2][0].isFormula, addCalls[0][2][0].formula], [false, 'user.Email']);
+
+    window.grist = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [9], tableId: ['FormPlus_Repondants'] } : { id: [], colId: [], parentId: [], type: [] }),
+      onAction: (a) => { addCalls.push(a); },
+    }).grist;
+    addCalls = [];
+    await ensureRespondentProbeTable();
+    assertEqual('table déjà là, colonne manquante -> AddColumn seul', addCalls.map(c => c[0]), ['AddColumn']);
+
+    window.grist = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [9], tableId: ['FormPlus_Repondants'] } : { id: [5], colId: ['Email'], parentId: [9], type: ['Text'] }),
+      onAction: (a) => { addCalls.push(a); },
+    }).grist;
+    addCalls = [];
+    await ensureRespondentProbeTable();
+    assertEqual('table et colonne déjà là -> rien à faire (idempotent)', addCalls.length, 0);
+  });
+
+  await group('probeRespondentIdentity : résout l\'identité réelle via la table-sonde, puis la nettoie (mode interne)', async () => {
+    let probeRows = { id: [], Email: [] };
+    let removedIds;
+    const grist1 = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [9], tableId: ['FormPlus_Repondants'] } : probeRows),
+      onAction: (a) => {
+        if (a[0] === 'AddRecord') { const id = 42; probeRows = { id: [id], Email: ['Alice@Exemple.fr'] }; return id; }
+        if (a[0] === 'RemoveRecord') removedIds.push(a[2]);
+      },
+    }).grist;
+    removedIds = [];
+    window.grist = grist1;
+    assertEqual('identité résolue telle que posée par la formule déclencheur (casse conservée)', await probeRespondentIdentity(), 'Alice@Exemple.fr');
+    await tick();
+    assertEqual('la ligne-sonde jetable est retirée juste après lecture', removedIds, [42]);
+
+    window.grist = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [], tableId: [] } : { id: [], Email: [] }),
+    }).grist;
+    assertEqual('table-sonde jamais créée (mode interne jamais activé) -> null, sans action', await probeRespondentIdentity(), null);
+
+    window.grist = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [9], tableId: ['FormPlus_Repondants'] } : { id: [], Email: [] }),
+      onAction: (a) => { if (a[0] === 'AddRecord') throw new Error('droit insuffisant'); },
+    }).grist;
+    assertEqual('AddRecord refusé (répondant sans droit d\'écriture réel) -> null, jamais d\'exception', await probeRespondentIdentity(), null);
+
+    let probeRows2 = { id: [], Email: [] };
+    window.grist = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [9], tableId: ['FormPlus_Repondants'] } : probeRows2),
+      onAction: (a) => {
+        if (a[0] === 'AddRecord') { const id = 7; probeRows2 = { id: [id], Email: ['anon@getgrist.com'] }; return id; }
+      },
+    }).grist;
+    assertEqual('identité anonyme malgré grist.docApi présent (ex. aperçu via #form=) -> traitée comme inconnue', await probeRespondentIdentity(), null);
+  });
+
+  await group('reservationOk : réservation d\'une question par identité (mode interne)', () => {
+    assert('pas de réservation -> toujours autorisée, identité inconnue comprise', reservationOk({}, null));
+    assert('liste vide -> toujours autorisée', reservationOk({ reservedTo: [] }, 'a@x.fr'));
+    assert('identité null (non résolue) + liste non vide -> jamais autorisée (repli le plus sûr)', !reservationOk({ reservedTo: ['a@x.fr'] }, null));
+    assert('identité présente dans la liste -> autorisée', reservationOk({ reservedTo: ['a@x.fr', 'b@x.fr'] }, 'a@x.fr'));
+    assert('comparaison insensible à la casse (reservedTo en minuscules, identité Grist quelconque)', reservationOk({ reservedTo: ['a@x.fr'] }, 'A@X.fr'));
+    assert('identité absente de la liste -> jamais autorisée', !reservationOk({ reservedTo: ['a@x.fr'] }, 'c@x.fr'));
+  });
+
   await group('saveQuestionFromCard : changement de type sur une question déjà enregistrée, formulaire déjà en cours de collecte (point soulevé par Antoine le 21 oct)', async () => {
     // Avant ce correctif : changer le TYPE d'une question existante sans retoucher la combo
     // "colonne de destination" (préremplie avec l'ANCIENNE colonne, le concepteur n'a aucune
@@ -792,6 +867,50 @@ export async function runTests() {
     writeColInput.dispatchEvent(new Event('input'));
     await saveQuestionFromCard('__new__', body2, null, combos2);
     assertEqual('texte tapé sans correspondance -> prime sur le libellé pour le nom de colonne créée', state.cfgQuestions[0]?.writeCol, 'Nom_voulu');
+  });
+
+  await group('saveQuestionFromCard : champ "Réserver à..." (mode interne)', async () => {
+    state.cfgQuestions = [];
+    state.mainTableIdCache = 'Main';
+    state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+    window.grist = makeGristStub({
+      listTables: ['Main'],
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [1], tableId: ['Main'] } : { id: [10], colA: ['x'] }),
+    }).grist;
+    // Mode interne actif au moment du rendu de la carte : le champ "Réserver à..." existe dans le DOM.
+    state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [], internalMode: true };
+    const body = mount(document.createElement('div'));
+    const { combos } = await renderCardBody('__new__', body);
+    assert('bouton "Réserver à..." affiché quand le mode interne est actif', !!body.querySelector('[data-reveal="reserved"]'));
+    body.querySelector('[data-kind="text"]').click();
+    body.querySelector('.qf-label').value = 'Question réservée';
+    selectCombo(body.querySelector('[data-combo="writeCol"]'), 'colA');
+    body.querySelector('.qf-reserved-emails').value = 'Alice@Exemple.fr\n\nbob@exemple.fr\n';
+    await saveQuestionFromCard('__new__', body, null, combos);
+    assertEqual('adresses enregistrées en minuscules, lignes vides ignorées', state.cfgQuestions[0]?.reservedTo, ['alice@exemple.fr', 'bob@exemple.fr']);
+
+    // Champ laissé vide -> pas de réservation du tout (pas un tableau vide qui, lui, masquerait
+    // la question à tout le monde, voir reservationOk dans respond.js).
+    state.cfgQuestions = [];
+    const body2 = mount(document.createElement('div'));
+    const { combos: combos2 } = await renderCardBody('__new__', body2);
+    body2.querySelector('[data-kind="text"]').click();
+    body2.querySelector('.qf-label').value = 'Question libre';
+    selectCombo(body2.querySelector('[data-combo="writeCol"]'), 'colA');
+    await saveQuestionFromCard('__new__', body2, null, combos2);
+    assertEqual('champ vide -> reservedTo absent', state.cfgQuestions[0]?.reservedTo, undefined);
+
+    // Mode interne désactivé ENTRE-TEMPS (le champ n'existe plus dans la carte) : une réservation
+    // déjà enregistrée sur cette question ne doit pas disparaître silencieusement.
+    const existing = { id: 'q1', kind: 'text', label: 'Déjà réservée', reservedTo: ['alice@exemple.fr'], writeTable: 'Main', writeCol: 'colA' };
+    state.cfgQuestions = [existing];
+    state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [], internalMode: false };
+    const body3 = mount(document.createElement('div'));
+    const { combos: combos3 } = await renderCardBody('q1', body3);
+    assert('mode interne inactif -> pas de bouton "Réserver à..."', !body3.querySelector('[data-reveal="reserved"]'));
+    body3.querySelector('.qf-label').value = 'Déjà réservée (modifiée)';
+    await saveQuestionFromCard('q1', body3, existing, combos3);
+    assertEqual('réservation déjà enregistrée conservée malgré le mode interne désactivé', state.cfgQuestions[0]?.reservedTo, ['alice@exemple.fr']);
   });
 
   await group('saveQuestionFromCard : liste de références (reflist), même mécanisme que "choix depuis une table"', async () => {

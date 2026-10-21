@@ -100,6 +100,17 @@ export const STRINGS = {
   'form.appearance.endMsgPlaceholder': { fr: 'Merci, votre réponse a bien été enregistrée.', en: 'Thank you, your answer has been recorded.' },
   'form.appearance.redirectLabel': { fr: "Redirection après l'envoi (URL, facultatif)", en: 'Redirect after submission (URL, optional)' },
 
+  // ───────────────────────── widget.html : Mode interne ─────────────────────────
+  'form.internal.heading': { fr: 'Mode interne', en: 'Internal mode' },
+  'form.internal.desc': {
+    fr: "Pour un formulaire ouvert directement sur une page de ce document Grist (pas via le lien public), par des personnes qui ont déjà un compte et un accès au document. Permet de réserver certaines questions à certaines adresses. Donnez d'abord à ces personnes un accès en écriture au document (règle d'accès ou rôle Éditeur) : sans ça, le mode interne ne peut pas fonctionner pour elles. Confort d'affichage, pas une protection : seules les règles d'accès du document protègent vraiment une donnée sensible.",
+    en: "For a form opened directly on a page of this Grist document (not via the public link), by people who already have an account and access to the document. Lets you reserve some questions to specific addresses. First give these people write access to the document (an access rule or Editor role): without that, internal mode cannot work for them. A display convenience, not real protection: only the document's access rules truly protect sensitive data.",
+  },
+  'form.internal.toggleLabel': { fr: 'Activer le mode interne', en: 'Enable internal mode' },
+  'form.internal.enabling': { fr: 'Préparation du mode interne…', en: 'Setting up internal mode…' },
+  'form.internal.enabled': { fr: 'Mode interne activé.', en: 'Internal mode enabled.' },
+  'form.internal.enableError': { fr: "Impossible de préparer le mode interne : {message}", en: 'Could not set up internal mode: {message}' },
+
   // ───────────────────────── widget.html : répondant, réparation, secours ─────────────────────────
   'form.respond.configBtn': { fr: 'Configuration', en: 'Configuration' },
   'form.repair.heading': { fr: 'Réparation', en: 'Repair' },
@@ -309,6 +320,13 @@ export const STRINGS = {
   'form.editor.mapHint': {
     fr: 'Le point posé sur la carte est enregistré comme texte "latitude,longitude" dans une colonne Texte. Carte OpenStreetMap (bibliothèque Leaflet, chargée depuis un CDN) : seule question de ce widget à charger un script externe, grisée par défaut sur cette version (voir le README) — en son absence, le répondant saisit directement les coordonnées.',
     en: 'The point placed on the map is saved as "latitude,longitude" text in a Text column. OpenStreetMap map (Leaflet library, loaded from a CDN): the only question in this widget that loads an external script, greyed out by default on this version (see the README) — without it, the respondent types the coordinates directly.',
+  },
+  'form.editor.reservedButton': { fr: 'Réserver à certaines personnes', en: 'Reserve to specific people' },
+  'form.editor.reservedLabel': { fr: 'Adresses autorisées (une par ligne)', en: 'Allowed addresses (one per line)' },
+  'form.editor.reservedPlaceholder': { fr: 'nom@domaine.fr', en: 'name@domain.com' },
+  'form.editor.reservedHint': {
+    fr: 'Vide = tout le monde. Comparée à l\'adresse Grist réelle du répondant (mode interne) : sans effet pour quelqu\'un dont l\'identité ne peut pas être vérifiée.',
+    en: "Empty = everyone. Compared against the respondent's real Grist address (internal mode): has no effect for someone whose identity cannot be verified.",
   },
   'form.editor.conditionButton': { fr: "Condition d'affichage", en: 'Display condition' },
   'form.editor.condModeAll': { fr: 'Toutes vraies (ET)', en: 'All true (AND)' },
