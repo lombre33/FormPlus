@@ -7,7 +7,8 @@ import { KINDS, LAYOUT_KINDS, TABLE_SOURCED_KINDS, FIXED_LIST_KINDS, mapFeatureE
 import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet, splitIntoPages, wirePages, resolveFormTitle } from './respond.js';
 import {
   questionSummary, conditionSourceCandidates, renderCardBody, saveQuestionFromCard,
-  importNativeFields, resetQuestions, createEmptyForm, populateFormPicker, generate, saveConfig,
+  customizeNativeField, resetQuestions, createEmptyForm, populateFormPicker, generate, saveConfig,
+  renderQuestionList, showEditorTab, showConfig,
 } from './config-editor.js';
 import { findExistingShareKey, ensureTableGate, ensureFreeColumn } from './grist-meta.js';
 import { loadPluginApi } from './plugin-loader.js';
@@ -982,13 +983,48 @@ export async function runTests() {
     // aller-retours (saveConfig) n'ait eu le temps de se terminer : sans le verrou qui met à jour
     // `q` après chaque sauvegarde réussie, le second blur repartait d'un `existing` resté à `null`
     // et créait une SECONDE question au lieu de modifier la première.
+    // focusout (pas blur) depuis le 21 oct 2026 : voir wireCardFooter, même événement déclenche
+    // l'auto-enregistrement désormais.
     body.querySelector('.qf-label').value = 'Premier titre';
-    body.querySelector('.qf-label').dispatchEvent(new Event('blur'));
+    body.querySelector('.qf-label').dispatchEvent(new Event('focusout'));
     body.querySelector('.qf-label').value = 'Second titre';
-    body.querySelector('.qf-label').dispatchEvent(new Event('blur'));
+    body.querySelector('.qf-label').dispatchEvent(new Event('focusout'));
     await tick(); await tick(); await tick(); await tick();
     assertEqual('une seule question créée (pas de doublon)', state.cfgQuestions.length, 1, JSON.stringify(state.cfgQuestions));
     assertEqual('le second enregistrement met à jour la même entrée, avec le dernier libellé tapé', state.cfgQuestions[0]?.label, 'Second titre');
+  });
+
+  await group('wireCardFooter : ne valide/enregistre pas tant que le focus reste dans la même carte (audit UI/UX du 21 oct 2026)', async () => {
+    state.cfgQuestions = [];
+    state.mainTableIdCache = 'Main';
+    state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+    window.grist = makeGristStub({
+      listTables: ['Main'],
+      fetchTable: (t) => (t === '_grist_Views_section' ? { id: [], parentId: [], parentKey: [], options: [] } : { id: [] }),
+    }).grist;
+    state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
+    const body = mount(document.createElement('div'));
+    await renderCardBody('__new__', body);
+    // "Choix depuis une table" : table/colonne source jamais choisies ici, un gate de validation
+    // toujours requis même depuis que la colonne de destination se crée seule pour les types
+    // libres (ensureFreeColumn) — contrairement à "texte", qui n'a plus d'erreur possible ici.
+    body.querySelector('[data-kind="choice"]').click();
+    const label = body.querySelector('.qf-label');
+    const desc = body.querySelector('.qf-desc');
+    label.value = 'Un titre';
+    // Le focus quitte le titre vers la description, DANS la même carte : le concepteur continue
+    // de la remplir, ne doit voir ni enregistrement ni erreur de validation prématurée.
+    label.dispatchEvent(new FocusEvent('focusout', { relatedTarget: desc }));
+    await tick();
+    assertEqual('pas encore de question créée (toujours en train de remplir la carte)', state.cfgQuestions.length, 0);
+    assertEqual('pas d’erreur affichée prématurément', body.querySelector('.qf-msg').textContent.trim(), '');
+    // Le focus quitte vraiment la carte (relatedTarget hors carte, ou aucun) : la validation peut
+    // enfin se déclencher — erreur légitime ici, la table source n'a toujours pas été choisie,
+    // mais au moins plus AVANT que le concepteur ait eu l'occasion de s'en occuper.
+    label.dispatchEvent(new FocusEvent('focusout', { relatedTarget: null }));
+    await tick();
+    assertEqual('en quittant la carte, la validation (légitime, table source non choisie) se déclenche enfin',
+      body.querySelector('.qf-msg').textContent.trim(), I18n.t('form.editor.pickSourceTableCol'));
   });
 
   await group('[data-del] : supprimer une question retire aussi les règles de condition qui la référençaient ailleurs', async () => {
@@ -1031,7 +1067,7 @@ export async function runTests() {
     }
   });
 
-  await group('importNativeFields : correspondance des types natifs', async () => {
+  await group('customizeNativeField : correspondance des types natifs, un champ à la fois (bouton « Personnaliser ce champ »)', async () => {
     state.cfgQuestions = [];
     state.mainTableIdCache = 'Reponses';
     state.currentLink = { api: 'https://fake/api/s/KEY', vsId: 1 };
@@ -1060,7 +1096,11 @@ export async function runTests() {
         },
       }),
     });
-    await importNativeFields();
+    // Un seul champ à la fois, dans l'ordre d'apparition : exactement ce que fait un clic sur
+    // « Personnaliser ce champ » d'une carte native, jamais un bouton d'import en bloc (retiré).
+    for (const id of [100, 101, 102, 103, 104, 105, 106, 107, 108]) {
+      await customizeNativeField(String(id));
+    }
     await tick();
     const kindByLabel = Object.fromEntries(state.cfgQuestions.map(q => [q.label, q.kind]));
     assertEqual('Text -> text', kindByLabel.Q1, 'text');
@@ -1072,10 +1112,26 @@ export async function runTests() {
     assertEqual('Attachments -> attachments', kindByLabel.Q7, 'attachments');
     assertEqual('DateTime -> datetime', kindByLabel.Q8, 'datetime');
     assertEqual('Text multiligne -> longtext', kindByLabel.Q9, 'longtext');
-    assertEqual('tous les 9 champs importés (plus aucun type ignoré)', state.cfgQuestions.length, 9);
+    assertEqual('tous les 9 champs personnalisés (plus aucun type ignoré)', state.cfgQuestions.length, 9);
     assertEqual('colonne existante reprise telle quelle pour Attachments', state.cfgQuestions.find(q => q.label === 'Q7')?.writeCol, 'g');
     assertEqual('options reprises pour Choice', state.cfgQuestions.find(q => q.label === 'Q5')?.choices, ['X', 'Y']);
     assert('importedFrom renseigné', state.cfgQuestions.every(q => !!q.importedFrom));
+  });
+
+  await group('customizeNativeField : type non pris en charge -> ignoré sans bouton ni crash', async () => {
+    state.cfgQuestions = [];
+    state.mainTableIdCache = 'Reponses';
+    state.currentLink = { api: 'https://fake/api/s/KEY', vsId: 1 };
+    state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+    window.grist = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [1], tableId: ['Reponses'] } : { id: [] }),
+    }).grist;
+    window.fetch = async () => ({
+      ok: true, json: async () => ({ formFieldsById: { 200: { colId: 'z', type: 'ManualSortPos', question: 'Technique', options: {} } } }),
+    });
+    await customizeNativeField('200');
+    await tick();
+    assertEqual('aucune question créée pour un type sans correspondance', state.cfgQuestions.length, 0);
   });
 
   await group('resetQuestions : démasque uniquement les champs importés', async () => {
@@ -1099,6 +1155,78 @@ export async function runTests() {
     assertEqual('un seul champ démasqué (le champ importé, pas le manuel)', unhideActions.length, 1);
     assertEqual('cible bien la ligne 10 (importedFrom), pas la 11', unhideActions[0][0][2], 10);
     assertEqual('la configuration est aussi sauvegardée (UpdateRecord section)', calls.some(a => a[0][1] === '_grist_Views_section'), true);
+  });
+
+  await group('renderQuestionList : fusion visuelle des champs natifs non importés dans #qlist (jalon J2)', async () => {
+    state.cfgQuestions = [];
+    state.expandedId = null;
+    state.mainTableIdCache = 'Main';
+    state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+    state.currentLink = { api: 'https://fake/api/s/KEY', vsId: 1 };
+    state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
+    let formFieldHidden = false;
+    window.grist = makeGristStub({
+      listTables: ['Main'],
+      fetchTable: (t) => {
+        if (t === '_grist_Tables_column') return { id: [], colId: [], parentId: [], type: [], visibleCol: [] };
+        if (t === '_grist_Tables') return { id: [1], tableId: ['Main'] };
+        if (t === '_grist_Views_section_field') return { id: [900], parentId: [1], widgetOptions: ['{}'] };
+        return { id: [] };
+      },
+      onAction: (a) => {
+        if (a[0] === 'UpdateRecord' && a[1] === '_grist_Views_section_field' && a[2] === 900) {
+          try { if ((JSON.parse(a[3].widgetOptions) || {}).formIsHidden) formFieldHidden = true; } catch (e) { /* ignore */ }
+        }
+      },
+    }).grist;
+    window.fetch = async () => ({
+      ok: true, json: async () => ({
+        formFieldsById: { 900: { colId: 'z', type: 'Text', question: 'Nom', description: '', options: formFieldHidden ? { formIsHidden: true } : {} } },
+      }),
+    });
+    renderQuestionList();
+    // La carte native s'injecte après coup (aller-retour réseau) : laisse le temps à la promesse
+    // de renderNativeFieldCards de se résoudre, sans dépendre d'un délai fixe.
+    for (let i = 0; i < 20 && !$('qlist').querySelector('.qcard-native'); i++) await tick();
+    const nativeCard = $('qlist').querySelector('.qcard-native');
+    assert('le champ natif non importé apparaît dans #qlist (pas derrière un bouton séparé, retiré)', !!nativeCard);
+    assertEqual('tag « Champ natif » affiché', nativeCard?.querySelector('.qcard-native-tag')?.textContent.trim(), I18n.t('form.editor.nativeFieldTag'));
+    assert('contrôle natif réel rendu (même rendu que côté répondant, renderNativeField)', !!nativeCard?.querySelector('input#i900'));
+    const customizeBtn = nativeCard.querySelector('[data-native-customize]');
+    assert('bouton « Personnaliser ce champ » présent', !!customizeBtn);
+    customizeBtn.click();
+    for (let i = 0; i < 20 && !state.cfgQuestions.length; i++) await tick();
+    assertEqual('devient une vraie question FormPlus après personnalisation', state.cfgQuestions[0]?.label, 'Nom');
+    assert('importedFrom renseigné (pour "Réinitialiser les questions")', !!state.cfgQuestions[0]?.importedFrom);
+    for (let i = 0; i < 20 && $('qlist').querySelector('.qcard-native'); i++) await tick();
+    assertEqual('le champ, maintenant personnalisé, ne réapparaît plus en bordure pointillée', $('qlist').querySelector('.qcard-native'), null);
+
+    // Nettoyage : cet état (lien natif factice, #qlist rempli) ne doit pas fuir vers les tests suivants.
+    state.cfgQuestions = [];
+    state.currentLink = null;
+    renderQuestionList();
+  });
+
+  await group('showConfig : un clic rapide sur un autre onglet n’est pas écrasé par le forçage "Questions" (course de l’audit du 21 oct 2026)', async () => {
+    state.editorTab = 'questions';
+    state.editorTabPicked = false;
+    state.options = {
+      formLink: 'https://grist.example/o/team/forms/KEY/42',
+      vsId: 42, sourceVsId: 42, viewRef: 7, publicUrl: 'https://x', questions: [],
+    };
+    window.grist = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Views_section' ? { id: [42], parentId: [7], tableRef: [1] } : { id: [] }),
+    }).grist;
+    window.fetch = async () => ({ ok: true, json: async () => ({ formFieldsById: {} }) });
+    const configDone = showConfig();
+    // Avant même que showConfig() ait fini de lire _grist_Views_section (son premier "await"),
+    // on simule le clic du concepteur sur "Paramètres" — exactement le scénario de l'audit.
+    document.querySelector('[data-etab="settings"]').click();
+    await configDone;
+    await tick();
+    assertEqual('le choix du concepteur (Paramètres) n’est pas écrasé par le forçage "Questions"', state.editorTab, 'settings');
+    assertEqual('l’onglet "Paramètres" est bien affiché (pas juste state.editorTab)', $('tab-settings').classList.contains('hidden'), false);
+    show('test'); // showConfig() a basculé l'écran visible sur #config : on revient à #test pour la suite.
   });
 
   // CreateViewSection peuple automatiquement la nouvelle section d'un champ par colonne de la

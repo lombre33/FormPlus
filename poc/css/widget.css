@@ -113,6 +113,16 @@
   .qcard-order { display: flex; gap: 2px; flex-shrink: 0; margin-left: auto; }
   .qcard-order .icon-btn { width: 26px; height: 26px; }
   .qcard-body { display: flex; flex-direction: column; }
+
+  /* Champ natif pas encore personnalisé (jalon J2) : même liste #qlist que les questions, son
+     contrôle natif réel (voir renderNativeField, respond.js) rendu tel quel dans .qcard-body —
+     seuls la bordure en pointillés et le tag le distinguent d'une vraie question FormPlus. Le tag
+     réutilise .qcard-toolbar pour l'alignement mais reste visible en permanence (pas de
+     survol requis, contrairement à la poignée de glisser-déposer des questions). */
+  .qcard-native { border-style: dashed; border-color: var(--border-strong); }
+  .qcard-native .qcard-toolbar { opacity: 1; margin: -6px -6px 2px; }
+  .qcard-native-tag { display: flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+  .qcard-native-tag svg { width: 13px; height: 13px; flex-shrink: 0; }
   .qtitle-row { display: flex; align-items: flex-start; gap: 4px; }
   .qtitle-row .qf-label { flex: 1; min-width: 0; }
   .qf-label { border: none; background: none; padding: 4px 2px; font-size: 1rem; font-weight: 600; }

@@ -16,6 +16,7 @@ export const state = {
   startView: 'choices', // vue affichée sur l'écran de démarrage : choices | existing | scratch | link
   scratchMode: 'new',   // dans le panneau "Partir de zéro" : new (table à créer) | existing (table déjà là)
   editorTab: 'questions', // onglet affiché dans l'éditeur : questions | responses | settings
+  editorTabPicked: false, // un onglet a été cliqué depuis le dernier showConfig() : l'empêche d'écraser ce choix une fois ses await terminés (course corrigée le 21 oct 2026)
   cornerStyle: 'soft',  // forme des coins de la page répondant : soft | bold
   bgMood: 'flat',       // ambiance de fond de la page répondant : flat | tinted
   generating: false,    // generate() en cours : bloque un second déclenchement concurrent (bouton + touche Entrée)

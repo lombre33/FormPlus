@@ -25,7 +25,6 @@ I18n.translateDom();
 I18n.onChange(() => I18n.translateDom());
 
 $('qadd').innerHTML = ICONS.plus + `<span>${I18n.t('form.main.addQuestionBtn')}</span>`;
-$('qimport').innerHTML = ICONS.download + `<span>${I18n.t('form.main.importBtn')}</span>`;
 $('qreset').innerHTML = ICONS.refresh + `<span>${I18n.t('form.main.resetBtn')}</span>`;
 $('qrToggle').innerHTML = ICONS.qrcode;
 $('scratchTable').value = I18n.t('form.scratch.defaultTableName');

@@ -54,8 +54,8 @@ export const STRINGS = {
   'form.tabs.responses': { fr: 'Réponses', en: 'Responses' },
   'form.tabs.settings': { fr: 'Paramètres', en: 'Settings' },
   'form.questions.hint': {
-    fr: 'En plus des champs du formulaire natif. Cliquez une question pour la régler.',
-    en: "In addition to the native form's fields. Click a question to edit it.",
+    fr: 'Les champs du formulaire natif apparaissent aussi ici (bordure en pointillés) : cliquez « Personnaliser ce champ » pour les régler comme une question.',
+    en: 'The native form\'s fields appear here too (dashed border): click "Customize this field" to configure them like a question.',
   },
   'form.questions.empty': { fr: 'Aucune question supplémentaire pour l\'instant.', en: 'No additional question yet.' },
 
@@ -135,7 +135,6 @@ export const STRINGS = {
 
   // ───────────────────────── main.js : boutons posés en JS au démarrage ─────────────────────────
   'form.main.addQuestionBtn': { fr: 'Ajouter une question', en: 'Add a question' },
-  'form.main.importBtn': { fr: 'Importer les champs du formulaire natif', en: "Import the native form's fields" },
   'form.main.resetBtn': { fr: 'Réinitialiser les questions', en: 'Reset the questions' },
   'form.main.themeToLight': { fr: 'Passer en thème clair', en: 'Switch to light theme' },
   'form.main.themeToDark': { fr: 'Passer en thème sombre', en: 'Switch to dark theme' },
@@ -319,14 +318,12 @@ export const STRINGS = {
   'form.editor.addAtLeastOneOption': { fr: 'Ajoutez au moins une option (une par ligne).', en: 'Add at least one option (one per line).' },
   'form.editor.pickDestColumn': { fr: 'Choisissez la colonne où enregistrer la réponse.', en: 'Choose the column to save the answer in.' },
 
-  // Import des champs natifs / réinitialisation
-  'form.editor.readingNativeForm': { fr: 'Lecture du formulaire natif…', en: 'Reading the native form…' },
+  // Personnalisation d'un champ natif (fusion visuelle, jalon J2) / réinitialisation
+  'form.editor.nativeFieldTag': { fr: 'Champ natif', en: 'Native field' },
+  'form.editor.customizeNativeFieldBtn': { fr: 'Personnaliser ce champ', en: 'Customize this field' },
   'form.editor.skipRefNotFound': { fr: 'Référence (introuvable)', en: 'Reference (not found)' },
   'form.editor.skipRefTableNotFound': { fr: 'Référence (table introuvable)', en: 'Reference (table not found)' },
-  'form.editor.skippedTypes': { fr: " Ignorés (type non pris en charge pour l'instant) : {list}.", en: ' Skipped (type not supported yet): {list}.' },
   'form.editor.importedCount': { fr: '{n} champ(s) importé(s).', en: '{n} field(s) imported.' },
-  'form.editor.nothingToImport': { fr: 'Rien à importer.', en: 'Nothing to import.' },
-  'form.editor.allFieldsHandled': { fr: ' Tous les champs sont déjà pris en charge ou déjà importés.', en: ' All fields are already supported or already imported.' },
   'form.editor.resetConfirmMsg': {
     fr: 'Retirer toutes les questions supplémentaires de ce widget ? Les champs natifs importés redeviendront visibles dans le formulaire natif. Les réponses déjà enregistrées ne sont pas touchées.',
     en: "Remove all of this widget's extra questions? Imported native fields will become visible again in the native form. Already recorded answers are not affected.",

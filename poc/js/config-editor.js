@@ -16,7 +16,7 @@ import {
   clearAutoFields, createFormSection,
 } from './grist-meta.js';
 import { state } from './state.js';
-import { renderFill } from './respond.js';
+import { renderFill, layoutOrder, renderNativeField } from './respond.js';
 
 // ───────────────────────── Configuration (concepteur) ─────────────────────────
 // Exactement 2 façons de commencer, jamais plus :
@@ -330,7 +330,9 @@ export function showEditorTab(tab) {
 }
 $('editor').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-etab]');
-  if (btn) showEditorTab(btn.dataset.etab);
+  if (!btn) return;
+  state.editorTabPicked = true; // voir showConfig() : ne plus jamais écraser un choix explicite
+  showEditorTab(btn.dataset.etab);
 });
 
 // Compte réel des réponses déjà enregistrées (fetchMeta renvoie des tableaux parallèles ;
@@ -403,9 +405,11 @@ export function renderQuestionList() {
   // indépendante et silencieuse : un échec sur une carte (environnement inhabituel) n'empêche
   // jamais les autres de s'afficher, et ne fait jamais planter la liste.
   [...list.children].forEach(card => {
+    if (card.dataset.nativeId != null) return; // champ natif : déjà entièrement rendu, rien à peupler
     const body = card.querySelector('.qcard-body');
     if (body) renderCardBody(card.dataset.id, body).catch(() => {});
   });
+  renderNativeFieldCards(list);
 }
 
 $('qlist').addEventListener('click', (e) => {
@@ -462,7 +466,6 @@ $('qadd').addEventListener('click', () => {
   };
   setTimeout(tryFocus, 50);
 });
-$('qimport').addEventListener('click', importNativeFields);
 $('qreset').addEventListener('click', resetQuestions);
 
 export async function moveQuestion(id, dir) {
@@ -729,8 +732,18 @@ function wireCardFooter(id, body, q, combos, isNew) {
       .then((saved) => { if (saved) q = saved; });
     return autoSaving;
   };
+  // focusout (pas blur) + vérif de relatedTarget : tant que le focus reste DANS la même carte
+  // (titre -> description, sélecteur de type, combobox…), le concepteur est encore en train de la
+  // remplir, pas question de valider/enregistrer déjà — une carte texte toute neuve n'a par
+  // exemple pas encore de colonne de destination choisie juste après la frappe du titre, et
+  // enregistrer à ce moment-là affichait une erreur avant même que le concepteur ait pu s'en
+  // occuper (se résorbait seule au prochain enregistrement réussi, mais restait confus). On
+  // n'enregistre donc qu'en quittant réellement la carte.
   ['.qf-label', '.qf-desc', '.qf-desc-long', '.qf-choices'].forEach(sel => {
-    body.querySelector(sel).addEventListener('blur', autoSave);
+    body.querySelector(sel).addEventListener('focusout', (e) => {
+      if (e.relatedTarget && body.contains(e.relatedTarget)) return;
+      autoSave();
+    });
   });
   body.querySelector('.qf-required').addEventListener('change', autoSave);
 
@@ -1008,109 +1021,145 @@ export async function saveQuestionFromCard(id, body, existing, combos, { rerende
   }
 }
 
-// ───────────────────────── Importer les champs du formulaire natif ─────────────────────────
-// Bascule un champ natif compatible (Texte, Nombre, Date, Oui/non, Choix, Choix multiples ou
-// Référence) vers une question FormPlus éditable dans la même liste : le masque côté formulaire
-// natif (formIsHidden, même mécanisme que pour nos propres colonnes techniques) et crée
-// l'entrée correspondante. state.currentFormSection est TOUJOURS la copie créée par
-// duplicateFormSection (voir generate(), plus haut), jamais le formulaire d'origine du
-// concepteur : masquer un champ ici ne touche donc que cette copie. À sens unique : une fois
-// importé, le champ se gère depuis FormPlus ; le rendre à nouveau visible sur la copie ne
-// resynchronise pas automatiquement les libellés ou réglages dans l'autre sens (seul
-// « Réinitialiser les questions » sait revenir en arrière, en redémasquant précisément les
-// champs qu'il a lui-même importés).
-export async function importNativeFields() {
+// ───────────────────────── Fusion visuelle : champs natifs non importés (jalon J2) ─────────────────────────
+// Les champs du formulaire natif pas encore personnalisés apparaissent dans la MÊME liste (#qlist)
+// que les questions FormPlus, pas derrière un bouton « Importer » séparé : contrôle natif réel
+// (renderNativeField, réutilisé tel quel depuis respond.js — exactement ce que verra le
+// répondant), bordure en pointillés (.qcard-native, widget.css), tag « Champ natif », et un bouton
+// « Personnaliser ce champ » qui bascule CE SEUL champ en question FormPlus éditable. Même
+// mécanisme à sens unique que l'ancien import en bloc qu'il remplace : masque le champ natif
+// d'origine (formIsHidden) sur la copie du formulaire (state.currentFormSection, jamais
+// l'original du concepteur), pose importedFrom pour que « Réinitialiser les questions » sache le
+// redémasquer précisément.
+
+// Correspondance type de colonne Grist → type de question FormPlus. Renvoie null pour un type
+// sans équivalent (ex. colonnes techniques) : ce champ s'affiche quand même ici (le concepteur
+// voit TOUT champ natif visible), simplement sans bouton « Personnaliser ».
+const NATIVE_SIMPLE_KIND = { Date: 'date', DateTime: 'datetime', Numeric: 'number', Int: 'number', Bool: 'bool' };
+const NATIVE_REF_TYPE_RE = { choice: /^Ref:(.+)$/, reflist: /^RefList:(.+)$/ };
+function nativeFieldKind(fl) {
+  const o = fl.options || {};
+  if (fl.type === 'Text' || fl.type === 'Any') return o.formTextFormat === 'multiline' ? 'longtext' : 'text';
+  if (fl.type === 'Attachments') return 'attachments';
+  if (fl.type === 'Ref') return 'choice';
+  if (fl.type === 'RefList') return 'reflist';
+  if (fl.type === 'Choice') return 'select';
+  if (fl.type === 'ChoiceList') return 'multiselect';
+  return NATIVE_SIMPLE_KIND[fl.type] || null;
+}
+
+const NATIVE_PREVIEW_PARAMS = new URLSearchParams(); // pas de préremplissage : simple aperçu, jamais soumis
+
+function nativeFieldCardHtml(fieldId, fl) {
+  const kind = nativeFieldKind(fl);
+  return `<div class="qcard qcard-native" data-native-id="${fieldId}">
+    <div class="qcard-toolbar">
+      <span class="qcard-native-tag">${ICONS.lock}<span>${I18n.t('form.editor.nativeFieldTag')}</span></span>
+    </div>
+    <div class="qcard-body">
+      ${renderNativeField(fieldId, fl, NATIVE_PREVIEW_PARAMS)}
+      ${kind ? `<div class="qcard-footer">
+        <div class="qcard-footer-left"></div>
+        <div class="qcard-footer-right">
+          <button type="button" class="qf-link" data-native-customize="${fieldId}">${ICONS.settings}<span>${I18n.t('form.editor.customizeNativeFieldBtn')}</span></button>
+        </div>
+      </div>` : ''}
+    </div>
+  </div>`;
+}
+
+// Asynchrone et volontairement posé APRÈS le rendu synchrone des questions (renderQuestionList) :
+// une section sans formulaire natif lié, ou un aller-retour réseau lent, ne doit jamais retarder
+// ni casser l'affichage des questions elles-mêmes (même tolérance que chaque carte individuelle).
+async function renderNativeFieldCards(list) {
+  if (!state.currentLink?.api || state.currentLink.vsId == null) return;
+  let rows = '';
+  try {
+    const r = await fetch(`${state.currentLink.api}/forms/${state.currentLink.vsId}`);
+    if (!r.ok) return;
+    const form = await r.json();
+    rows = layoutOrder(form)
+      .map(id => [id, form.formFieldsById[id]])
+      .filter(([, fl]) => fl && !(fl.options || {}).formIsHidden)
+      .map(([id, fl]) => nativeFieldCardHtml(id, fl))
+      .join('');
+  } catch (e) {
+    diag({ event: 'nativeFieldsPreview-failed', message: e.message });
+    return;
+  }
+  // La liste a pu être entièrement reconstruite (autre action pendant cet aller-retour réseau) :
+  // si #qlist n'est plus le conteneur qu'on a demandé à remplir, ne rien injecter dans du DOM périmé.
+  if (!rows || $('qlist') !== list) return;
+  list.insertAdjacentHTML('afterbegin', rows);
+  list.querySelectorAll('[data-native-customize]').forEach(btn => {
+    btn.addEventListener('click', () => customizeNativeField(btn.dataset.nativeCustomize));
+  });
+}
+
+export async function customizeNativeField(fieldId) {
   const msg = $('import-msg');
-  msg.textContent = I18n.t('form.editor.readingNativeForm');
   try {
     const r = await fetch(`${state.currentLink.api}/forms/${state.currentLink.vsId}`);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const form = await r.json();
+    const fl = form.formFieldsById[fieldId];
+    if (!fl) return; // aperçu périmé (champ déjà traité entre-temps ailleurs) : rien à faire
+    const kind = nativeFieldKind(fl);
+    if (!kind) return; // pas de bouton affiché pour ce cas ; filet de sécurité seulement
+    const o = fl.options || {};
+
     const mainTableId = await tableIdOfRef(state.currentFormSection.tableRef);
     const cols = await fetchMeta('_grist_Tables_column');
     const tables = await fetchMeta('_grist_Tables');
     const mainTableRef = tables.id[tables.tableId.indexOf(mainTableId)];
     const sectionFields = await fetchMeta('_grist_Views_section_field');
 
-    const imported = [];
-    const skipped = {};
-    const fieldUpdates = [];
-
-    // Correspondance type de colonne Grist → type de question FormPlus.
-    const SIMPLE_MAP = { Date: 'date', DateTime: 'datetime', Numeric: 'number', Int: 'number', Bool: 'bool' };
-    const REF_TYPE_RE = { choice: /^Ref:(.+)$/, reflist: /^RefList:(.+)$/ };
-    for (const [fieldId, fl] of Object.entries(form.formFieldsById)) {
-      const o = fl.options || {};
-      if (o.formIsHidden) continue; // déjà masqué : déjà importé, ou masqué intentionnellement
-      let kind = null;
-      if (fl.type === 'Text' || fl.type === 'Any') kind = o.formTextFormat === 'multiline' ? 'longtext' : 'text';
-      else if (fl.type === 'Attachments') kind = 'attachments';
-      else if (fl.type === 'Ref') kind = 'choice';
-      else if (fl.type === 'RefList') kind = 'reflist';
-      else if (fl.type === 'Choice') kind = 'select';
-      else if (fl.type === 'ChoiceList') kind = 'multiselect';
-      else if (SIMPLE_MAP[fl.type]) kind = SIMPLE_MAP[fl.type];
-      if (!kind) {
-        skipped[fl.type] = (skipped[fl.type] || 0) + 1;
-        continue;
-      }
-      // importedFrom (id du champ natif) permet à « Réinitialiser » de retrouver précisément
-      // et de démasquer le bon champ, sans toucher aux champs masqués manuellement dans Grist.
-      const q = { id: uid(), label: fl.question, description: fl.description || '', required: !!o.formRequired, condition: null, importedFrom: fieldId };
-      if (kind === 'choice' || kind === 'select') q.displayMode = o.formSelectFormat === 'radio' ? 'radio' : 'dropdown';
-      if (TABLE_SOURCED_KINDS.has(kind)) {
-        const colIdx = cols.colId.findIndex((c, i) => c === fl.colId && cols.parentId[i] === mainTableRef);
-        if (colIdx < 0) { const skipKey = I18n.t('form.editor.skipRefNotFound'); skipped[skipKey] = (skipped[skipKey] || 0) + 1; continue; }
-        const m = REF_TYPE_RE[kind].exec(cols.type[colIdx] || '');
-        const sourceTable = m ? m[1] : null;
-        const visibleColRef = cols.visibleCol[colIdx];
-        const visIdx = visibleColRef ? cols.id.indexOf(visibleColRef) : -1;
-        const sourceCol = visIdx >= 0 ? cols.colId[visIdx] : 'id';
-        if (!sourceTable) { const skipKey = I18n.t('form.editor.skipRefTableNotFound'); skipped[skipKey] = (skipped[skipKey] || 0) + 1; continue; }
-        q.kind = kind;
-        q.sourceTable = sourceTable;
-        q.sourceCol = sourceCol;
-        q.writeTable = mainTableId;
-        q.writeCol = kind === 'reflist'
-          ? await ensureRefListField(mainTableId, state.currentFormSection.id, sourceTable, sourceCol)
-          : await ensureChoiceField(mainTableId, state.currentFormSection.id, sourceTable, sourceCol);
-      } else if (kind === 'select' || kind === 'multiselect') {
-        q.kind = kind;
-        q.choices = o.choices || [];
-        q.writeTable = mainTableId;
-        q.writeCol = fl.colId; // colonne déjà existante : aucune nouvelle colonne créée
-      } else {
-        q.kind = kind;
-        q.writeTable = mainTableId;
-        q.writeCol = fl.colId; // colonne déjà existante : aucune nouvelle colonne créée
-      }
-      // Masque le champ natif d'origine pour que FormPlus en devienne le seul affichage.
-      const fieldRowIdx = sectionFields.id.findIndex((rowId, i) =>
-        sectionFields.parentId[i] === state.currentFormSection.id && String(rowId) === String(fieldId));
-      if (fieldRowIdx >= 0) {
-        let existingOpts = {};
-        try { existingOpts = JSON.parse(sectionFields.widgetOptions[fieldRowIdx] || '{}') || {}; } catch (e) { /* ignore */ }
-        fieldUpdates.push(['UpdateRecord', '_grist_Views_section_field', sectionFields.id[fieldRowIdx],
-          { widgetOptions: JSON.stringify({ ...existingOpts, formIsHidden: true }) }]);
-      }
-      imported.push(q);
-    }
-
-    if (fieldUpdates.length) await grist.docApi.applyUserActions(fieldUpdates);
-    let persisted = true;
-    if (imported.length) {
-      state.cfgQuestions = [...state.cfgQuestions, ...imported];
-      persisted = await saveConfig(state.options.publicUrl, state.options.viewRef);
-      renderQuestionList();
-    }
-    const skipMsg = Object.keys(skipped).length
-      ? I18n.t('form.editor.skippedTypes', { list: Object.entries(skipped).map(([t, n]) => `${n} ${t}`).join(', ') })
-      : '';
-    if (imported.length) {
-      saveMsg(msg, persisted, `${I18n.t('form.editor.importedCount', { n: imported.length })}${skipMsg}`);
+    // importedFrom (id du champ natif) permet à « Réinitialiser » de retrouver précisément et de
+    // démasquer le bon champ, sans toucher aux champs masqués manuellement dans Grist.
+    const q = { id: uid(), label: fl.question, description: fl.description || '', required: !!o.formRequired, condition: null, importedFrom: fieldId };
+    if (kind === 'choice' || kind === 'select') q.displayMode = o.formSelectFormat === 'radio' ? 'radio' : 'dropdown';
+    if (TABLE_SOURCED_KINDS.has(kind)) {
+      const colIdx = cols.colId.findIndex((c, i) => c === fl.colId && cols.parentId[i] === mainTableRef);
+      if (colIdx < 0) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.skipRefNotFound')}</span>`; return; }
+      const m = NATIVE_REF_TYPE_RE[kind].exec(cols.type[colIdx] || '');
+      const sourceTable = m ? m[1] : null;
+      const visibleColRef = cols.visibleCol[colIdx];
+      const visIdx = visibleColRef ? cols.id.indexOf(visibleColRef) : -1;
+      const sourceCol = visIdx >= 0 ? cols.colId[visIdx] : 'id';
+      if (!sourceTable) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.skipRefTableNotFound')}</span>`; return; }
+      q.kind = kind;
+      q.sourceTable = sourceTable;
+      q.sourceCol = sourceCol;
+      q.writeTable = mainTableId;
+      q.writeCol = kind === 'reflist'
+        ? await ensureRefListField(mainTableId, state.currentFormSection.id, sourceTable, sourceCol)
+        : await ensureChoiceField(mainTableId, state.currentFormSection.id, sourceTable, sourceCol);
+    } else if (kind === 'select' || kind === 'multiselect') {
+      q.kind = kind;
+      q.choices = o.choices || [];
+      q.writeTable = mainTableId;
+      q.writeCol = fl.colId; // colonne déjà existante : aucune nouvelle colonne créée
     } else {
-      msg.innerHTML = `<span class="muted">${I18n.t('form.editor.nothingToImport')}${skipMsg || I18n.t('form.editor.allFieldsHandled')}</span>`;
+      q.kind = kind;
+      q.writeTable = mainTableId;
+      q.writeCol = fl.colId; // colonne déjà existante : aucune nouvelle colonne créée
     }
+
+    // Masque le champ natif d'origine pour que FormPlus en devienne le seul affichage.
+    const fieldRowIdx = sectionFields.id.findIndex((rowId, i) =>
+      sectionFields.parentId[i] === state.currentFormSection.id && String(rowId) === String(fieldId));
+    if (fieldRowIdx >= 0) {
+      let existingOpts = {};
+      try { existingOpts = JSON.parse(sectionFields.widgetOptions[fieldRowIdx] || '{}') || {}; } catch (e) { /* ignore */ }
+      await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section_field', sectionFields.id[fieldRowIdx],
+        { widgetOptions: JSON.stringify({ ...existingOpts, formIsHidden: true }) }]]);
+    }
+
+    state.cfgQuestions = [...state.cfgQuestions, q];
+    const persisted = await saveConfig(state.options.publicUrl, state.options.viewRef);
+    renderQuestionList();
+    saveMsg(msg, persisted, I18n.t('form.editor.importedCount', { n: 1 }));
+    if (persisted) setTimeout(() => { if (msg.isConnected) msg.textContent = ''; }, 1500);
   } catch (e) {
     msg.innerHTML = `<span class="err">${I18n.t('form.editor.genericError', { message: esc(e.message) })}</span>`;
   }
@@ -1187,6 +1236,11 @@ export async function showConfig() {
   showStartView('choices');
   setScratchMode('new');
   populateFormPicker();
+  // Course corrigée le 21 oct 2026 : showConfig() reste async jusqu'à la ligne forçant l'onglet
+  // "Questions" plus bas (fetchMeta en chemin). Un clic sur un autre onglet pendant cette attente
+  // y bascule déjà via le gestionnaire ci-dessus, qui pose ce drapeau — sans lui, le forçage final
+  // écrasait silencieusement ce choix en revenant sur "Questions".
+  state.editorTabPicked = false;
   const configured = !!state.options?.formLink;
   $('step1').classList.toggle('hidden', configured);
   if (configured) {
@@ -1207,7 +1261,7 @@ export async function showConfig() {
         state.mainTableIdCache = await tableIdOfRef(state.currentFormSection.tableRef);
         $('editor').classList.remove('hidden');
         renderQuestionList();
-        showEditorTab('questions');
+        if (!state.editorTabPicked) showEditorTab('questions');
       }
     }
   }
