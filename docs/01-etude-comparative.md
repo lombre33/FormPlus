@@ -295,15 +295,15 @@ Question posée le 12 octobre 2026 : le fil de forum *« Form Builder (Grist For
 |---|---|---|---|
 | Champs simples (texte, nombre, date, oui/non) | ✅ | ✅ | ✅ |
 | Texte long / paragraphe | ✅ multiligne | ✅ | ✅ |
-| Choix, choix multiples, option « Autre » + précision | ✅ sans « Autre » dédié | ✅ avec plafond et « Autre » | 🟡 choix et choix multiples, pas d'option « Autre » dédiée |
-| Référence simple / Liste de références | ✅ | ✅ `Ref` et `RefList` | 🟡 `Ref` seule (« Choix depuis une table ») ; `RefList` hors périmètre |
-| Date et heure (`DateTime`) | ✅ | ✅ | ❌ hors périmètre déclaré de la feuille de route |
-| Pièces jointes, capture photo mobile | ✅ upload | ✅ upload + prise de photo | 🟡 upload seul |
-| Échelle (curseur), classement | ❌ | ✅ | ❌ non prévu sur la feuille de route |
-| Lieu sur carte (point, tracé, contour) | ❌ | ✅ MapLibre + IGN | ❌ non prévu sur la feuille de route |
-| Dessin, signature | ❌ | ✅ en pièce jointe | ❌ non prévu sur la feuille de route |
+| Choix, choix multiples, option « Autre » + précision | ✅ sans « Autre » dédié | ✅ avec plafond et « Autre » | ✅ option « Autre » + précision libre, sur les deux |
+| Référence simple / Liste de références | ✅ | ✅ `Ref` et `RefList` | ✅ `Ref` (« Choix depuis une table ») et `RefList` |
+| Date et heure (`DateTime`) | ✅ | ✅ | ✅ |
+| Pièces jointes, capture photo mobile | ✅ upload | ✅ upload + prise de photo | ✅ upload + prise de photo |
+| Échelle (curseur), classement | ❌ | ✅ | ✅ |
+| Lieu sur carte (point, tracé, contour) | ❌ | ✅ MapLibre + IGN | 🟡 point seul (Leaflet + OpenStreetMap), grisé par défaut (1re dépendance externe du widget, voir docs/06) ; pas de tracé/contour |
+| Dessin, signature | ❌ | ✅ en pièce jointe | ✅ en pièce jointe (vraie image PNG, pas un dataURL en texte) |
 | Logique conditionnelle par question | ❌ issue #955 | 🟡 annoncée ; signalée peu fiable en pratique par un testeur ANCT (21 oct. 2025) | ✅ ET/OU combinés, sur tout type de question comparable |
-| Étapes/pages, saut d'étape conditionnel | 🟡 sections sans pagination | ✅ | ❌ V2 de la feuille de route (multi-pages) |
+| Étapes/pages, saut d'étape conditionnel | 🟡 sections sans pagination | ✅ | ✅ page sautée si sa condition est fausse |
 | Réservation de questions selon l'identité du répondant | 🟡 règles d'accès | ✅ dédiée (confort, pas sécurité) | ❌ non prévu |
 | Multi-tables en écriture, ouverture automatique des droits | ❌ une table | 🟡 mentionné, mécanisme non détaillé | ✅ `ensureTableGate`, ouverture en un clic |
 | Multi-tables en lecture (options depuis une autre table) | 🟡 tables référencées | ✅ | ✅ |
@@ -324,7 +324,7 @@ Question posée le 12 octobre 2026 : le fil de forum *« Form Builder (Grist For
 
 ### 6.5 Conclusion
 
-Form Builder va plus loin que FormPlus sur des types de question que notre feuille de route n'a jamais inscrite (carte, dessin/signature, échelle, classement, saut d'étape) : à garder en tête comme pistes V3 si un client les demande, mais rien n'impose de les ajouter aujourd'hui. À l'inverse, deux points où FormPlus est déjà plus solide ou plus simple pour un agent sans droits serveur : le lien public sans aucune règle d'accès à écrire (transport 1, clé de partage native réutilisée), et la personnalisation visuelle côté répondant. Les retours du forum (conditions peu fiables sur de gros documents, bugs de casse après renommage) confirment l'intérêt de la suite de tests maintenue dans ce dépôt plutôt que d'une fonctionnalité non vérifiée.
+**Mise à jour (21 oct. 2026)** : les écarts de types de question relevés ci-dessus (échelle, classement, dessin/signature, lieu sur carte, saut d'étape conditionnel) ont été ajoutés à FormPlus — voir le tableau 6.3 ci-dessus, désormais à jour. Seul le lieu sur carte reste partiel (point seul, pas de tracé/contour) et grisé par défaut, car c'est la toute première dépendance d'exécution externe du widget (Leaflet) ; voir docs/06-carte-interactive.md pour l'activer sur une plateforme qui l'autorise. Ce qui reste hors périmètre, sciemment : les tracés/contours sur la carte, et la réservation de questions selon l'identité du répondant (connectée ou non), qui n'a pas d'équivalent dans FormPlus. Les deux points où FormPlus est déjà plus solide ou plus simple pour un agent sans droits serveur restent valables : le lien public sans aucune règle d'accès à écrire (transport 1, clé de partage native réutilisée), et la personnalisation visuelle côté répondant. Les retours du forum (conditions peu fiables sur de gros documents, bugs de casse après renommage) confirment l'intérêt de la suite de tests maintenue dans ce dépôt plutôt que d'une fonctionnalité non vérifiée.
 
 ---
 

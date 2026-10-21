@@ -1,11 +1,14 @@
 import { $, esc, uid, show } from './dom.js';
 import { ICONS } from './icons.js';
-import { KINDS, LAYOUT_KINDS, SINGLE_CHOICE_KINDS } from './kinds.js';
+import {
+  KINDS, LAYOUT_KINDS, SINGLE_CHOICE_KINDS, NON_COMPARABLE_KINDS, FREE_ENTRY_KINDS,
+  TABLE_SOURCED_KINDS, FIXED_LIST_KINDS, mapFeatureEnabled,
+} from './kinds.js';
 import { parseFormLink, buildPublicUrl, migrateLegacy, hostOrgFromReferrer, normalizeCondition } from './links.js';
 import { diag } from './diag.js';
 import {
   fetchMeta, getTableRef, tableIdOfRef, columnOptions,
-  findExistingShareKey, ensureTableGate, ensureChoiceField,
+  findExistingShareKey, ensureTableGate, ensureChoiceField, ensureRefListField,
   findViewRefForSection, findMyWidgetPage, persistOptions, duplicateFormSection,
   clearAutoFields, createFormSection,
 } from './grist-meta.js';
@@ -472,7 +475,7 @@ export async function moveQuestion(id, dir) {
 // comparaison à l'affichage (singleValueOf gère Oui/non, Choix multiples se compare par
 // inclusion plutôt que par égalité stricte).
 export function conditionSourceCandidates(excludeId) {
-  return state.cfgQuestions.filter(q => !LAYOUT_KINDS.has(q.kind) && q.kind !== 'attachments' && q.id !== excludeId);
+  return state.cfgQuestions.filter(q => !LAYOUT_KINDS.has(q.kind) && !NON_COMPARABLE_KINDS.has(q.kind) && q.id !== excludeId);
 }
 
 // Combobox de recherche, remplace un <select> pour les listes de tables/colonnes qui peuvent
@@ -529,17 +532,23 @@ function wireKindSelector(body, kind, displayMode) {
     body.querySelector('.qtype-pill-icon').innerHTML = kindDef.icon;
     body.querySelector('.qtype-pill-label').textContent = kindDef.label;
     body.querySelectorAll('.qtype-opt').forEach(b => b.classList.toggle('active', b.dataset.kind === k));
-    body.querySelector('.qf-choice-fields').classList.toggle('hidden', k !== 'choice');
-    body.querySelector('.qf-fixed-options').classList.toggle('hidden', k !== 'select' && k !== 'multiselect');
+    body.querySelector('.qf-choice-fields').classList.toggle('hidden', !TABLE_SOURCED_KINDS.has(k));
+    body.querySelector('.qf-fixed-options').classList.toggle('hidden', !FIXED_LIST_KINDS.has(k));
+    body.querySelector('.qf-other-option').classList.toggle('hidden', k !== 'select' && k !== 'multiselect');
     body.querySelector('.qf-display-mode').classList.toggle('hidden', !SINGLE_CHOICE_KINDS.has(k));
-    // "Choix depuis une table" gère sa propre colonne (référence cachée, voir ensureChoiceField) :
-    // pas de "colonne de destination" à choisir, mais la table de destination reste réglable
-    // (écart fonctionnel corrigé le 29 sept 2026 : ce type ne pouvait jamais écrire ailleurs que
-    // la table principale, sans que l'interface ne le signale).
+    body.querySelector('.qf-scale-fields').classList.toggle('hidden', k !== 'scale');
+    // "Choix depuis une table"/"Liste de références" gèrent leur propre colonne (référence
+    // cachée, voir ensureChoiceField/ensureRefListField) : pas de "colonne de destination" à
+    // choisir, mais la table de destination reste réglable (écart fonctionnel corrigé le 29 sept
+    // 2026 : ce type ne pouvait jamais écrire ailleurs que la table principale, sans que
+    // l'interface ne le signale).
     body.querySelector('.qf-text-fields').classList.toggle('hidden', layout);
-    body.querySelector('.qf-write-col-field').classList.toggle('hidden', k === 'choice');
-    body.querySelector('.qf-choice-table-hint').classList.toggle('hidden', k !== 'choice');
+    body.querySelector('.qf-write-col-field').classList.toggle('hidden', TABLE_SOURCED_KINDS.has(k));
+    body.querySelector('.qf-choice-table-hint').classList.toggle('hidden', !TABLE_SOURCED_KINDS.has(k));
     body.querySelector('.qf-attachments-hint').classList.toggle('hidden', k !== 'attachments');
+    body.querySelector('.qf-capture-option').classList.toggle('hidden', k !== 'attachments');
+    body.querySelector('.qf-signature-hint').classList.toggle('hidden', k !== 'signature');
+    body.querySelector('.qf-map-hint').classList.toggle('hidden', k !== 'map');
     body.querySelector('.qf-required-row').classList.toggle('hidden', layout);
     body.querySelector('.qf-desc-label-short').classList.toggle('hidden', k === 'info');
     body.querySelector('.qf-desc').classList.toggle('hidden', k === 'info');
@@ -612,22 +621,19 @@ async function wireConditionEditor(body, q, condCandidates) {
     condModeEl.querySelectorAll('.qf-cond-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === m));
   }
 
-  // Les types Nombre/Texte/Texte long n'ont pas de valeurs prédéfinies à choisir dans une liste :
-  // leur cellule "égale" est une simple saisie libre plutôt qu'un combo de recherche.
-  const FREE_ENTRY_KINDS = new Set(['number', 'text', 'longtext']);
-
   // Reconstruit la cellule "égale" de la règle i selon le TYPE de la question source choisie :
   // combo de recherche pour Choix/Choix multiples/Choix depuis une table/Oui-non (valeurs
-  // connues d'avance), saisie libre pour Nombre/Texte/Texte long. Rebâtir plutôt que muter :
-  // le type de widget change avec la source, bien plus simple que de faire cohabiter les deux
-  // formes dans le même élément.
+  // connues d'avance), saisie libre pour Nombre/Texte/Texte long/Échelle/Date et heure (voir
+  // FREE_ENTRY_KINDS, kinds.js). Rebâtir plutôt que muter : le type de widget change avec la
+  // source, bien plus simple que de faire cohabiter les deux formes dans le même élément.
+  const FREE_ENTRY_INPUT_TYPE = { number: 'number', scale: 'number', datetime: 'datetime-local' };
   async function refreshRuleValue(i) {
     const srcId = condRules[i].questionId;
     const cell = condRulesEl.querySelector(`.qf-cond-value[data-idx="${i}"]`);
     if (!cell) return;
     const src = state.cfgQuestions.find(x => x.id === srcId);
     if (srcId && FREE_ENTRY_KINDS.has(src?.kind)) {
-      cell.innerHTML = `<input type="${src.kind === 'number' ? 'number' : 'text'}" class="qf-cond-freevalue" value="${esc(condRules[i].value ?? '')}">`;
+      cell.innerHTML = `<input type="${FREE_ENTRY_INPUT_TYPE[src.kind] || 'text'}" class="qf-cond-freevalue" value="${esc(condRules[i].value ?? '')}">`;
       cell.querySelector('input').addEventListener('input', (e) => { condRules[i].value = e.target.value; });
       return;
     }
@@ -792,7 +798,11 @@ export async function renderCardBody(id, body) {
         ${ICONS.chevronDown}
       </button>
       <div class="qtype-popover hidden">
-        ${KINDS.map(k => `<button type="button" class="qtype-opt${k.id === kind ? ' active' : ''}" data-kind="${k.id}" title="${esc(k.label)}">${k.icon}</button>`).join('')}
+        ${KINDS.map(k => {
+          const disabled = k.id === 'map' && k.id !== kind && !mapFeatureEnabled();
+          const title = disabled ? "Carte interactive désactivée sur cette version (nécessite une dépendance externe, voir le README)" : k.label;
+          return `<button type="button" class="qtype-opt${k.id === kind ? ' active' : ''}${disabled ? ' qtype-opt-disabled' : ''}" data-kind="${k.id}" title="${esc(title)}" ${disabled ? 'disabled' : ''}>${k.icon}</button>`;
+        }).join('')}
       </div>
     </div>
     <div class="qf-choice-fields hidden">
@@ -802,10 +812,27 @@ export async function renderCardBody(id, body) {
     <div class="qf-fixed-options hidden">
       <label for="qf-choices-${id}" class="qf-field-label">Options (une par ligne)</label>
       <textarea id="qf-choices-${id}" class="qf-choices" rows="4" placeholder="Option 1&#10;Option 2">${esc((q?.choices || []).join('\n'))}</textarea>
+      <label class="qf-other-option hidden checkbox-row">
+        <input type="checkbox" class="qf-allow-other" ${q?.allowOther ? 'checked' : ''}>
+        <span>Permettre une réponse libre en plus (« Autre »)</span>
+      </label>
     </div>
     <div class="qf-display-mode hidden">
       <button type="button" class="qf-display-btn" data-display="dropdown" title="Menu déroulant">${ICONS.list}</button>
       <button type="button" class="qf-display-btn" data-display="radio" title="Boutons radio">${ICONS.radio}</button>
+    </div>
+    <div class="qf-scale-fields hidden">
+      <label class="qf-field-label">Valeurs</label>
+      <div class="qf-scale-minmax">
+        <input type="number" class="qf-scale-min" value="${esc(q?.scaleMin ?? 1)}" aria-label="Minimum">
+        <span>à</span>
+        <input type="number" class="qf-scale-max" value="${esc(q?.scaleMax ?? 5)}" aria-label="Maximum">
+      </div>
+      <label class="qf-field-label">Libellés aux extrémités (facultatif)</label>
+      <div class="qf-scale-minmax">
+        <input type="text" class="qf-scale-low" placeholder="Ex. Pas du tout" value="${esc(q?.scaleLowLabel || '')}">
+        <input type="text" class="qf-scale-high" placeholder="Ex. Tout à fait" value="${esc(q?.scaleHighLabel || '')}">
+      </div>
     </div>
     <div class="qf-text-fields hidden">
       <div class="qf-write-col-field">
@@ -814,10 +841,16 @@ export async function renderCardBody(id, body) {
       <button type="button" class="qf-link" data-reveal="table">${ICONS.settings}<span>Écrire dans une autre table</span></button>
       <div class="qf-table-override ${tableOverrideOpen ? '' : 'hidden'}">
         <label class="qf-field-label">Table de destination</label><div class="combo-host" data-combo="writeTable"></div>
-        <p class="qf-choice-table-hint muted hidden">« Choix depuis une table » crée sa propre colonne (référence cachée) dans la table choisie : rien à régler pour la colonne, seulement la table.</p>
+        <p class="qf-choice-table-hint muted hidden">Ce type de question crée sa propre colonne (référence cachée) dans la table choisie : rien à régler pour la colonne, seulement la table.</p>
       </div>
     </div>
+    <label class="qf-capture-option hidden checkbox-row">
+      <input type="checkbox" class="qf-allow-capture" ${q?.allowCapture ? 'checked' : ''}>
+      <span>Proposer la prise de photo directement (mobile)</span>
+    </label>
     <p class="qf-attachments-hint muted hidden">⚠️ L'envoi de pièces jointes par un répondant échoue encore sur certaines instances Grist (limitation connue de Grist pour les fichiers envoyés de façon anonyme, pas un réglage de ce widget) : à tester sur votre instance avant de compter sur cette question.</p>
+    <p class="qf-signature-hint muted hidden">La signature est envoyée comme une image, dans une colonne « Pièces jointes » (même limitation d'envoi anonyme que ci-dessus sur certaines instances Grist, à tester avant de compter sur cette question).</p>
+    <p class="qf-map-hint muted hidden">Le point posé sur la carte est enregistré comme texte "latitude,longitude" dans une colonne Texte. Carte OpenStreetMap (bibliothèque Leaflet, chargée depuis un CDN) : seule question de ce widget à charger un script externe, grisée par défaut sur cette version (voir le README) — en son absence, le répondant saisit directement les coordonnées.</p>
     <button type="button" class="qf-link" data-reveal="condition">${ICONS.branch}<span>Condition d'affichage</span></button>
     <div class="qf-condition ${conditionOpen ? '' : 'hidden'}">
       <div class="qf-cond-mode hidden">
@@ -874,7 +907,7 @@ export async function saveQuestionFromCard(id, body, existing, combos, { rerende
   const msg = body.querySelector('.qf-msg');
   const kind = body.querySelector('.qtype-opt.active')?.dataset.kind || 'text';
   const label = body.querySelector('.qf-label').value.trim() ||
-    (kind === 'choice' ? 'Votre choix' : kind === 'section' ? 'Section' : kind === 'info' ? "Bloc d'info" : 'Réponse');
+    (kind === 'choice' ? 'Votre choix' : kind === 'section' ? 'Section' : kind === 'info' ? "Bloc d'info" : kind === 'page' ? 'Nouvelle page' : 'Réponse');
   const description = (kind === 'info' ? body.querySelector('.qf-desc-long') : body.querySelector('.qf-desc')).value.trim();
   const condition = body.getCondition ? body.getCondition() : null;
 
@@ -899,27 +932,38 @@ export async function saveQuestionFromCard(id, body, existing, combos, { rerende
 
     q.required = body.querySelector('.qf-required').checked;
     if (SINGLE_CHOICE_KINDS.has(kind)) q.displayMode = body.querySelector('.qf-display-btn.active')?.dataset.display || 'dropdown';
+    if (kind === 'select' || kind === 'multiselect') q.allowOther = body.querySelector('.qf-allow-other').checked;
+    if (kind === 'attachments') q.allowCapture = body.querySelector('.qf-allow-capture').checked;
+    if (kind === 'scale') {
+      q.scaleMin = Number(body.querySelector('.qf-scale-min').value) || 1;
+      q.scaleMax = Number(body.querySelector('.qf-scale-max').value) || 5;
+      if (q.scaleMax <= q.scaleMin) { msg.innerHTML = '<span class="err">Le maximum doit être supérieur au minimum.</span>'; return; }
+      q.scaleLowLabel = body.querySelector('.qf-scale-low').value.trim();
+      q.scaleHighLabel = body.querySelector('.qf-scale-high').value.trim();
+    }
     const mainTableId = await tableIdOfRef(state.currentFormSection.tableRef);
-    if (kind === 'choice') {
+    if (TABLE_SOURCED_KINDS.has(kind)) {
       q.sourceTable = combos.srcTable.value;
       q.sourceCol = combos.srcCol.value;
       if (!q.sourceTable || !q.sourceCol) { msg.innerHTML = '<span class="err">Choisissez une table source et sa colonne affichée.</span>'; return; }
       // La colonne de destination est TOUJOURS la référence cachée que crée/retrouve
-      // ensureChoiceField, jamais un choix libre : c'est ce qui garantit que la lecture
-      // fonctionne aussi pour la session anonyme (voir docs/01, "piège visibleCol"). La TABLE de
-      // destination, elle, reste réglable comme pour les autres types (écart corrigé le 29 sept
-      // 2026 : ce type ne pouvait jamais écrire ailleurs que la table principale) : si elle
-      // diffère de la table principale, ensureTableGate lui ouvre d'abord son propre formulaire
-      // publié (même mécanisme que pour du texte/nombre écrit ailleurs), et c'est CE
+      // ensureChoiceField/ensureRefListField, jamais un choix libre : c'est ce qui garantit que
+      // la lecture fonctionne aussi pour la session anonyme (voir docs/01, "piège visibleCol").
+      // La TABLE de destination, elle, reste réglable comme pour les autres types (écart corrigé
+      // le 29 sept 2026 : ce type ne pouvait jamais écrire ailleurs que la table principale) : si
+      // elle diffère de la table principale, ensureTableGate lui ouvre d'abord son propre
+      // formulaire publié (même mécanisme que pour du texte/nombre écrit ailleurs), et c'est CE
       // formulaire-là qui reçoit le champ caché — la référence doit vivre dans une section qui
       // affiche déjà sa propre table, jamais la section du formulaire principal.
       q.writeTable = combos.writeTable.value || mainTableId;
       const targetSectionId = q.writeTable === mainTableId
         ? state.currentFormSection.id
         : (await ensureTableGate(q.writeTable, state.currentFormSection.viewRef)).sectionId;
-      q.writeCol = await ensureChoiceField(q.writeTable, targetSectionId, q.sourceTable, q.sourceCol);
+      q.writeCol = kind === 'reflist'
+        ? await ensureRefListField(q.writeTable, targetSectionId, q.sourceTable, q.sourceCol)
+        : await ensureChoiceField(q.writeTable, targetSectionId, q.sourceTable, q.sourceCol);
     } else {
-      if (kind === 'select' || kind === 'multiselect') {
+      if (FIXED_LIST_KINDS.has(kind)) {
         q.choices = body.querySelector('.qf-choices').value.split('\n').map(s => s.trim()).filter(Boolean);
         if (!q.choices.length) { msg.innerHTML = '<span class="err">Ajoutez au moins une option (une par ligne).</span>'; return; }
       }
@@ -965,9 +1009,9 @@ export async function importNativeFields() {
     const skipped = {};
     const fieldUpdates = [];
 
-    // Correspondance type de colonne Grist → type de question FormPlus. Hors périmètre pour
-    // l'instant : DateTime, RefList (aucun "kind" équivalent côté éditeur).
-    const SIMPLE_MAP = { Date: 'date', Numeric: 'number', Int: 'number', Bool: 'bool' };
+    // Correspondance type de colonne Grist → type de question FormPlus.
+    const SIMPLE_MAP = { Date: 'date', DateTime: 'datetime', Numeric: 'number', Int: 'number', Bool: 'bool' };
+    const REF_TYPE_RE = { choice: /^Ref:(.+)$/, reflist: /^RefList:(.+)$/ };
     for (const [fieldId, fl] of Object.entries(form.formFieldsById)) {
       const o = fl.options || {};
       if (o.formIsHidden) continue; // déjà masqué : déjà importé, ou masqué intentionnellement
@@ -975,6 +1019,7 @@ export async function importNativeFields() {
       if (fl.type === 'Text' || fl.type === 'Any') kind = o.formTextFormat === 'multiline' ? 'longtext' : 'text';
       else if (fl.type === 'Attachments') kind = 'attachments';
       else if (fl.type === 'Ref') kind = 'choice';
+      else if (fl.type === 'RefList') kind = 'reflist';
       else if (fl.type === 'Choice') kind = 'select';
       else if (fl.type === 'ChoiceList') kind = 'multiselect';
       else if (SIMPLE_MAP[fl.type]) kind = SIMPLE_MAP[fl.type];
@@ -986,20 +1031,22 @@ export async function importNativeFields() {
       // et de démasquer le bon champ, sans toucher aux champs masqués manuellement dans Grist.
       const q = { id: uid(), label: fl.question, description: fl.description || '', required: !!o.formRequired, condition: null, importedFrom: fieldId };
       if (kind === 'choice' || kind === 'select') q.displayMode = o.formSelectFormat === 'radio' ? 'radio' : 'dropdown';
-      if (kind === 'choice') {
+      if (TABLE_SOURCED_KINDS.has(kind)) {
         const colIdx = cols.colId.findIndex((c, i) => c === fl.colId && cols.parentId[i] === mainTableRef);
         if (colIdx < 0) { skipped['Référence (introuvable)'] = (skipped['Référence (introuvable)'] || 0) + 1; continue; }
-        const m = /^Ref:(.+)$/.exec(cols.type[colIdx] || '');
+        const m = REF_TYPE_RE[kind].exec(cols.type[colIdx] || '');
         const sourceTable = m ? m[1] : null;
         const visibleColRef = cols.visibleCol[colIdx];
         const visIdx = visibleColRef ? cols.id.indexOf(visibleColRef) : -1;
         const sourceCol = visIdx >= 0 ? cols.colId[visIdx] : 'id';
         if (!sourceTable) { skipped['Référence (table introuvable)'] = (skipped['Référence (table introuvable)'] || 0) + 1; continue; }
-        q.kind = 'choice';
+        q.kind = kind;
         q.sourceTable = sourceTable;
         q.sourceCol = sourceCol;
         q.writeTable = mainTableId;
-        q.writeCol = await ensureChoiceField(mainTableId, state.currentFormSection.id, sourceTable, sourceCol);
+        q.writeCol = kind === 'reflist'
+          ? await ensureRefListField(mainTableId, state.currentFormSection.id, sourceTable, sourceCol)
+          : await ensureChoiceField(mainTableId, state.currentFormSection.id, sourceTable, sourceCol);
       } else if (kind === 'select' || kind === 'multiselect') {
         q.kind = kind;
         q.choices = o.choices || [];

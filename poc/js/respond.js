@@ -1,6 +1,6 @@
 import { $, esc, show } from './dom.js';
 import { ICONS } from './icons.js';
-import { LAYOUT_KINDS, SINGLE_CHOICE_KINDS } from './kinds.js';
+import { LAYOUT_KINDS, SINGLE_CHOICE_KINDS, mapFeatureEnabled, LEAFLET_CDN_URL, LEAFLET_CDN_CSS } from './kinds.js';
 import { parseFormLink, migrateLegacy, normalizeCondition } from './links.js';
 import { applyBranding } from './theme.js';
 import { probeCanEdit } from './grist-meta.js';
@@ -122,6 +122,14 @@ export function radioGroup(name, choices, opts) {
   return `<div class="pv-pill-group">${choices.map(c => `<label class="pv-pill"><input type="radio" name="${name}" value="${esc(c)}" data-label="${esc(c)}"${required ? ' required' : ''}${describedBy ? ` aria-describedby="${describedBy}"` : ''}><span>${esc(c)}</span></label>`).join('')}</div>`;
 }
 
+// Valeur technique de l'option "Autre" (select/multiselect, q.allowOther) : jamais confondue
+// avec une vraie option saisie par le concepteur, remplacée par le texte libre tapé par le
+// répondant au moment de l'envoi (voir onSubmit) et de l'affichage (wireOtherOption, renderFill).
+export const OTHER_SENTINEL = '__formplus_other__';
+function otherInputHtml(id) {
+  return `<input type="text" id="eq-${id}-other" class="pv-other-input hidden" placeholder="Précisez…" aria-label="Précisez votre réponse">`;
+}
+
 // Une condition d'affichage combine N critères (question source = valeur) en ET (toutes vraies)
 // ou en OU (au moins une) — voir normalizeCondition (links.js) pour les deux formats acceptés en
 // entrée. Chaque critère se lit sur le conteneur #eq-<questionId> de sa question source, avec la
@@ -180,37 +188,55 @@ export function renderExtraQuestion(q) {
   // pointant vers un <div> ne crée aucune association pour les lecteurs d'écran. Même id que
   // celui déjà lu partout ailleurs par $(`eq-${q.id}`) (singleValueOf, conditionMet, onSubmit,
   // les écouteurs de condition) : INCHANGÉ, seuls role="group" + aria-labelledby s'y ajoutent.
-  const isGroupContainer = q.kind === 'multiselect' || q.kind === 'choice' || (q.kind === 'select' && q.displayMode === 'radio');
+  // reflist/ranking/signature : mêmes conteneurs génériques (non labelables) que choice/
+  // multiselect ci-dessus. "map" ne l'est QUE si la carte interactive est active
+  // (mapFeatureEnabled()) : sinon c'est un <input type=text> normal, directement labelable
+  // (repli décrit dans renderExtraQuestion, cas 'map').
+  const isGroupContainer = ['multiselect', 'choice', 'reflist', 'ranking', 'signature'].includes(q.kind)
+    || (q.kind === 'select' && q.displayMode === 'radio')
+    || (q.kind === 'map' && mapFeatureEnabled());
   const titleFor = isGroupContainer ? '' : ` for="eq-${q.id}"`;
   let input;
   switch (q.kind) {
     case 'choice':
-      // Conteneur générique : le chargement (renderFill) y injecte un <select> ou des radios
-      // selon q.displayMode, une fois les libellés lus dans la table source — il garde alors
-      // role="group"/aria-labelledby déjà posés ici (innerHTML remplacé, pas l'élément lui-même).
-      // aria-required n'est pas ici, bien que la question puisse être obligatoire : la
-      // spécification ARIA ne l'autorise pas sur role="group" (confirmé par axe-core, règle
-      // "aria-allowed-attr") — limitation assumée, cf. ChoiceList/RefList dans
-      // renderNativeField ci-dessus. L'astérisque visuel et le message d'erreur lié restent.
+    case 'reflist':
+      // Conteneur générique : le chargement (renderFill) y injecte un <select>/des radios
+      // (choice) ou des cases à cocher (reflist) selon q.displayMode, une fois les libellés lus
+      // dans la table source — il garde alors role="group"/aria-labelledby déjà posés ici
+      // (innerHTML remplacé, pas l'élément lui-même). aria-required n'est pas posé ici, bien que
+      // la question puisse être obligatoire : la spécification ARIA ne l'autorise pas sur
+      // role="group" (confirmé par axe-core, règle "aria-allowed-attr") — limitation assumée, cf.
+      // ChoiceList/RefList dans renderNativeField ci-dessus. L'astérisque visuel et le message
+      // d'erreur lié restent.
       input = `<div id="eq-${q.id}" role="group" aria-labelledby="${labelId}"><span class="muted">Chargement…</span></div>`;
       break;
-    case 'select':
+    case 'select': {
+      const otherPill = q.allowOther ? `<label class="pv-pill"><input type="radio" name="eq-${q.id}" value="${OTHER_SENTINEL}" data-label="Autre"><span>Autre…</span></label>` : '';
+      const otherOpt = q.allowOther ? `<option value="${OTHER_SENTINEL}" data-label="Autre">Autre…</option>` : '';
       input = q.displayMode === 'radio'
-        ? `<div id="eq-${q.id}" role="group" aria-labelledby="${labelId}">${radioGroup(`eq-${q.id}`, q.choices || [], { required: q.required, describedBy: q.required ? errId : null })}</div>`
-        : `<select id="eq-${q.id}"${reqAttr}${describedBy}><option value="">Choisir…</option>${(q.choices || []).map(c => `<option value="${esc(c)}" data-label="${esc(c)}">${esc(c)}</option>`).join('')}</select>`;
+        ? `<div id="eq-${q.id}" class="pv-pill-group" role="group" aria-labelledby="${labelId}">${(q.choices || []).map(c => `<label class="pv-pill"><input type="radio" name="eq-${q.id}" value="${esc(c)}" data-label="${esc(c)}"${reqAttr}${describedBy}><span>${esc(c)}</span></label>`).join('')}${otherPill}</div>`
+        : `<select id="eq-${q.id}"${reqAttr}${describedBy}><option value="">Choisir…</option>${(q.choices || []).map(c => `<option value="${esc(c)}" data-label="${esc(c)}">${esc(c)}</option>`).join('')}${otherOpt}</select>`;
+      if (q.allowOther) input += otherInputHtml(q.id);
       break;
-    case 'multiselect':
+    }
+    case 'multiselect': {
+      const otherPill = q.allowOther ? `<label class="pv-pill"><input type="checkbox" name="eqm-${q.id}" value="${OTHER_SENTINEL}"><span>Autre…</span></label>` : '';
       // Même nuance que ChoiceList/RefList natifs ci-dessus (« au moins une », pas « toutes » :
       // pas de `required` par case) et même limitation ARIA (pas d'aria-required sur role="group").
       input = `<div id="eq-${q.id}" class="pv-pill-group" role="group" aria-labelledby="${labelId}">` +
         (q.choices || []).map(c => `<label class="pv-pill"><input type="checkbox" name="eqm-${q.id}" value="${esc(c)}"${describedBy}><span>${esc(c)}</span></label>`).join('') +
-        `</div>`;
+        otherPill + `</div>`;
+      if (q.allowOther) input += otherInputHtml(q.id);
       break;
+    }
     case 'number':
       input = `<input id="eq-${q.id}" type="number" step="any"${reqAttr}${describedBy}>`;
       break;
     case 'date':
       input = `<input id="eq-${q.id}" type="date"${reqAttr}${describedBy}>`;
+      break;
+    case 'datetime':
+      input = `<input id="eq-${q.id}" type="datetime-local"${reqAttr}${describedBy}>`;
       break;
     case 'bool':
       input = `<label class="switch"><input id="eq-${q.id}" type="checkbox"${reqAttr}${describedBy}> Oui</label>`;
@@ -219,7 +245,73 @@ export function renderExtraQuestion(q) {
       input = `<textarea id="eq-${q.id}" rows="4"${reqAttr}${describedBy}></textarea>`;
       break;
     case 'attachments':
-      input = `<input id="eq-${q.id}" type="file" multiple${reqAttr}${describedBy}>`;
+      input = `<input id="eq-${q.id}" type="file" multiple${reqAttr}${describedBy}${q.allowCapture ? ' capture="environment"' : ''}>`;
+      break;
+    case 'scale': {
+      // Un curseur a toujours une valeur numérique (jamais "vide", voir isAnswered/onSubmit) :
+      // `required`/aria-describedby n'auraient aucun effet réel ici, donc pas posés —
+      // contrairement aux autres types ci-dessus/ci-dessous.
+      const min = Number.isFinite(q.scaleMin) ? q.scaleMin : 1;
+      const max = Number.isFinite(q.scaleMax) ? q.scaleMax : 5;
+      const mid = Math.round((min + max) / 2);
+      input = `<div class="pv-scale">
+        <input id="eq-${q.id}" type="range" min="${min}" max="${max}" step="1" value="${mid}">
+        <div class="pv-scale-labels">
+          <span class="pv-scale-edge">${esc(q.scaleLowLabel || min)}</span>
+          <span class="pv-scale-value" id="eq-${q.id}-value">${mid}</span>
+          <span class="pv-scale-edge">${esc(q.scaleHighLabel || max)}</span>
+        </div>
+      </div>`;
+      break;
+    }
+    case 'ranking':
+      // Classement : une liste ordonnée a toujours une valeur, même par défaut (voir
+      // isAnswered/onSubmit) — pas de `required` ici, même raison que "scale" ci-dessus.
+      // role="group" + aria-labelledby plutôt qu'un `for` : <ol> n'est pas un élément labelable
+      // (même limite que les conteneurs de boutons radio/case ci-dessus) ; chaque bouton garde
+      // par ailleurs son propre aria-label ("Monter X"/"Descendre X"), déjà explicite. Posé sur un
+      // <div> ENGLOBANT la liste, jamais directement sur le <ol> : role="group" y écraserait le
+      // rôle implicite "list" de l'élément et briserait l'association list/listitem avec ses <li>
+      // (confirmé par axe-core, règle "listitem") — #eq-${q.id} reste l'<ol> lui-même, inchangé
+      // pour les lecteurs existants (onSubmit, wirePages/renderFill qui réordonnent les <li>).
+      input = `<div role="group" aria-labelledby="${labelId}"><ol id="eq-${q.id}" class="pv-ranking">` +
+        (q.choices || []).map((c, i) => `<li class="pv-ranking-item" data-value="${esc(c)}">
+          <span class="pv-ranking-rank">${i + 1}</span><span class="pv-ranking-label">${esc(c)}</span>
+          <span class="pv-ranking-btns">
+            <button type="button" class="icon-btn" data-rank="up" aria-label="Monter ${esc(c)}">${ICONS.arrowUp}</button>
+            <button type="button" class="icon-btn" data-rank="down" aria-label="Descendre ${esc(c)}">${ICONS.arrowDown}</button>
+          </span></li>`).join('') +
+        `</ol></div>`;
+      break;
+    case 'signature':
+      // <div> non labelable, role="group" + aria-labelledby comme les autres conteneurs
+      // génériques ci-dessus. Limite structurelle NON corrigée ici, signalée au rapport : un
+      // dessin à la souris/au doigt n'a aucun équivalent clavier ni méthode de saisie alternative
+      // pour un répondant qui ne peut pas voir ou utiliser le canevas (WCAG 2.1.1 Clavier).
+      input = `<div id="eq-${q.id}" class="pv-signature" role="group" aria-labelledby="${labelId}" data-drawn="0">
+        <canvas class="pv-signature-canvas" width="500" height="160"></canvas>
+        <button type="button" class="qf-link pv-sign-clear">${ICONS.trash}<span>Effacer</span></button>
+      </div>`;
+      break;
+    case 'map':
+      // Carte interactive (Leaflet, dépendance externe) grisée par défaut (voir mapFeatureEnabled,
+      // kinds.js) : sur cette version, repli en simple saisie manuelle "latitude, longitude", lue
+      // par le même champ générique que les autres types texte (onSubmit) — un contrôle normal,
+      // labelable, avec les mêmes required/describedby que les autres champs simples. Activée
+      // (ex. GFS, window.FORMPLUS_ENABLE_MAP = true), le canvas ci-dessous est transformé en carte
+      // cliquable par wireMaps (appelée depuis renderFill), qui pose la même valeur dans un champ
+      // devenu <input type=hidden>, jamais focusable — limite structurelle NON corrigée ici,
+      // signalée au rapport : cliquer sur la carte n'a aucun équivalent clavier (WCAG 2.1.1).
+      input = mapFeatureEnabled()
+        ? `<div class="pv-map" role="group" aria-labelledby="${labelId}">
+            <div class="pv-map-canvas" id="eq-${q.id}-canvas"></div>
+            <p class="muted pv-map-coords" id="eq-${q.id}-coords">Cliquez sur la carte pour poser un point.</p>
+            <input type="hidden" id="eq-${q.id}" value="">
+          </div>`
+        : `<div class="pv-map">
+            <input id="eq-${q.id}" type="text" placeholder="latitude, longitude (ex. 48.8566, 2.3522)"${reqAttr}${describedBy}>
+            <p class="muted pv-map-coords">Carte interactive non disponible sur cette version : indiquez les coordonnées directement.</p>
+          </div>`;
       break;
     default:
       input = `<input id="eq-${q.id}" type="text"${reqAttr}${describedBy}>`;
@@ -235,6 +327,12 @@ export function renderExtraQuestion(q) {
 export function isAnswered(q) {
   if (q.hidden || q.classList.contains('cond-hidden')) return null; // hors calcul
   if (q.dataset.kind === 'section' || q.dataset.kind === 'info') return null;
+  // Classement : un ordre (même celui par défaut) est toujours une réponse, comme Oui/non.
+  if (q.dataset.kind === 'ranking') return true;
+  // Signature : ni case, ni radio, ni champ texte à l'intérieur (juste un canvas) — sans ce cas
+  // dédié, la question tomberait sur le repli générique plus bas, qui ne trouve aucun élément
+  // input/select/textarea et la sortirait toujours du calcul (null), jamais comptée.
+  if (q.dataset.kind === 'signature') return q.querySelector('.pv-signature')?.dataset.drawn === '1';
   const checkboxes = [...q.querySelectorAll('input[type=checkbox]')];
   if (checkboxes.length > 1) return checkboxes.some(c => c.checked); // liste à choix multiples
   if (checkboxes.length === 1) return true; // Oui/non : toujours "répondu", comme à l'envoi
@@ -252,6 +350,163 @@ export function updateProgress(formEl) {
   const total = items.length;
   $('progress-fill').style.width = total ? `${Math.round((done / total) * 100)}%` : '0%';
   $('progress-text').textContent = total ? `${done} / ${total} question${total > 1 ? 's' : ''}` : '';
+}
+
+// Découpe la liste des questions supplémentaires en pages, sur les marqueurs de type "page"
+// (voir kinds.js) : tout ce qui précède le premier marqueur forme la page 1 (condition: null,
+// jamais sautée, rien ne la précède pour porter une condition qui aurait un sens) ; chaque
+// marqueur ouvre une nouvelle page qui porte SA condition (si elle est fausse, la page entière
+// est sautée à la navigation, voir wirePages). Toujours au moins une page, même sans aucun
+// marqueur (le cas de loin le plus courant aujourd'hui).
+export function splitIntoPages(items) {
+  const pages = [{ condition: null, label: null, items: [] }];
+  for (const q of items) {
+    if (q.kind === 'page') { pages.push({ condition: q.condition, label: q.label, items: [] }); continue; }
+    pages[pages.length - 1].items.push(q);
+  }
+  return pages;
+}
+
+// Une page dont la condition est vraie (ou qui n'en a pas) est "éligible" : conditionMet(null,…)
+// vaut déjà true, donc applicable aussi à la page 1. Seul point de vérité pour savoir si une
+// page compte dans la navigation, utilisé à la fois pour avancer/reculer et pour les classer
+// "vide"/"invalide" à la soumission (voir wirePages, plus bas).
+function pageEligible(page, extraQuestions) {
+  return conditionMet(page.condition, extraQuestions);
+}
+
+// Un champ obligatoire compte comme "manquant" avec les mêmes règles que la validation finale
+// (onSubmit) : repli sur isAnswered (déjà testée pour chaque type), sauf Oui/non, qui isAnswered
+// considère toujours répondu (choix volontaire, voir son commentaire) alors qu'onSubmit, lui,
+// exige explicitement `true` pour un Oui/non obligatoire ("J'accepte les conditions", par
+// exemple) — même écart à combler ici, pour que la navigation page par page bloque exactement
+// sur les mêmes cas que l'envoi final, pas une version plus permissive.
+function isRequiredFieldMissing(q) {
+  if (q.classList.contains('cond-hidden')) return false;
+  if (q.dataset.kind === 'bool') return q.querySelector('input[type=checkbox]')?.checked !== true;
+  return isAnswered(q) === false;
+}
+
+// Navigation entre pages : boutons Précédent/Suivant, "obligatoire" vérifié page par page (pas
+// seulement à l'envoi final), pages sans condition ou dont la condition est vraie seules
+// comptées. N'est jamais appelée si une seule page (voir paginated, renderFill) : le rendu et le
+// comportement d'un formulaire sans marqueur "page" restent alors identiques à avant.
+export function wirePages(card, pages, extraQuestions) {
+  const pageEl = (i) => card.querySelector(`.pv-page[data-page-index="${i}"]`);
+  const submitBtn = card.querySelector('#pv-submit-btn');
+  const prevBtn = card.querySelector('#pv-prev');
+  const nextBtn = card.querySelector('#pv-next');
+  const indicator = card.querySelector('#pv-page-indicator');
+
+  // Une page sautée (condition fausse) masque aussi chacune de ses questions via la même classe
+  // que les conditions de question (cond-hidden) : c'est ce qui garantit que l'envoi final
+  // (onSubmit, qui ne connaît rien des pages) ne les traite ni comme obligatoires ni comme des
+  // réponses à envoyer, exactement comme une question individuellement masquée par sa condition.
+  const applySkip = () => {
+    pages.forEach((p, i) => {
+      const skip = !pageEligible(p, extraQuestions);
+      pageEl(i)?.querySelectorAll('.q').forEach(q => q.classList.toggle('cond-hidden', skip));
+    });
+  };
+  pages.forEach((p) => {
+    const cond = normalizeCondition(p.condition);
+    if (!cond?.rules?.length) return;
+    cond.rules.map(r => $(`eq-${r.questionId}`)).filter(Boolean)
+      .forEach(c => ['input', 'change'].forEach(evt => c.addEventListener(evt, applySkip)));
+  });
+  applySkip();
+
+  const nextEligible = (from, dir) => {
+    let i = from + dir;
+    while (i >= 0 && i < pages.length) {
+      if (pageEligible(pages[i], extraQuestions)) return i;
+      i += dir;
+    }
+    return -1;
+  };
+  const eligibleCount = () => pages.filter(p => pageEligible(p, extraQuestions)).length;
+  const eligibleRank = (idx) => pages.slice(0, idx + 1).filter(p => pageEligible(p, extraQuestions)).length;
+
+  let current = 0;
+  const show = (idx) => {
+    current = idx;
+    pages.forEach((_, i) => { const el = pageEl(i); if (el) el.hidden = i !== idx; });
+    const hasNext = nextEligible(idx, 1) !== -1;
+    prevBtn.classList.toggle('hidden', nextEligible(idx, -1) === -1);
+    nextBtn.classList.toggle('hidden', !hasNext);
+    submitBtn.classList.toggle('hidden', hasNext);
+    indicator.textContent = `Page ${eligibleRank(idx)} / ${eligibleCount()}`;
+    pageEl(idx)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  prevBtn.addEventListener('click', () => { const i = nextEligible(current, -1); if (i !== -1) show(i); });
+  nextBtn.addEventListener('click', () => {
+    const el = pageEl(current);
+    const missing = [...el.querySelectorAll('.q[data-required="1"]')].filter(isRequiredFieldMissing);
+    missing.forEach(q => q.classList.add('invalid'));
+    el.querySelectorAll('.q[data-required="1"]').forEach(q => { if (!missing.includes(q)) q.classList.remove('invalid'); });
+    if (missing.length) { missing[0].scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+    const i = nextEligible(current, 1);
+    if (i !== -1) show(i);
+  });
+
+  show(0);
+}
+
+// Chargement à la demande du script et de la feuille de style Leaflet depuis le CDN (voir
+// LEAFLET_CDN_URL/LEAFLET_CDN_CSS, kinds.js) : jamais au chargement du widget, seulement quand
+// wireMaps en a réellement besoin. Mémorisé (une seule requête même avec plusieurs questions
+// "map" sur le même formulaire, ou si renderFill est rappelée).
+let leafletLoadPromise = null;
+function loadLeaflet() {
+  if (window.L) return Promise.resolve();
+  if (!leafletLoadPromise) {
+    leafletLoadPromise = new Promise((resolve, reject) => {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = LEAFLET_CDN_CSS;
+      document.head.appendChild(link);
+      const script = document.createElement('script');
+      script.src = LEAFLET_CDN_URL;
+      script.onload = resolve;
+      script.onerror = () => reject(new Error('Impossible de charger Leaflet depuis le CDN'));
+      document.head.appendChild(script);
+    });
+  }
+  return leafletLoadPromise;
+}
+
+// Branche une vraie carte Leaflet (fond OpenStreetMap, clic pour poser un point) sur chaque
+// question "map", à la place du canvas inerte posé par renderExtraQuestion. N'est appelée (et ne
+// charge donc jamais Leaflet) que si la fonctionnalité est activée — voir le commentaire à
+// l'appel, dans renderFill.
+async function wireMaps(card, extraQuestions) {
+  const mapQuestions = extraQuestions.filter(q => q.kind === 'map');
+  if (!mapQuestions.length || !mapFeatureEnabled()) return;
+  try {
+    await loadLeaflet();
+  } catch (e) {
+    diag(`Carte interactive : ${e.message}`);
+    return;
+  }
+  for (const q of mapQuestions) {
+    const canvasEl = $(`eq-${q.id}-canvas`);
+    const coordsEl = $(`eq-${q.id}-coords`);
+    const hiddenEl = $(`eq-${q.id}`);
+    if (!canvasEl || !hiddenEl) continue;
+    const map = window.L.map(canvasEl).setView([46.6, 2.5], 5); // France entière par défaut
+    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
+    }).addTo(map);
+    let marker = null;
+    map.on('click', (e) => {
+      const { lat, lng } = e.latlng;
+      if (marker) marker.setLatLng(e.latlng); else marker = window.L.marker(e.latlng).addTo(map);
+      hiddenEl.value = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+      if (coordsEl) coordsEl.textContent = `Point posé : ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    });
+  }
 }
 
 export async function renderFill() {
@@ -284,7 +539,16 @@ export async function renderFill() {
 
   const prefillParams = new URLSearchParams(location.search);
   const nativeRows = layoutOrder(form).map(id => renderNativeField(id, form.formFieldsById[id], prefillParams)).join('');
-  const extraRows = extraQuestions.map(renderExtraQuestion).join('');
+  // Pages (type "page", voir kinds.js) : chaque marqueur ouvre une nouvelle page ; tout ce qui le
+  // précède (y compris sans aucun marqueur, le cas de loin le plus courant) forme la première,
+  // jamais conditionnable (rien ne la précède pour porter une condition). Un seul marqueur
+  // "page" dans le formulaire suffit à activer la pagination ci-dessous ; aucun marqueur -> rendu
+  // strictement identique à avant (pas de wrapper, pas de barre de navigation).
+  const pages = splitIntoPages(extraQuestions);
+  const paginated = pages.length > 1;
+  const extraRows = paginated
+    ? pages.map((p, i) => `<div class="pv-page" data-page-index="${i}" ${i === 0 ? '' : 'hidden'}>${p.items.map(renderExtraQuestion).join('')}</div>`).join('')
+    : (pages[0]?.items || []).map(renderExtraQuestion).join('');
   const title = state.options?.formTitle || form.formTitle;
   const description = state.options?.formDescription || '';
   const submitLabel = state.options?.submitLabel || 'Envoyer';
@@ -305,19 +569,31 @@ export async function renderFill() {
       <form id="f" novalidate>
         ${nativeRows}
         ${extraRows ? `<hr class="divider">${extraRows}` : ''}
+        ${paginated ? `<p class="muted pv-page-indicator" id="pv-page-indicator" aria-live="polite"></p>` : ''}
         <label class="hp">Ne pas remplir <input type="text" name="_website" tabindex="-1" autocomplete="off"></label>
         <div class="actions">
           <span id="fill-status" class="muted"></span>
-          <button type="submit" class="primary">${esc(submitLabel)}</button>
+          ${paginated ? `<div class="pv-pager-nav">
+            <button type="button" id="pv-prev" class="hidden">Précédent</button>
+            <button type="button" id="pv-next">Suivant</button>
+          </div>` : ''}
+          <button type="submit" class="primary${paginated ? ' hidden' : ''}" id="pv-submit-btn">${esc(submitLabel)}</button>
         </div>
       </form>
     </div>`;
 
-  // Charge les options de chaque question "choix depuis une table", en menu déroulant ou en
-  // radios selon q.displayMode, et relie chaque condition à sa question source (qui doit être
-  // elle-même "choix" ou "select" pour fournir des valeurs à comparer).
+  // Navigation entre pages : établie tout de suite, avant la moindre pause asynchrone (aucun
+  // "await" entre l'affectation de card.innerHTML ci-dessus et cet appel), pour que l'état
+  // initial correct (bouton Suivant/Envoyer, page 1 visible) soit posé avant la première
+  // peinture du navigateur plutôt qu'après — jamais d'éclair visible avec le mauvais bouton.
+  if (paginated) wirePages(card, pages, extraQuestions);
+
+  // Charge les options de chaque question "choix depuis une table" (menu ou radios selon
+  // q.displayMode) et "liste de références" (cases à cocher, toujours plusieurs valeurs
+  // possibles), et relie chaque condition à sa question source (qui doit être elle-même "choix"
+  // ou "select" pour fournir des valeurs à comparer).
   for (const q of extraQuestions) {
-    if (q.kind !== 'choice') continue;
+    if (q.kind !== 'choice' && q.kind !== 'reflist') continue;
     const box = $(`eq-${q.id}`);
     try {
       const data = await grist.docApi.fetchTable(q.sourceTable);
@@ -330,20 +606,105 @@ export async function renderFill() {
         return (v !== undefined && v !== null && v !== '') ? String(v) : `#${id}`;
       });
       // aria-labelledby posé directement sur le <select> injecté : le role="group" déjà présent
-      // sur le conteneur (renderExtraQuestion) regroupe les radios, mais ne donne pas à lui seul
-      // un nom au <select> — sans quoi un lecteur d'écran l'annonce comme un contrôle sans nom
-      // (confirmé par axe-core, règle "select-name").
+      // sur le conteneur (renderExtraQuestion) regroupe les radios/cases, mais ne donne pas à lui
+      // seul un nom au <select> — sans quoi un lecteur d'écran l'annonce comme un contrôle sans
+      // nom (confirmé par axe-core, règle "select-name").
       const choiceReq = q.required ? ' required' : '';
       const choiceDescribedBy = q.required ? ` aria-describedby="eqerr-${q.id}"` : '';
-      box.innerHTML = q.displayMode === 'radio'
-        ? ids.map((id, i) => `<label class="opt"><input type="radio" name="eq-${q.id}" value="${id}" data-label="${esc(labels[i])}"${choiceReq}${choiceDescribedBy}> ${esc(labels[i])}</label>`).join('')
-        : `<select aria-labelledby="eqlabel-${q.id}"${choiceReq}${choiceDescribedBy}><option value="">Choisir…</option>` + ids.map((id, i) => `<option value="${id}" data-label="${esc(labels[i])}">${esc(labels[i])}</option>`).join('') + '</select>';
+      if (q.kind === 'reflist') {
+        // Pas d'aria-required par case (même nuance que "multiselect" : « au moins une », pas
+        // « toutes ») ; le groupe est déjà nommé par role="group"/aria-labelledby posés par
+        // renderExtraQuestion sur ce conteneur (innerHTML remplacé ici, pas l'élément lui-même).
+        box.innerHTML = `<div class="pv-pill-group">${ids.map((id, i) => `<label class="pv-pill"><input type="checkbox" name="eqm-${q.id}" value="${id}"${choiceDescribedBy}><span>${esc(labels[i])}</span></label>`).join('')}</div>`;
+      } else {
+        box.innerHTML = q.displayMode === 'radio'
+          ? ids.map((id, i) => `<label class="opt"><input type="radio" name="eq-${q.id}" value="${id}" data-label="${esc(labels[i])}"${choiceReq}${choiceDescribedBy}> ${esc(labels[i])}</label>`).join('')
+          : `<select aria-labelledby="eqlabel-${q.id}"${choiceReq}${choiceDescribedBy}><option value="">Choisir…</option>` + ids.map((id, i) => `<option value="${id}" data-label="${esc(labels[i])}">${esc(labels[i])}</option>`).join('') + '</select>';
+      }
       diag({ event: 'choice-loaded', questionId: q.id, sourceTable: q.sourceTable, sourceCol: q.sourceCol, hasCol, rowCount: ids.length });
     } catch (e) {
       box.innerHTML = '<span class="muted">(indisponible)</span>';
       diag({ event: 'choice-error', questionId: q.id, message: e.message });
     }
   }
+
+  // Option "Autre" (select/multiselect, q.allowOther) : affiche le champ de précision quand le
+  // répondant choisit "Autre…", le masque sinon — jamais soumis en l'état "Autre" lui-même (voir
+  // onSubmit, qui relit ce champ pour remplacer la valeur technique OTHER_SENTINEL).
+  for (const q of extraQuestions) {
+    if (!q.allowOther) continue;
+    const container = $(`eq-${q.id}`);
+    const otherInput = $(`eq-${q.id}-other`);
+    if (!container || !otherInput) continue;
+    const sync = () => {
+      const active = q.kind === 'multiselect'
+        ? [...container.querySelectorAll('input:checked')].some(i => i.value === OTHER_SENTINEL)
+        : singleValueOf(container).value === OTHER_SENTINEL;
+      otherInput.classList.toggle('hidden', !active);
+    };
+    container.addEventListener('change', sync);
+    sync();
+  }
+
+  // Échelle : affiche la valeur courante du curseur en direct, comme le ferait un vrai curseur
+  // natif (sans retour visuel, le répondant ne sait pas quelle valeur il vient de choisir).
+  for (const q of extraQuestions) {
+    if (q.kind !== 'scale') continue;
+    const slider = $(`eq-${q.id}`);
+    const out = $(`eq-${q.id}-value`);
+    if (!slider || !out) continue;
+    slider.addEventListener('input', () => { out.textContent = slider.value; });
+  }
+
+  // Classement : boutons monter/descendre plutôt qu'un glisser-déposer, pour rester utilisable
+  // au clavier et aux lecteurs d'écran (même choix que l'éditeur de questions, qui garde lui
+  // aussi des flèches en complément du glisser-déposer). Réordonne les <li> dans le DOM ; l'ordre
+  // envoyé à la soumission (onSubmit) est relu directement dans cet ordre, jamais stocké à part.
+  card.querySelectorAll('.pv-ranking').forEach((list) => {
+    const renumber = () => list.querySelectorAll('.pv-ranking-item').forEach((li, i) => { li.querySelector('.pv-ranking-rank').textContent = i + 1; });
+    list.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-rank]');
+      if (!btn) return;
+      const li = btn.closest('.pv-ranking-item');
+      const sib = btn.dataset.rank === 'up' ? li.previousElementSibling : li.nextElementSibling;
+      if (!sib) return;
+      if (btn.dataset.rank === 'up') list.insertBefore(li, sib); else list.insertBefore(sib, li);
+      renumber();
+      li.querySelector(`[data-rank="${btn.dataset.rank}"]`).focus();
+    });
+  });
+
+  // Signature : dessin au doigt/souris sur un canvas, effaçable. data-drawn sert à la fois à la
+  // validation "obligatoire" (onSubmit) et à la barre de progression (isAnswered) : un canvas a
+  // toujours une valeur de pixels, jamais une façon de savoir "vide" sans ce drapeau explicite.
+  card.querySelectorAll('.pv-signature').forEach((wrap) => {
+    const canvas = wrap.querySelector('canvas');
+    const ctx = canvas.getContext('2d');
+    ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.strokeStyle = getComputedStyle(document.body).color || '#1c1d21';
+    let drawing = false;
+    const posFromEvent = (e) => {
+      const r = canvas.getBoundingClientRect();
+      const p = e.touches ? e.touches[0] : e;
+      return { x: (p.clientX - r.left) * (canvas.width / r.width), y: (p.clientY - r.top) * (canvas.height / r.height) };
+    };
+    const start = (e) => { drawing = true; const p = posFromEvent(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); e.preventDefault(); };
+    const move = (e) => { if (!drawing) return; const p = posFromEvent(e); ctx.lineTo(p.x, p.y); ctx.stroke(); wrap.dataset.drawn = '1'; e.preventDefault(); };
+    const end = () => { drawing = false; };
+    canvas.addEventListener('pointerdown', start);
+    canvas.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', end);
+    wrap.querySelector('.pv-sign-clear').addEventListener('click', () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      wrap.dataset.drawn = '0';
+    });
+  });
+
+  // Carte interactive : seule fonctionnalité du widget à dépendre d'une bibliothèque externe
+  // (Leaflet), donc seule à être chargée depuis un CDN, et seulement si mapFeatureEnabled() et au
+  // moins une question "map" existent (jamais de requête réseau pour rien, jamais sur la version
+  // grisée par défaut — voir mapFeatureEnabled, kinds.js, et le repli en case 'map' ci-dessus).
+  await wireMaps(card, extraQuestions);
+
   for (const q of extraQuestions) {
     const cond = normalizeCondition(q.condition);
     if (!cond?.rules?.length) continue;
@@ -372,6 +733,13 @@ export async function renderFill() {
   }
 
   $('f').addEventListener('submit', (ev) => onSubmit(ev, form, link, extraQuestions));
+}
+
+// Convertit le canvas de signature en fichier image, pour l'envoyer par le même circuit que les
+// pièces jointes (POST /attachments) plutôt que de stocker un dataURL en texte (ce que fait
+// isaytoo, voir docs/01-etude-comparative.md — "stocker en pièce jointe plutôt qu'en texte").
+function canvasToFile(canvas, filename) {
+  return new Promise((resolve) => canvas.toBlob((blob) => resolve(new File([blob], filename, { type: 'image/png' })), 'image/png'));
 }
 
 export async function onSubmit(ev, form, link, extraQuestions) {
@@ -431,11 +799,46 @@ export async function onSubmit(ev, form, link, extraQuestions) {
       if (visible && !empty) uploads.push({ table: q.writeTable, col: q.writeCol, files });
       continue;
     }
+    if (q.kind === 'signature') {
+      // Même principe que "attachments" ci-dessus : le fichier part vers /attachments à l'envoi,
+      // jamais de valeur directe à poser dans fieldsByTable ici. data-drawn (posé par le dessin
+      // sur le canvas dans renderFill) tient lieu de "vide" : un canvas a toujours des pixels,
+      // jamais une façon de savoir si le répondant a vraiment dessiné quelque chose sans lui.
+      const wrap = el.querySelector('.pv-signature') || el;
+      const drawn = wrap.dataset.drawn === '1';
+      const emptySig = !drawn;
+      el.classList.toggle('invalid', q.required && emptySig && visible);
+      if (q.required && emptySig && visible) valid = false;
+      if (visible && drawn) {
+        const canvas = wrap.querySelector('canvas');
+        const file = await canvasToFile(canvas, `signature-${q.id}.png`);
+        uploads.push({ table: q.writeTable, col: q.writeCol, files: [file] });
+      }
+      continue;
+    }
     let value = null, empty, missingRequired;
     if (q.kind === 'multiselect') {
-      const checked = [...el.querySelectorAll('input:checked')].map(i => i.value);
+      let checked = [...el.querySelectorAll('input:checked')].map(i => i.value);
+      if (q.allowOther) {
+        const otherText = ($(`eq-${q.id}-other`)?.value || '').trim();
+        checked = checked.map(v => (v === OTHER_SENTINEL ? otherText : v)).filter(v => v !== '');
+      }
       empty = checked.length === 0;
       if (!empty) value = ['L', ...checked];
+      missingRequired = q.required && empty && visible;
+    } else if (q.kind === 'reflist') {
+      const checked = [...el.querySelectorAll('input:checked')].map(i => Number(i.value));
+      empty = checked.length === 0;
+      if (!empty) value = ['L', ...checked];
+      missingRequired = q.required && empty && visible;
+    } else if (q.kind === 'ranking') {
+      // L'ordre vient directement de l'ordre des <li> dans le DOM (réordonné par les boutons
+      // monter/descendre, voir renderFill) : jamais d'état séparé à garder synchronisé. Un
+      // classement a toujours une valeur (même l'ordre par défaut), comme Oui/non ou Échelle :
+      // "obligatoire" n'a donc d'effet que si la liste elle-même est vide (aucune option réglée).
+      const items = [...el.querySelectorAll('.pv-ranking-item')].map(li => li.dataset.value);
+      empty = items.length === 0;
+      if (!empty) value = items.join(', ');
       missingRequired = q.required && empty && visible;
     } else if (q.kind === 'bool') {
       // Stockage : un bouton oui/non n'est jamais "vide" (une case décochée est une réponse
@@ -447,18 +850,22 @@ export async function onSubmit(ev, form, link, extraQuestions) {
       missingRequired = q.required && visible && value !== true;
     } else if (SINGLE_CHOICE_KINDS.has(q.kind)) {
       // Menu déroulant ou radios selon q.displayMode : même lecture des deux (singleValueOf).
-      const raw = singleValueOf($(`eq-${q.id}`)).value;
+      let raw = singleValueOf($(`eq-${q.id}`)).value;
+      if (q.allowOther && raw === OTHER_SENTINEL) raw = ($(`eq-${q.id}-other`)?.value || '').trim();
       empty = raw === '' || raw == null;
       if (!empty) value = q.kind === 'choice' ? Number(raw) : raw;
       missingRequired = q.required && empty && visible;
     } else {
       const raw = $(`eq-${q.id}`).value;
       // trim() uniquement pour juger si le champ est vide (cf. la même règle sur les champs
-      // natifs plus haut) : la valeur stockée reste raw tel quel, jamais trimmée.
+      // natifs plus haut) : la valeur stockée reste raw tel quel, jamais trimmée. Un curseur
+      // (scale) a toujours une valeur numérique, jamais vide ; la carte (map) pose une chaîne
+      // "latitude,longitude" dans ce même champ générique (input caché), sans logique à part.
       empty = raw == null || raw.trim() === '';
-      // Même règle que pour les champs natifs : seuls les nombres sont convertis, une date reste
-      // une chaîne ISO que l'API REST sait déjà interpréter (voir renderNativeField/onSubmit natif).
-      if (!empty) value = q.kind === 'number' ? Number(raw) : raw;
+      // Même règle que pour les champs natifs : seuls les nombres sont convertis, une date/date-
+      // heure reste une chaîne ISO que l'API REST sait déjà interpréter (voir renderNativeField/
+      // onSubmit natif).
+      if (!empty) value = (q.kind === 'number' || q.kind === 'scale') ? Number(raw) : raw;
       missingRequired = q.required && empty && visible;
     }
     el.classList.toggle('invalid', missingRequired);
