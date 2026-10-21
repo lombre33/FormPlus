@@ -4,7 +4,7 @@ import { hexToRgb, softenColor, contrastText, applyBranding } from './theme.js';
 import { I18n, KIT_STRINGS } from '../../kit/js/i18n.js';
 import { STRINGS } from './strings.js';
 import { KINDS, LAYOUT_KINDS, TABLE_SOURCED_KINDS, FIXED_LIST_KINDS, mapFeatureEnabled } from './kinds.js';
-import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet, splitIntoPages, wirePages, resolveFormTitle } from './respond.js';
+import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet, splitIntoPages, wirePages, wireConditions, resolveFormTitle } from './respond.js';
 import {
   questionSummary, conditionSourceCandidates, renderCardBody, saveQuestionFromCard,
   customizeNativeField, resetQuestions, createEmptyForm, populateFormPicker, generate, saveConfig,
@@ -498,6 +498,39 @@ export async function runTests() {
     $('pv-prev').click();
     assertEqual('Précédent revient à la page 1', card.querySelector('.pv-page[data-page-index="0"]').hidden, false);
     assertEqual('indicateur revenu à "Page 1 / 2"', $('pv-page-indicator').textContent, 'Page 1 / 2');
+  });
+
+  await group('wireConditions : un marqueur "page" conditionné ne plante jamais (régression du 21 oct corrigée — le marqueur n’a aucun élément [data-extra], sa condition est gérée par wirePages)', () => {
+    const extraQuestions = [
+      { id: 'q1', kind: 'select', label: 'Statut', choices: ['Oui', 'Non'] },
+      { id: 'brk', kind: 'page', label: 'Page 2', condition: { mode: 'all', rules: [{ questionId: 'q1', op: 'eq', value: 'Oui' }] } },
+      { id: 'q2', kind: 'text', label: 'Détail' },
+    ];
+    const pages = splitIntoPages(extraQuestions);
+    const card = mount(document.createElement('div'));
+    card.innerHTML = `<form id="f">
+      <div class="pv-page" data-page-index="0">${renderExtraQuestion(pages[0].items[0])}</div>
+      <div class="pv-page" data-page-index="1" hidden>${renderExtraQuestion(pages[1].items[0])}</div>
+      <p id="pv-page-indicator"></p>
+      <div class="pv-pager-nav"><button type="button" id="pv-prev" class="hidden">Précédent</button><button type="button" id="pv-next">Suivant</button></div>
+      <button type="submit" id="pv-submit-btn" class="hidden">Envoyer</button>
+    </form>`;
+    // Même ordre qu'en vrai (renderFill) : wirePages câble le saut de page, wireConditions câble
+    // les conditions question par question — AVANT le correctif, ce second appel plantait tout de
+    // suite ("Cannot read properties of null (reading 'classList')") dès qu'un marqueur "page"
+    // portait une condition, puisqu'aucun élément [data-extra="brk"] n'existe jamais pour lui
+    // (splitIntoPages le retire de pages[].items avant le rendu).
+    wirePages(card, pages, extraQuestions);
+    let threw = null;
+    try { wireConditions(card, extraQuestions); } catch (e) { threw = e; }
+    assert('câblage initial des conditions : aucune exception', threw === null, threw?.message);
+
+    $('eq-q1').value = 'Oui';
+    $('eq-q1').dispatchEvent(new Event('change'));
+    assert('changement de la question source du saut de page : toujours pas d’exception, page 2 devient éligible', !card.querySelector('[data-extra="q2"]').classList.contains('cond-hidden'));
+
+    $('pv-next').click();
+    assertEqual('navigation Suivant toujours câblée (le plantage bloquait Suivant/Envoi)', card.querySelector('.pv-page[data-page-index="1"]').hidden, false);
   });
 
   await group('wirePages : page sautée par sa condition, propagation en cascade (cond-hidden) comme une question', () => {
