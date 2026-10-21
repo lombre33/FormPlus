@@ -1,5 +1,7 @@
 import { $, esc, show } from './dom.js';
 import { ICONS } from './icons.js';
+import { I18n } from '../../kit/js/i18n.js';
+import './strings.js'; // enregistre form.* avant tout usage de I18n.t() au chargement de ce module (voir strings.js)
 import { LAYOUT_KINDS, SINGLE_CHOICE_KINDS, mapFeatureEnabled, LEAFLET_CDN_URL, LEAFLET_CDN_CSS } from './kinds.js';
 import { parseFormLink, migrateLegacy, normalizeCondition } from './links.js';
 import { applyBranding } from './theme.js';
@@ -60,7 +62,7 @@ export function renderNativeField(id, fl, prefillParams) {
     case 'Int': case 'Numeric':
       input = `<input id="i${id}" type="number" step="any" name="${nameAttr}" value="${esc(prefill ?? '')}"${reqAttr}${describedBy}>`; break;
     case 'Bool':
-      input = `<label class="switch"><input id="i${id}" type="checkbox" name="${nameAttr}"${reqAttr}${describedBy} ${prefill === 'true' ? 'checked' : ''}> Oui</label>`; break;
+      input = `<label class="switch"><input id="i${id}" type="checkbox" name="${nameAttr}"${reqAttr}${describedBy} ${prefill === 'true' ? 'checked' : ''}> ${I18n.t('form.respond.yes')}</label>`; break;
     case 'Date':
       input = `<input id="i${id}" type="date" name="${nameAttr}" value="${esc(prefill ?? '')}"${reqAttr}${describedBy}>`; break;
     case 'DateTime':
@@ -71,7 +73,7 @@ export function renderNativeField(id, fl, prefillParams) {
       if (o.formSelectFormat === 'radio') {
         input = `<div class="pv-pill-group" role="group" aria-labelledby="${labelId}">${opts.map(([v, l]) => `<label class="pv-pill"><input type="radio" name="${nameAttr}" value="${esc(v)}"${reqAttr}${describedBy} ${String(v) === prefill ? 'checked' : ''}><span>${esc(l)}</span></label>`).join('')}</div>`;
       } else {
-        input = `<select id="i${id}" name="${nameAttr}"${reqAttr}${describedBy}><option value="">Choisir…</option>` +
+        input = `<select id="i${id}" name="${nameAttr}"${reqAttr}${describedBy}><option value="">${I18n.t('form.respond.choosePlaceholder')}</option>` +
           opts.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === prefill ? 'selected' : ''}>${esc(l)}</option>`).join('') + `</select>`;
       }
       break;
@@ -96,7 +98,7 @@ export function renderNativeField(id, fl, prefillParams) {
         ? `<textarea id="i${id}" name="${nameAttr}"${reqAttr}${describedBy} rows="${o.formTextLineCount || 3}">${esc(prefill ?? '')}</textarea>`
         : `<input id="i${id}" type="text" name="${nameAttr}" value="${esc(prefill ?? '')}"${reqAttr}${describedBy} ${o.formTextMaximumLength ? `maxlength="${o.formTextMaximumLength}"` : ''}>`;
   }
-  return `<div class="q pv-q" data-native="1" data-type="${fl.type}" data-col="${nameAttr}" data-required="${o.formRequired ? 1 : 0}" ${hidden ? 'hidden' : ''}>${head}${input}<div class="err-msg" id="${errId}">Ce champ est obligatoire.</div></div>`;
+  return `<div class="q pv-q" data-native="1" data-type="${fl.type}" data-col="${nameAttr}" data-required="${o.formRequired ? 1 : 0}" ${hidden ? 'hidden' : ''}>${head}${input}<div class="err-msg" id="${errId}">${I18n.t('form.respond.fieldRequired')}</div></div>`;
 }
 
 // Lit la valeur courante d'un champ à choix unique, qu'il s'affiche en menu déroulant (élément
@@ -127,7 +129,7 @@ export function radioGroup(name, choices, opts) {
 // répondant au moment de l'envoi (voir onSubmit) et de l'affichage (wireOtherOption, renderFill).
 export const OTHER_SENTINEL = '__formplus_other__';
 function otherInputHtml(id) {
-  return `<input type="text" id="eq-${id}-other" class="pv-other-input hidden" placeholder="Précisez…" aria-label="Précisez votre réponse">`;
+  return `<input type="text" id="eq-${id}-other" class="pv-other-input hidden" placeholder="${esc(I18n.t('form.respond.specifyPlaceholder'))}" aria-label="${esc(I18n.t('form.respond.specifyAria'))}">`;
 }
 
 // Une condition d'affichage combine N critères (question source = valeur) en ET (toutes vraies)
@@ -208,19 +210,19 @@ export function renderExtraQuestion(q) {
       // role="group" (confirmé par axe-core, règle "aria-allowed-attr") — limitation assumée, cf.
       // ChoiceList/RefList dans renderNativeField ci-dessus. L'astérisque visuel et le message
       // d'erreur lié restent.
-      input = `<div id="eq-${q.id}" role="group" aria-labelledby="${labelId}"><span class="muted">Chargement…</span></div>`;
+      input = `<div id="eq-${q.id}" role="group" aria-labelledby="${labelId}"><span class="muted">${I18n.t('form.loadingGeneric')}</span></div>`;
       break;
     case 'select': {
-      const otherPill = q.allowOther ? `<label class="pv-pill"><input type="radio" name="eq-${q.id}" value="${OTHER_SENTINEL}" data-label="Autre"><span>Autre…</span></label>` : '';
-      const otherOpt = q.allowOther ? `<option value="${OTHER_SENTINEL}" data-label="Autre">Autre…</option>` : '';
+      const otherPill = q.allowOther ? `<label class="pv-pill"><input type="radio" name="eq-${q.id}" value="${OTHER_SENTINEL}" data-label="${esc(I18n.t('form.respond.otherLabel'))}"><span>${I18n.t('form.respond.otherOptionText')}</span></label>` : '';
+      const otherOpt = q.allowOther ? `<option value="${OTHER_SENTINEL}" data-label="${esc(I18n.t('form.respond.otherLabel'))}">${I18n.t('form.respond.otherOptionText')}</option>` : '';
       input = q.displayMode === 'radio'
         ? `<div id="eq-${q.id}" class="pv-pill-group" role="group" aria-labelledby="${labelId}">${(q.choices || []).map(c => `<label class="pv-pill"><input type="radio" name="eq-${q.id}" value="${esc(c)}" data-label="${esc(c)}"${reqAttr}${describedBy}><span>${esc(c)}</span></label>`).join('')}${otherPill}</div>`
-        : `<select id="eq-${q.id}"${reqAttr}${describedBy}><option value="">Choisir…</option>${(q.choices || []).map(c => `<option value="${esc(c)}" data-label="${esc(c)}">${esc(c)}</option>`).join('')}${otherOpt}</select>`;
+        : `<select id="eq-${q.id}"${reqAttr}${describedBy}><option value="">${I18n.t('form.respond.choosePlaceholder')}</option>${(q.choices || []).map(c => `<option value="${esc(c)}" data-label="${esc(c)}">${esc(c)}</option>`).join('')}${otherOpt}</select>`;
       if (q.allowOther) input += otherInputHtml(q.id);
       break;
     }
     case 'multiselect': {
-      const otherPill = q.allowOther ? `<label class="pv-pill"><input type="checkbox" name="eqm-${q.id}" value="${OTHER_SENTINEL}"><span>Autre…</span></label>` : '';
+      const otherPill = q.allowOther ? `<label class="pv-pill"><input type="checkbox" name="eqm-${q.id}" value="${OTHER_SENTINEL}"><span>${I18n.t('form.respond.otherOptionText')}</span></label>` : '';
       // Même nuance que ChoiceList/RefList natifs ci-dessus (« au moins une », pas « toutes » :
       // pas de `required` par case) et même limitation ARIA (pas d'aria-required sur role="group").
       input = `<div id="eq-${q.id}" class="pv-pill-group" role="group" aria-labelledby="${labelId}">` +
@@ -239,7 +241,7 @@ export function renderExtraQuestion(q) {
       input = `<input id="eq-${q.id}" type="datetime-local"${reqAttr}${describedBy}>`;
       break;
     case 'bool':
-      input = `<label class="switch"><input id="eq-${q.id}" type="checkbox"${reqAttr}${describedBy}> Oui</label>`;
+      input = `<label class="switch"><input id="eq-${q.id}" type="checkbox"${reqAttr}${describedBy}> ${I18n.t('form.respond.yes')}</label>`;
       break;
     case 'longtext':
       input = `<textarea id="eq-${q.id}" rows="4"${reqAttr}${describedBy}></textarea>`;
@@ -278,8 +280,8 @@ export function renderExtraQuestion(q) {
         (q.choices || []).map((c, i) => `<li class="pv-ranking-item" data-value="${esc(c)}">
           <span class="pv-ranking-rank">${i + 1}</span><span class="pv-ranking-label">${esc(c)}</span>
           <span class="pv-ranking-btns">
-            <button type="button" class="icon-btn" data-rank="up" aria-label="Monter ${esc(c)}">${ICONS.arrowUp}</button>
-            <button type="button" class="icon-btn" data-rank="down" aria-label="Descendre ${esc(c)}">${ICONS.arrowDown}</button>
+            <button type="button" class="icon-btn" data-rank="up" aria-label="${esc(I18n.t('form.respond.rankUp', { choice: c }))}">${ICONS.arrowUp}</button>
+            <button type="button" class="icon-btn" data-rank="down" aria-label="${esc(I18n.t('form.respond.rankDown', { choice: c }))}">${ICONS.arrowDown}</button>
           </span></li>`).join('') +
         `</ol></div>`;
       break;
@@ -290,7 +292,7 @@ export function renderExtraQuestion(q) {
       // pour un répondant qui ne peut pas voir ou utiliser le canevas (WCAG 2.1.1 Clavier).
       input = `<div id="eq-${q.id}" class="pv-signature" role="group" aria-labelledby="${labelId}" data-drawn="0">
         <canvas class="pv-signature-canvas" width="500" height="160"></canvas>
-        <button type="button" class="qf-link pv-sign-clear">${ICONS.trash}<span>Effacer</span></button>
+        <button type="button" class="qf-link pv-sign-clear">${ICONS.trash}<span>${I18n.t('form.respond.clearSignature')}</span></button>
       </div>`;
       break;
     case 'map':
@@ -305,12 +307,12 @@ export function renderExtraQuestion(q) {
       input = mapFeatureEnabled()
         ? `<div class="pv-map" role="group" aria-labelledby="${labelId}">
             <div class="pv-map-canvas" id="eq-${q.id}-canvas"></div>
-            <p class="muted pv-map-coords" id="eq-${q.id}-coords">Cliquez sur la carte pour poser un point.</p>
+            <p class="muted pv-map-coords" id="eq-${q.id}-coords">${I18n.t('form.respond.mapClickHint')}</p>
             <input type="hidden" id="eq-${q.id}" value="">
           </div>`
         : `<div class="pv-map">
-            <input id="eq-${q.id}" type="text" placeholder="latitude, longitude (ex. 48.8566, 2.3522)"${reqAttr}${describedBy}>
-            <p class="muted pv-map-coords">Carte interactive non disponible sur cette version : indiquez les coordonnées directement.</p>
+            <input id="eq-${q.id}" type="text" placeholder="${esc(I18n.t('form.respond.mapCoordsPlaceholder'))}"${reqAttr}${describedBy}>
+            <p class="muted pv-map-coords">${I18n.t('form.respond.mapUnavailable')}</p>
           </div>`;
       break;
     default:
@@ -319,7 +321,7 @@ export function renderExtraQuestion(q) {
   return `<div class="q pv-q" data-extra="${q.id}" data-kind="${q.kind}" data-required="${q.required ? 1 : 0}">
     <label class="title ${req}" id="${labelId}"${titleFor}>${esc(q.label)}</label>
     ${q.description ? `<p class="desc pv-hint">${esc(q.description)}</p>` : ''}
-    ${input}<div class="err-msg" id="${errId}">Ce champ est obligatoire.</div></div>`;
+    ${input}<div class="err-msg" id="${errId}">${I18n.t('form.respond.fieldRequired')}</div></div>`;
 }
 
 // Un champ compte comme "répondu" pour la barre de progression : mêmes règles de "vide" que la
@@ -349,7 +351,7 @@ export function updateProgress(formEl) {
   const done = items.filter(Boolean).length;
   const total = items.length;
   $('progress-fill').style.width = total ? `${Math.round((done / total) * 100)}%` : '0%';
-  $('progress-text').textContent = total ? `${done} / ${total} question${total > 1 ? 's' : ''}` : '';
+  $('progress-text').textContent = total ? I18n.t('form.respond.progressCount', { done, total }) : '';
 }
 
 // Découpe la liste des questions supplémentaires en pages, sur les marqueurs de type "page"
@@ -435,7 +437,7 @@ export function wirePages(card, pages, extraQuestions) {
     prevBtn.classList.toggle('hidden', nextEligible(idx, -1) === -1);
     nextBtn.classList.toggle('hidden', !hasNext);
     submitBtn.classList.toggle('hidden', hasNext);
-    indicator.textContent = `Page ${eligibleRank(idx)} / ${eligibleCount()}`;
+    indicator.textContent = I18n.t('form.respond.pageIndicator', { rank: eligibleRank(idx), count: eligibleCount() });
     pageEl(idx)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
@@ -504,7 +506,7 @@ async function wireMaps(card, extraQuestions) {
       const { lat, lng } = e.latlng;
       if (marker) marker.setLatLng(e.latlng); else marker = window.L.marker(e.latlng).addTo(map);
       hiddenEl.value = `${lat.toFixed(6)},${lng.toFixed(6)}`;
-      if (coordsEl) coordsEl.textContent = `Point posé : ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      if (coordsEl) coordsEl.textContent = I18n.t('form.respond.mapPointSet', { lat: lat.toFixed(5), lng: lng.toFixed(5) });
     });
   }
 }
@@ -513,12 +515,12 @@ export async function renderFill() {
   show('fill');
   const card = $('fill-card');
   card.classList.remove('respond-card-shell');
-  card.innerHTML = '<p class="muted">Chargement…</p>';
+  card.innerHTML = `<p class="muted">${I18n.t('form.loadingGeneric')}</p>`;
   $('progress').classList.add('hidden');
 
   const formLink = state.options?.formLink || fragmentFormLink;
   const link = parseFormLink(formLink);
-  if (!link) { card.innerHTML = '<h1>Formulaire indisponible</h1><p class="muted">Lien de formulaire illisible.</p>'; return; }
+  if (!link) { card.innerHTML = `<h1>${I18n.t('form.respond.formUnavailable')}</h1><p class="muted">${I18n.t('form.respond.linkUnreadable')}</p>`; return; }
 
   applyBranding(state.options);
   state.canEdit = await probeCanEdit(state.options?.vsId ?? link.vsId);
@@ -531,7 +533,7 @@ export async function renderFill() {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     form = await r.json();
   } catch (e) {
-    card.innerHTML = `<h1>Formulaire indisponible</h1><p class="muted">${esc(e.message)}</p>`;
+    card.innerHTML = `<h1>${I18n.t('form.respond.formUnavailable')}</h1><p class="muted">${esc(e.message)}</p>`;
     return;
   }
 
@@ -551,7 +553,7 @@ export async function renderFill() {
     : (pages[0]?.items || []).map(renderExtraQuestion).join('');
   const title = state.options?.formTitle || form.formTitle;
   const description = state.options?.formDescription || '';
-  const submitLabel = state.options?.submitLabel || 'Envoyer';
+  const submitLabel = state.options?.submitLabel || I18n.t('form.appearance.submitPlaceholder');
   const headerEmoji = state.options?.headerEmoji || '';
   const moodTinted = state.options?.bgMood === 'tinted';
 
@@ -565,17 +567,17 @@ export async function renderFill() {
       ${description ? `<p class="muted">${esc(description)}</p>` : ''}
     </div>
     <div class="respond-body">
-      <p class="muted">Les champs marqués * sont obligatoires.</p>
+      <p class="muted">${I18n.t('form.respond.requiredFieldsNote')}</p>
       <form id="f" novalidate>
         ${nativeRows}
         ${extraRows ? `<hr class="divider">${extraRows}` : ''}
         ${paginated ? `<p class="muted pv-page-indicator" id="pv-page-indicator" aria-live="polite"></p>` : ''}
-        <label class="hp">Ne pas remplir <input type="text" name="_website" tabindex="-1" autocomplete="off"></label>
+        <label class="hp">${I18n.t('form.respond.honeypotLabel')} <input type="text" name="_website" tabindex="-1" autocomplete="off"></label>
         <div class="actions">
           <span id="fill-status" class="muted"></span>
           ${paginated ? `<div class="pv-pager-nav">
-            <button type="button" id="pv-prev" class="hidden">Précédent</button>
-            <button type="button" id="pv-next">Suivant</button>
+            <button type="button" id="pv-prev" class="hidden">${I18n.t('form.respond.prevBtn')}</button>
+            <button type="button" id="pv-next">${I18n.t('form.respond.nextBtn')}</button>
           </div>` : ''}
           <button type="submit" class="primary${paginated ? ' hidden' : ''}" id="pv-submit-btn">${esc(submitLabel)}</button>
         </div>
@@ -619,11 +621,11 @@ export async function renderFill() {
       } else {
         box.innerHTML = q.displayMode === 'radio'
           ? ids.map((id, i) => `<label class="opt"><input type="radio" name="eq-${q.id}" value="${id}" data-label="${esc(labels[i])}"${choiceReq}${choiceDescribedBy}> ${esc(labels[i])}</label>`).join('')
-          : `<select aria-labelledby="eqlabel-${q.id}"${choiceReq}${choiceDescribedBy}><option value="">Choisir…</option>` + ids.map((id, i) => `<option value="${id}" data-label="${esc(labels[i])}">${esc(labels[i])}</option>`).join('') + '</select>';
+          : `<select aria-labelledby="eqlabel-${q.id}"${choiceReq}${choiceDescribedBy}><option value="">${I18n.t('form.respond.choosePlaceholder')}</option>` + ids.map((id, i) => `<option value="${id}" data-label="${esc(labels[i])}">${esc(labels[i])}</option>`).join('') + '</select>';
       }
       diag({ event: 'choice-loaded', questionId: q.id, sourceTable: q.sourceTable, sourceCol: q.sourceCol, hasCol, rowCount: ids.length });
     } catch (e) {
-      box.innerHTML = '<span class="muted">(indisponible)</span>';
+      box.innerHTML = `<span class="muted">${I18n.t('form.respond.unavailable')}</span>`;
       diag({ event: 'choice-error', questionId: q.id, message: e.message });
     }
   }
@@ -879,7 +881,7 @@ export async function onSubmit(ev, form, link, extraQuestions) {
 
   const btn = formEl.querySelector('button[type=submit]');
   const status = $('fill-status');
-  btn.disabled = true; status.textContent = 'Envoi…'; status.classList.remove('err');
+  btn.disabled = true; status.textContent = I18n.t('form.respond.sending'); status.classList.remove('err');
   try {
     // Une pièce jointe destinée à la table principale reste bloquante comme avant (le champ fait
     // partie du même enregistrement que les champs obligatoires déjà validés ci-dessus) ; un échec
@@ -910,7 +912,7 @@ export async function onSubmit(ev, form, link, extraQuestions) {
         fieldsByTable[up.table] = fieldsByTable[up.table] || {};
         fieldsByTable[up.table][up.col] = ['L', ...ids];
       } catch (e) {
-        if (up.table === form.formTableId) throw new Error(`Pièces jointes : ${e.message}`);
+        if (up.table === form.formTableId) throw new Error(I18n.t('form.respond.attachmentsErrorPrefix', { message: e.message }));
         failedUploads.push(up.col);
         diag({ event: 'upload-failed', table: up.table, col: up.col, message: e.message });
       }
@@ -936,7 +938,7 @@ export async function onSubmit(ev, form, link, extraQuestions) {
     }
 
     $('progress').classList.add('hidden');
-    const endMessage = state.options?.endMessage || 'Merci, votre réponse a bien été enregistrée.';
+    const endMessage = state.options?.endMessage || I18n.t('form.appearance.endMsgPlaceholder');
     const partial = failedTables.length || failedUploads.length;
     // Redirection automatique jamais lancée sur un envoi partiel (le répondant doit voir
     // l'avertissement d'abord), et jamais vers un schéma autre que http(s) : esc() échappe les
@@ -946,17 +948,17 @@ export async function onSubmit(ev, form, link, extraQuestions) {
     let redirectUrl = '';
     if (rawRedirect) { try { redirectUrl = ['http:', 'https:'].includes(new URL(rawRedirect, location.href).protocol) ? rawRedirect : ''; } catch (e) { redirectUrl = ''; } }
     const warningParts = [];
-    if (failedTables.length) warningParts.push(`table${failedTables.length > 1 ? 's' : ''} : ${failedTables.map(esc).join(', ')}`);
-    if (failedUploads.length) warningParts.push(`pièce${failedUploads.length > 1 ? 's' : ''} jointe${failedUploads.length > 1 ? 's' : ''} : ${failedUploads.map(esc).join(', ')}`);
+    if (failedTables.length) warningParts.push(I18n.t('form.respond.warningTables', { n: failedTables.length, list: failedTables.map(esc).join(', ') }));
+    if (failedUploads.length) warningParts.push(I18n.t('form.respond.warningAttachments', { n: failedUploads.length, list: failedUploads.map(esc).join(', ') }));
     const warning = warningParts.length
-      ? `<p class="err">Une partie de la réponse n'a pas pu être enregistrée (${warningParts.join(' ; ')}). Le reste a bien été pris en compte ; contactez le responsable du formulaire pour signaler ce message.</p>`
+      ? `<p class="err">${I18n.t('form.respond.partialFailureWarning', { parts: warningParts.join(' ; ') })}</p>`
       : '';
     $('fill-card').classList.remove('respond-card-shell'); // ce message tient dans le padding normal de .card, plus de bandeau/en-tête à afficher
     $('fill-card').innerHTML = `<div class="center"><h1 class="ok">${esc(endMessage)}</h1>
-      <p class="muted">Identifiant : ${esc(j.records?.[0]?.id)}</p>
+      <p class="muted">${I18n.t('form.respond.recordId', { id: esc(j.records?.[0]?.id) })}</p>
       ${warning}
-      ${redirectUrl ? `<p class="muted" id="redirect-msg">Redirection dans <span id="redirect-count">3</span> s… <a href="${esc(redirectUrl)}">continuer maintenant</a></p>` : ''}
-      <p><button class="primary" onclick="location.reload()">Envoyer une autre réponse</button></p></div>`;
+      ${redirectUrl ? `<p class="muted" id="redirect-msg">${I18n.t('form.respond.redirectPrefix')}<span id="redirect-count">3</span>${I18n.t('form.respond.redirectSuffix')}<a href="${esc(redirectUrl)}">${I18n.t('form.respond.continueNowLink')}</a></p>` : ''}
+      <p><button class="primary" onclick="location.reload()">${I18n.t('form.respond.sendAnotherBtn')}</button></p></div>`;
     if (redirectUrl) {
       let n = 3;
       const t = setInterval(() => {
@@ -967,7 +969,7 @@ export async function onSubmit(ev, form, link, extraQuestions) {
       }, 1000);
     }
   } catch (e) {
-    btn.disabled = false; status.textContent = 'Erreur : ' + e.message; status.classList.add('err'); status.style.color = 'var(--error)';
+    btn.disabled = false; status.textContent = I18n.t('form.editor.genericError', { message: e.message }); status.classList.add('err'); status.style.color = 'var(--error)';
   }
 }
 
