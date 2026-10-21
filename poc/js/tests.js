@@ -1,18 +1,19 @@
 import { $, show } from './dom.js';
-import { parseFormLink, buildPublicUrl, parseCustomView, migrateLegacy, normalizeCondition } from './links.js';
+import { parseFormLink, buildPublicUrl, parseCustomView, migrateLegacy, normalizeCondition, decideStartScreen } from './links.js';
 import { hexToRgb, softenColor, contrastText, applyBranding } from './theme.js';
 import { I18n, KIT_STRINGS } from '../../kit/js/i18n.js';
 import { STRINGS } from './strings.js';
 import { KINDS, LAYOUT_KINDS, TABLE_SOURCED_KINDS, FIXED_LIST_KINDS, mapFeatureEnabled } from './kinds.js';
-import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet, splitIntoPages, wirePages, resolveFormTitle } from './respond.js';
+import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet, reservationOk, splitIntoPages, wirePages, wireConditions, resolveFormTitle } from './respond.js';
 import {
   questionSummary, conditionSourceCandidates, renderCardBody, saveQuestionFromCard,
   customizeNativeField, resetQuestions, createEmptyForm, populateFormPicker, generate, saveConfig,
-  renderQuestionList, showEditorTab, showConfig,
+  renderQuestionList, showEditorTab, showConfig, loadResponsesSummary,
 } from './config-editor.js';
 import {
   ensureTableGate, ensureFreeColumn, FORMULAIRES_TABLE,
   ensureFormulairesTable, saveFormDefinition, resolveMyDefinition, fetchManagedVsIds,
+  ensureRespondentProbeTable, probeRespondentIdentity,
 } from './grist-meta.js';
 import { loadPluginApi } from './plugin-loader.js';
 import { state } from './state.js';
@@ -109,6 +110,25 @@ export async function runTests() {
     assert('lien invalide -> null', parseFormLink('pas un lien') === null);
     assert('lien vide -> null', parseFormLink('') === null);
     assertEqual('buildPublicUrl', buildPublicUrl(l1, 9), 'https://grist.numerique.gouv.fr/o/mon-equipe/s/ABC123/p/9?style=singlePage');
+  });
+
+  await group('decideStartScreen', () => {
+    // Bug du 21 oct 2026 : l'adresse à diffuser (buildPublicUrl, sans fragment #form=) ouvrait
+    // toujours la configuration pour un visiteur externe anonyme, jamais le formulaire, même une
+    // fois un formulaire lié. Reproduit ici sans fragment, avec l'accès réduit que Grist accorde
+    // réellement à ce type de visiteur.
+    assertEqual('visiteur sans accès complet, formulaire lié -> répondant',
+      decideStartScreen({ formLink: 'https://grist.example/o/t/forms/K/1', fragmentFormLink: null, accessLevel: 'read table' }), 'fill');
+    assertEqual('visiteur sans aucun accès, formulaire lié -> répondant',
+      decideStartScreen({ formLink: 'https://grist.example/o/t/forms/K/1', fragmentFormLink: null, accessLevel: 'none' }), 'fill');
+    assertEqual('visiteur sans accès complet, rien de lié -> configuration (rien à montrer)',
+      decideStartScreen({ formLink: null, fragmentFormLink: null, accessLevel: 'read table' }), 'config');
+    assertEqual('concepteur en accès complet -> configuration, même formulaire déjà lié',
+      decideStartScreen({ formLink: 'https://grist.example/o/t/forms/K/1', fragmentFormLink: null, accessLevel: 'full' }), 'config');
+    assertEqual('secours #form=<lien> explicite -> répondant même en accès complet',
+      decideStartScreen({ formLink: null, fragmentFormLink: 'https://grist.example/o/t/forms/K/1', accessLevel: 'full' }), 'fill');
+    assertEqual('aucun accessLevel connu (ex. ancien Grist), rien de lié -> configuration',
+      decideStartScreen({ formLink: null, fragmentFormLink: null, accessLevel: undefined }), 'config');
   });
 
   await group('parseCustomView', () => {
@@ -218,6 +238,7 @@ export async function runTests() {
     assertEqual('section -> sa description', questionSummary({ kind: 'section', description: 'intro' }), 'intro');
     assertEqual("info -> 'Repliable'", questionSummary({ kind: 'info' }), 'Repliable');
     assertEqual('select -> nombre d’options', questionSummary({ kind: 'select', choices: ['a', 'b'] }), '2 option(s)');
+    assertEqual('créneau horaire -> nombre d’options, comme select/multiselect', questionSummary({ kind: 'timeslot', choices: ['9h-10h', '10h-11h', '11h-12h'] }), '3 option(s)');
     assertEqual('choice en radio', questionSummary({ kind: 'choice', sourceTable: 'T', displayMode: 'radio' }), 'Depuis « T » · en radio');
     assertEqual('écrit ailleurs + condition', questionSummary({ kind: 'text', writeTable: 'Autre', condition: { questionId: 'zzz', value: 'X' } }), 'écrit dans « Autre » · si « ? » = « X »');
     assertEqual('condition à plusieurs règles combinées en OU',
@@ -390,6 +411,12 @@ export async function runTests() {
     host.innerHTML = renderExtraQuestion({ id: 'q7', kind: 'multiselect', label: 'M', choices: ['A', 'B', 'C'] });
     assert('choix multiples : 3 cases', host.querySelectorAll('#eq-q7 input[type=checkbox]').length === 3);
 
+    host.innerHTML = renderExtraQuestion({ id: 'q7b', kind: 'timeslot', label: 'Créneau', choices: ['9h-10h', '10h-11h'], required: true });
+    assertEqual('créneau horaire : toujours en pastilles, jamais un menu déroulant', host.querySelectorAll('#eq-q7b .pv-pill input[type=radio]').length, 2);
+    assert('créneau horaire : même groupe de boutons radio (un seul choix possible)', [...host.querySelectorAll('#eq-q7b input[type=radio]')].every(r => r.name === 'eq-q7b'));
+    assert('créneau horaire : une icône horloge sur chaque pastille', host.querySelectorAll('#eq-q7b .pv-timeslot-icon svg').length === 2);
+    assert('créneau horaire obligatoire : attribut required repris', host.querySelectorAll('#eq-q7b input[required]').length === 2);
+
     host.innerHTML = renderExtraQuestion({ id: 'q8', kind: 'choice', label: 'C' });
     assert('choix depuis une table : conteneur en attente, pas encore de select', host.querySelector('#eq-q8') != null && host.querySelector('#eq-q8 select') == null);
 
@@ -496,6 +523,39 @@ export async function runTests() {
     assertEqual('indicateur revenu à "Page 1 / 2"', $('pv-page-indicator').textContent, 'Page 1 / 2');
   });
 
+  await group('wireConditions : un marqueur "page" conditionné ne plante jamais (régression du 21 oct corrigée — le marqueur n’a aucun élément [data-extra], sa condition est gérée par wirePages)', () => {
+    const extraQuestions = [
+      { id: 'q1', kind: 'select', label: 'Statut', choices: ['Oui', 'Non'] },
+      { id: 'brk', kind: 'page', label: 'Page 2', condition: { mode: 'all', rules: [{ questionId: 'q1', op: 'eq', value: 'Oui' }] } },
+      { id: 'q2', kind: 'text', label: 'Détail' },
+    ];
+    const pages = splitIntoPages(extraQuestions);
+    const card = mount(document.createElement('div'));
+    card.innerHTML = `<form id="f">
+      <div class="pv-page" data-page-index="0">${renderExtraQuestion(pages[0].items[0])}</div>
+      <div class="pv-page" data-page-index="1" hidden>${renderExtraQuestion(pages[1].items[0])}</div>
+      <p id="pv-page-indicator"></p>
+      <div class="pv-pager-nav"><button type="button" id="pv-prev" class="hidden">Précédent</button><button type="button" id="pv-next">Suivant</button></div>
+      <button type="submit" id="pv-submit-btn" class="hidden">Envoyer</button>
+    </form>`;
+    // Même ordre qu'en vrai (renderFill) : wirePages câble le saut de page, wireConditions câble
+    // les conditions question par question — AVANT le correctif, ce second appel plantait tout de
+    // suite ("Cannot read properties of null (reading 'classList')") dès qu'un marqueur "page"
+    // portait une condition, puisqu'aucun élément [data-extra="brk"] n'existe jamais pour lui
+    // (splitIntoPages le retire de pages[].items avant le rendu).
+    wirePages(card, pages, extraQuestions);
+    let threw = null;
+    try { wireConditions(card, extraQuestions); } catch (e) { threw = e; }
+    assert('câblage initial des conditions : aucune exception', threw === null, threw?.message);
+
+    $('eq-q1').value = 'Oui';
+    $('eq-q1').dispatchEvent(new Event('change'));
+    assert('changement de la question source du saut de page : toujours pas d’exception, page 2 devient éligible', !card.querySelector('[data-extra="q2"]').classList.contains('cond-hidden'));
+
+    $('pv-next').click();
+    assertEqual('navigation Suivant toujours câblée (le plantage bloquait Suivant/Envoi)', card.querySelector('.pv-page[data-page-index="1"]').hidden, false);
+  });
+
   await group('wirePages : page sautée par sa condition, propagation en cascade (cond-hidden) comme une question', () => {
     const extraQuestions = [
       { id: 'q1', kind: 'text', label: 'Code' },
@@ -597,7 +657,7 @@ export async function runTests() {
   });
 
   await group('saveQuestionFromCard : réponses simples, colonne par défaut', async () => {
-    for (const k of ['text', 'longtext', 'number', 'date', 'datetime', 'bool', 'select', 'multiselect', 'ranking', 'attachments', 'scale', 'signature', 'map']) {
+    for (const k of ['text', 'longtext', 'number', 'date', 'datetime', 'bool', 'select', 'multiselect', 'ranking', 'attachments', 'scale', 'signature', 'map', 'timeslot']) {
       state.cfgQuestions = [];
       state.mainTableIdCache = 'Main';
       state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
@@ -650,10 +710,170 @@ export async function runTests() {
     assertEqual('la colonne suffixée est bien créée avec le bon type', addColumnCalls[0]?.[3], { type: 'Text' });
   });
 
+  await group('ensureRespondentProbeTable : crée la table-sonde puis la colonne manquantes, idempotent sinon (mode interne)', async () => {
+    let addCalls;
+    window.grist = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [], tableId: [] } : { id: [], colId: [], parentId: [], type: [] }),
+      onAction: (a) => { addCalls.push(a); },
+    }).grist;
+    addCalls = [];
+    await ensureRespondentProbeTable();
+    assertEqual('table absente -> une seule action AddTable', addCalls.map(c => c[0]), ['AddTable']);
+    assertEqual('nom de table et colonne email dans la même action', [addCalls[0][1], addCalls[0][2][0].id], ['FormPlus_Repondants', 'Email']);
+    assertEqual('formule déclencheur posée sur la colonne', [addCalls[0][2][0].isFormula, addCalls[0][2][0].formula], [false, 'user.Email']);
+
+    window.grist = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [9], tableId: ['FormPlus_Repondants'] } : { id: [], colId: [], parentId: [], type: [] }),
+      onAction: (a) => { addCalls.push(a); },
+    }).grist;
+    addCalls = [];
+    await ensureRespondentProbeTable();
+    assertEqual('table déjà là, colonne manquante -> AddColumn seul', addCalls.map(c => c[0]), ['AddColumn']);
+
+    window.grist = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [9], tableId: ['FormPlus_Repondants'] } : { id: [5], colId: ['Email'], parentId: [9], type: ['Text'] }),
+      onAction: (a) => { addCalls.push(a); },
+    }).grist;
+    addCalls = [];
+    await ensureRespondentProbeTable();
+    assertEqual('table et colonne déjà là -> rien à faire (idempotent)', addCalls.length, 0);
+  });
+
+  await group('probeRespondentIdentity : résout l\'identité réelle via la table-sonde, puis la nettoie (mode interne)', async () => {
+    let probeRows = { id: [], Email: [] };
+    let removedIds;
+    const grist1 = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [9], tableId: ['FormPlus_Repondants'] } : probeRows),
+      onAction: (a) => {
+        if (a[0] === 'AddRecord') { const id = 42; probeRows = { id: [id], Email: ['Alice@Exemple.fr'] }; return id; }
+        if (a[0] === 'RemoveRecord') removedIds.push(a[2]);
+      },
+    }).grist;
+    removedIds = [];
+    window.grist = grist1;
+    assertEqual('identité résolue telle que posée par la formule déclencheur (casse conservée)', await probeRespondentIdentity(), 'Alice@Exemple.fr');
+    await tick();
+    assertEqual('la ligne-sonde jetable est retirée juste après lecture', removedIds, [42]);
+
+    window.grist = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [], tableId: [] } : { id: [], Email: [] }),
+    }).grist;
+    assertEqual('table-sonde jamais créée (mode interne jamais activé) -> null, sans action', await probeRespondentIdentity(), null);
+
+    window.grist = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [9], tableId: ['FormPlus_Repondants'] } : { id: [], Email: [] }),
+      onAction: (a) => { if (a[0] === 'AddRecord') throw new Error('droit insuffisant'); },
+    }).grist;
+    assertEqual('AddRecord refusé (répondant sans droit d\'écriture réel) -> null, jamais d\'exception', await probeRespondentIdentity(), null);
+
+    let probeRows2 = { id: [], Email: [] };
+    window.grist = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [9], tableId: ['FormPlus_Repondants'] } : probeRows2),
+      onAction: (a) => {
+        if (a[0] === 'AddRecord') { const id = 7; probeRows2 = { id: [id], Email: ['anon@getgrist.com'] }; return id; }
+      },
+    }).grist;
+    assertEqual('identité anonyme malgré grist.docApi présent (ex. aperçu via #form=) -> traitée comme inconnue', await probeRespondentIdentity(), null);
+  });
+
+  await group('reservationOk : réservation d\'une question par identité (mode interne)', () => {
+    assert('pas de réservation -> toujours autorisée, identité inconnue comprise', reservationOk({}, null));
+    assert('liste vide -> toujours autorisée', reservationOk({ reservedTo: [] }, 'a@x.fr'));
+    assert('identité null (non résolue) + liste non vide -> jamais autorisée (repli le plus sûr)', !reservationOk({ reservedTo: ['a@x.fr'] }, null));
+    assert('identité présente dans la liste -> autorisée', reservationOk({ reservedTo: ['a@x.fr', 'b@x.fr'] }, 'a@x.fr'));
+    assert('comparaison insensible à la casse (reservedTo en minuscules, identité Grist quelconque)', reservationOk({ reservedTo: ['a@x.fr'] }, 'A@X.fr'));
+    assert('identité absente de la liste -> jamais autorisée', !reservationOk({ reservedTo: ['a@x.fr'] }, 'c@x.fr'));
+  });
+
+  await group('saveQuestionFromCard : changement de type sur une question déjà enregistrée, formulaire déjà en cours de collecte (point soulevé par Antoine le 21 oct)', async () => {
+    // Avant ce correctif : changer le TYPE d'une question existante sans retoucher la combo
+    // "colonne de destination" (préremplie avec l'ANCIENNE colonne, le concepteur n'a aucune
+    // raison de la retoucher lui-même) faisait écrire les PROCHAINES réponses dans une colonne
+    // désormais du mauvais type Grist, sans aucun avertissement — risque réel sur un formulaire
+    // déjà en cours de collecte, exactement le cas que corrige ce groupe.
+    const mkGrist = (addColumnCalls) => makeGristStub({
+      listTables: ['Main'],
+      fetchTable: (t) => (
+        t === '_grist_Tables' ? { id: [1], tableId: ['Main'] }
+        : t === '_grist_Tables_column' ? { id: [100], colId: ['colA'], parentId: [1], type: ['Text'] }
+        : { id: [10], colA: ['x'] }
+      ),
+      onAction: (a) => { if (a[0] === 'AddColumn') addColumnCalls.push(a); },
+    }).grist;
+
+    // 1) Type incompatible (Texte -> Nombre) : repli sur une NOUVELLE colonne (suffixée), avec
+    //    avertissement au concepteur ; l'ancienne colonne "colA" (et ses réponses déjà reçues)
+    //    n'est jamais touchée.
+    {
+      state.cfgQuestions = [{ id: 'q1', kind: 'text', label: 'Âge', writeTable: 'Main', writeCol: 'colA', required: false }];
+      state.mainTableIdCache = 'Main';
+      state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+      state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
+      const addColumnCalls = [];
+      window.grist = mkGrist(addColumnCalls);
+      const body = mount(document.createElement('div'));
+      const { combos } = await renderCardBody('q1', body);
+      assertEqual('combo "colonne de destination" préremplie avec l’ancienne colonne au chargement', combos.writeCol.value, 'colA');
+      body.querySelector('[data-kind="number"]').click();
+      const savePromise = saveQuestionFromCard('q1', body, state.cfgQuestions.find(x => x.id === 'q1'), combos);
+      for (let i = 0; i < 20 && document.querySelector('#pp-dialog-title')?.textContent !== I18n.t('form.editor.destColumnTypeChangedTitle'); i++) await tick();
+      assertEqual('avertissement affiché au concepteur', document.querySelector('#pp-dialog-title')?.textContent, I18n.t('form.editor.destColumnTypeChangedTitle'));
+      document.querySelector('#pp-dialog-modal .pp-modal-actions button:not(.pp-modal-primary)').click();
+      await savePromise;
+      assertEqual('nouvelle colonne, suffixée, jamais "colA"', state.cfgQuestions[0]?.writeCol, 'colA_2');
+      assertEqual('une seule colonne créée (la nouvelle, pas "colA" qui existe déjà)', addColumnCalls.length, 1);
+      assertEqual('la nouvelle colonne est bien du type Numeric attendu pour "number"', addColumnCalls[0]?.[3], { type: 'Numeric' });
+    }
+
+    // 2) Type toujours compatible (Texte -> Texte long) : l'ancienne colonne est réutilisée telle
+    //    quelle, sans aucun avertissement ni nouvelle colonne.
+    {
+      state.cfgQuestions = [{ id: 'q2', kind: 'text', label: 'Remarque', writeTable: 'Main', writeCol: 'colA', required: false }];
+      state.mainTableIdCache = 'Main';
+      state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+      state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
+      const addColumnCalls = [];
+      window.grist = mkGrist(addColumnCalls);
+      const body = mount(document.createElement('div'));
+      const { combos } = await renderCardBody('q2', body);
+      body.querySelector('[data-kind="longtext"]').click();
+      // Aucun avertissement attendu ici : si le correctif en affichait un à tort, cet `await`
+      // resterait bloqué sur une fenêtre que rien ne referme (même logique que le scénario 1,
+      // mais dans l'autre sens).
+      await saveQuestionFromCard('q2', body, state.cfgQuestions.find(x => x.id === 'q2'), combos);
+      assertEqual('type compatible -> ancienne colonne conservée', state.cfgQuestions[0]?.writeCol, 'colA');
+      assertEqual('aucune colonne créée', addColumnCalls.length, 0);
+    }
+
+    // 3) Même colonne existante d'un autre type choisie dans la combo, mais sur une question
+    //    TOUTE NEUVE (existing=null) : le repli sur une nouvelle colonne a bien lieu (même garde
+    //    de type que pour une question existante), mais sans avertissement — aucune réponse
+    //    précédente n'est concernée puisque la question vient d'être créée.
+    {
+      state.cfgQuestions = [];
+      state.mainTableIdCache = 'Main';
+      state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+      state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
+      const addColumnCalls = [];
+      window.grist = mkGrist(addColumnCalls);
+      const body = mount(document.createElement('div'));
+      const { combos } = await renderCardBody('__new__', body);
+      body.querySelector('[data-kind="number"]').click();
+      body.querySelector('.qf-label').value = 'Montant';
+      selectCombo(body.querySelector('[data-combo="writeCol"]'), 'colA');
+      // Même garde : pas d'avertissement attendu pour une question neuve (existing=null) -> un
+      // `await` direct, comme au scénario 2.
+      await saveQuestionFromCard('__new__', body, null, combos);
+      assertEqual('nouvelle question : repli sur une nouvelle colonne malgré le choix de "colA"', state.cfgQuestions[0]?.writeCol, 'colA_2');
+      assertEqual('une seule colonne créée', addColumnCalls.length, 1);
+    }
+  });
+
   await group('saveQuestionFromCard : colonne de destination laissée vide -> créée automatiquement (écart relevé par l’audit UI/UX du 21 oct, corrigé ici pour tous les types libres)', async () => {
     const EXPECTED_TYPE = {
       text: 'Text', longtext: 'Text', number: 'Numeric', date: 'Date', datetime: 'DateTime', bool: 'Bool',
       select: 'Choice', multiselect: 'ChoiceList', ranking: 'Text', attachments: 'Attachments', scale: 'Numeric', signature: 'Attachments', map: 'Text',
+      timeslot: 'Choice',
     };
     for (const k of Object.keys(EXPECTED_TYPE)) {
       state.cfgQuestions = [];
@@ -703,6 +923,50 @@ export async function runTests() {
     writeColInput.dispatchEvent(new Event('input'));
     await saveQuestionFromCard('__new__', body2, null, combos2);
     assertEqual('texte tapé sans correspondance -> prime sur le libellé pour le nom de colonne créée', state.cfgQuestions[0]?.writeCol, 'Nom_voulu');
+  });
+
+  await group('saveQuestionFromCard : champ "Réserver à..." (mode interne)', async () => {
+    state.cfgQuestions = [];
+    state.mainTableIdCache = 'Main';
+    state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+    window.grist = makeGristStub({
+      listTables: ['Main'],
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [1], tableId: ['Main'] } : { id: [10], colA: ['x'] }),
+    }).grist;
+    // Mode interne actif au moment du rendu de la carte : le champ "Réserver à..." existe dans le DOM.
+    state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [], internalMode: true };
+    const body = mount(document.createElement('div'));
+    const { combos } = await renderCardBody('__new__', body);
+    assert('bouton "Réserver à..." affiché quand le mode interne est actif', !!body.querySelector('[data-reveal="reserved"]'));
+    body.querySelector('[data-kind="text"]').click();
+    body.querySelector('.qf-label').value = 'Question réservée';
+    selectCombo(body.querySelector('[data-combo="writeCol"]'), 'colA');
+    body.querySelector('.qf-reserved-emails').value = 'Alice@Exemple.fr\n\nbob@exemple.fr\n';
+    await saveQuestionFromCard('__new__', body, null, combos);
+    assertEqual('adresses enregistrées en minuscules, lignes vides ignorées', state.cfgQuestions[0]?.reservedTo, ['alice@exemple.fr', 'bob@exemple.fr']);
+
+    // Champ laissé vide -> pas de réservation du tout (pas un tableau vide qui, lui, masquerait
+    // la question à tout le monde, voir reservationOk dans respond.js).
+    state.cfgQuestions = [];
+    const body2 = mount(document.createElement('div'));
+    const { combos: combos2 } = await renderCardBody('__new__', body2);
+    body2.querySelector('[data-kind="text"]').click();
+    body2.querySelector('.qf-label').value = 'Question libre';
+    selectCombo(body2.querySelector('[data-combo="writeCol"]'), 'colA');
+    await saveQuestionFromCard('__new__', body2, null, combos2);
+    assertEqual('champ vide -> reservedTo absent', state.cfgQuestions[0]?.reservedTo, undefined);
+
+    // Mode interne désactivé ENTRE-TEMPS (le champ n'existe plus dans la carte) : une réservation
+    // déjà enregistrée sur cette question ne doit pas disparaître silencieusement.
+    const existing = { id: 'q1', kind: 'text', label: 'Déjà réservée', reservedTo: ['alice@exemple.fr'], writeTable: 'Main', writeCol: 'colA' };
+    state.cfgQuestions = [existing];
+    state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [], internalMode: false };
+    const body3 = mount(document.createElement('div'));
+    const { combos: combos3 } = await renderCardBody('q1', body3);
+    assert('mode interne inactif -> pas de bouton "Réserver à..."', !body3.querySelector('[data-reveal="reserved"]'));
+    body3.querySelector('.qf-label').value = 'Déjà réservée (modifiée)';
+    await saveQuestionFromCard('q1', body3, existing, combos3);
+    assertEqual('réservation déjà enregistrée conservée malgré le mode interne désactivé', state.cfgQuestions[0]?.reservedTo, ['alice@exemple.fr']);
   });
 
   await group('saveQuestionFromCard : liste de références (reflist), même mécanisme que "choix depuis une table"', async () => {
@@ -816,6 +1080,7 @@ export async function runTests() {
       { id: 'srcBool', kind: 'bool', label: 'Urgent' },
       { id: 'srcNum', kind: 'number', label: 'Montant' },
       { id: 'srcTxt', kind: 'text', label: 'Note' },
+      { id: 'srcTimeslot', kind: 'timeslot', label: 'Créneau', choices: ['9h-10h', '10h-11h'] },
     ];
     state.mainTableIdCache = 'Main';
     state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
@@ -829,6 +1094,11 @@ export async function runTests() {
 
     await pickSource('srcSelect');
     assert('source à choix fixes -> combo de recherche', !!cell().querySelector('.combo-input'));
+
+    await pickSource('srcTimeslot');
+    assert('source créneau horaire -> combo de recherche, comme select/multiselect', !!cell().querySelector('.combo-input'));
+    cell().querySelector('.combo-input').dispatchEvent(new Event('focus'));
+    assertEqual('valeurs proposées : les créneaux configurés', [...cell().querySelectorAll('.combo-opt')].map(o => o.textContent), ['9h-10h', '10h-11h']);
 
     await pickSource('srcBool');
     assert('source Oui/non -> combo (Oui/Non), pas une saisie libre', !!cell().querySelector('.combo-input'));
@@ -1135,6 +1405,75 @@ export async function runTests() {
     await customizeNativeField('200');
     await tick();
     assertEqual('aucune question créée pour un type sans correspondance', state.cfgQuestions.length, 0);
+  });
+
+  await group('loadResponsesSummary : synthèse lisible des réponses (V2 de la feuille de route, demandée par Antoine le 21 oct)', async () => {
+    state.cfgQuestions = [
+      { id: 'q1', kind: 'text', label: 'Nom', writeTable: 'Main', writeCol: 'Nom' },
+      { id: 'q2', kind: 'scale', label: 'Satisfaction', writeTable: 'Main', writeCol: 'Satisf', scaleMax: 5, scaleLowLabel: 'Pas satisfait', scaleHighLabel: 'Très satisfait' },
+      { id: 'q3', kind: 'bool', label: 'Accepte', writeTable: 'Main', writeCol: 'Accepte' },
+      { id: 'q4', kind: 'choice', label: 'Ville', writeTable: 'Main', writeCol: 'Ville', sourceTable: 'Villes', sourceCol: 'nom' },
+      { id: 'q5', kind: 'multiselect', label: 'Langues', writeTable: 'Main', writeCol: 'Langues' },
+      { id: 'q6', kind: 'ranking', label: 'Classement', writeTable: 'Main', writeCol: 'Classmt' },
+      { id: 'q7', kind: 'map', label: 'Lieu', writeTable: 'Main', writeCol: 'Lieu' },
+      { id: 'q8', kind: 'attachments', label: 'Justificatif', writeTable: 'Main', writeCol: 'PJ' },
+      { id: 'q9', kind: 'text', label: 'Commentaire secondaire', writeTable: 'Autre', writeCol: 'Com' },
+      { id: 'q10', kind: 'section', label: 'Titre', writeTable: 'Main' },
+    ];
+    state.mainTableIdCache = 'Main';
+    window.grist = makeGristStub({
+      fetchTable: (t) => {
+        if (t === 'Main') {
+          return {
+            id: [10, 11],
+            Nom: ['Alice', 'Bob'],
+            Satisf: [4, null],
+            Accepte: [true, false],
+            Ville: [100, 999], // 999 : référence vers une ligne qui n'existe plus
+            Langues: [['L', 'FR', 'EN'], null],
+            Classmt: ['Rouge, Vert, Bleu', null],
+            Lieu: ['48.8566, 2.3522', null],
+            PJ: [['L', 55, 56], null],
+          };
+        }
+        if (t === 'Villes') return { id: [100, 101], nom: ['Paris', 'Lyon'] };
+        return { id: [] };
+      },
+    }).grist;
+    await loadResponsesSummary();
+    const html = $('responses-summary').innerHTML;
+    assert('compte affiché', html.includes(I18n.t('form.editor.responsesCount', { n: 2, table: 'Main' })));
+    const cards = [...document.querySelectorAll('#responses-summary .resp-card')];
+    assertEqual('une carte par réponse, la plus récente en premier', cards.length, 2);
+    const valueFor = (card, label) => [...card.querySelectorAll('.resp-row')].find(r => r.querySelector('.resp-label').textContent === label)?.querySelector('.resp-value').textContent;
+    assertEqual('ligne 11 affichée avant la ligne 10 (la plus récente d’abord)', cards[0].querySelector('.resp-card-title').textContent, I18n.t('form.editor.responseCardTitle', { n: 11 }));
+    assertEqual('échelle : valeur sur le maximum avec ses bornes', valueFor(cards[1], 'Satisfaction'), '4/5 (Pas satisfait → Très satisfait)');
+    assertEqual('bool : "Oui" plutôt que "true"', valueFor(cards[1], 'Accepte'), I18n.t('form.respond.yes'));
+    assertEqual('bool : "Non" plutôt que "false"', valueFor(cards[0], 'Accepte'), I18n.t('form.editor.responseNo'));
+    assertEqual('choix depuis une table : libellé résolu, pas l’id brut', valueFor(cards[1], 'Ville'), 'Paris');
+    assert('choix vers une ligne supprimée : signalé plutôt qu’un id muet', valueFor(cards[0], 'Ville').includes('999'));
+    assertEqual('choix multiple : indicateur de type retiré, valeurs jointes', valueFor(cards[1], 'Langues'), 'FR, EN');
+    assertEqual('classement : numéroté plutôt que la simple liste brute', valueFor(cards[1], 'Classement'), '1. Rouge · 2. Vert · 3. Bleu');
+    assert('carte (coordonnées) : lien vers une carte en ligne ajouté', cards[1].querySelector('.resp-value a[href*="openstreetmap"]') != null);
+    assertEqual('pièces jointes : compte plutôt que le tableau technique', valueFor(cards[1], 'Justificatif'), I18n.t('form.editor.responseAttachmentsCount', { n: 2 }));
+    assertEqual('valeur absente (null) : un tiret, jamais "null"', valueFor(cards[0], 'Satisfaction'), I18n.t('form.editor.responseEmptyValue'));
+    assert('question écrivant dans une autre table : jamais mêlée aux cartes de "Main"', !html.includes('Commentaire secondaire'));
+    assert('table secondaire nommée plutôt que silencieusement ignorée', html.includes('Autre'));
+    assert('bloc de mise en page (section) : jamais une ligne de réponse', !html.includes('>Titre<'));
+  });
+
+  await group('loadResponsesSummary : au-delà de la limite d’aperçu, une note renvoie vers la table plutôt que tout afficher', async () => {
+    state.cfgQuestions = [{ id: 'q1', kind: 'text', label: 'Nom', writeTable: 'Main', writeCol: 'Nom' }];
+    state.mainTableIdCache = 'Main';
+    const ids = Array.from({ length: 13 }, (_, i) => i + 1);
+    window.grist = makeGristStub({
+      fetchTable: (t) => (t === 'Main' ? { id: ids, Nom: ids.map(i => `R${i}`) } : { id: [] }),
+    }).grist;
+    await loadResponsesSummary();
+    const cards = [...document.querySelectorAll('#responses-summary .resp-card')];
+    assertEqual('aperçu limité aux 10 réponses les plus récentes', cards.length, 10);
+    assertEqual('la plus récente (id 13) en tête', cards[0].querySelector('.resp-card-title').textContent, I18n.t('form.editor.responseCardTitle', { n: 13 }));
+    assert('note sur les réponses non affichées (3 de plus)', $('responses-summary').innerHTML.includes(I18n.t('form.editor.responsesMoreNotShown', { n: 3 })));
   });
 
   await group('resetQuestions : démasque uniquement les champs importés', async () => {
@@ -1826,6 +2165,7 @@ export async function runTests() {
       { id: 'q15', kind: 'scale', label: 'Note', scaleMin: 0, scaleMax: 10, writeTable: 'Reponses', writeCol: 'NoteCol' },
       { id: 'q16', kind: 'ranking', label: 'Classement', choices: ['A', 'B', 'C'], writeTable: 'Reponses', writeCol: 'Classement' },
       { id: 'q17', kind: 'reflist', label: 'Refs', writeTable: 'Reponses', writeCol: 'RefsCol' },
+      { id: 'q18', kind: 'timeslot', label: 'Créneau', choices: ['9h-10h', '10h-11h'], writeTable: 'Reponses', writeCol: 'Creneau' },
     ];
     const formEl = mount(document.createElement('form'));
     formEl.innerHTML = `<input type="text" name="_website" value="" style="display:none">${extraQuestions.map(renderExtraQuestion).join('')}<span id="fill-status"></span><button type="submit"></button>`;
@@ -1836,6 +2176,7 @@ export async function runTests() {
     formEl.querySelector('#eq-q5').value = 'Lyon';
     formEl.querySelectorAll('#eq-q6 input[type=radio]')[0].checked = true; // Paris
     formEl.querySelectorAll('#eq-q7 input[type=checkbox]')[1].checked = true; // En
+    formEl.querySelectorAll('#eq-q18 input[type=radio]')[1].checked = true; // 10h-11h
     formEl.querySelector('#eq-q11').value = 'Bonjour';
     formEl.querySelector('#eq-q8').innerHTML = '<label class="opt"><input type="radio" name="eq-q8" value="5" data-label="Rhône"></label>';
     formEl.querySelector('#eq-q8 input').checked = true;
@@ -1881,6 +2222,7 @@ export async function runTests() {
     assertEqual('échelle : convertie en nombre', fields.NoteCol, 7);
     assertEqual('classement : ordre du DOM, joint en texte', fields.Classement, 'B, C, A');
     assertEqual('liste de références : toutes les cases cochées, en RefList', fields.RefsCol, ['L', 1, 2]);
+    assertEqual('créneau horaire : toujours en pastilles, même lecture qu’un choix en radio', fields.Creneau, '10h-11h');
     assert('titre de section absent des champs envoyés', !('Section' in fields));
     assert('bloc d’info absent des champs envoyés', !('Info' in fields));
     assert('pièces jointes absentes des champs de la table principale (envoyées à part)', !('Justificatif' in fields) && !('PJ' in fields));

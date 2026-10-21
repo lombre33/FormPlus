@@ -70,6 +70,20 @@ export function migrateLegacy(opts) {
   return list.map(q => ({ description: '', ...q, condition: normalizeCondition(q.condition) }));
 }
 
+// Décide l'écran à afficher à l'ouverture du widget (config ou répondant), à partir des
+// signaux reçus de Grist. Un visiteur sans accès complet (settings.accessLevel ≠ 'full') est
+// typiquement un visiteur externe anonyme qui a ouvert l'adresse publique partagée depuis
+// Paramètres (voir buildPublicUrl) : il ne peut de toute façon pas configurer le widget, donc
+// s'il existe déjà un formulaire lié on lui montre directement l'écran répondant, jamais la
+// configuration. Avant ce correctif (bug relevé le 21 oct 2026), seule la présence du fragment
+// #form=<lien> déclenchait l'écran répondant : aucune adresse générée par le produit ne montrait
+// alors jamais le formulaire à un vrai visiteur externe.
+export function decideStartScreen({ formLink, fragmentFormLink, accessLevel }) {
+  if (fragmentFormLink) return 'fill';
+  if (formLink && accessLevel && accessLevel !== 'full') return 'fill';
+  return 'config';
+}
+
 // Le référent (adresse de la page Grist qui charge ce widget dans son iframe) contient le
 // numéro de page, ex. ".../p/7?style=singlePage". Bien plus fiable que de chercher "ce widget"
 // par nom de fichier dans les métadonnées, qui échoue dès que plusieurs pages réutilisent la

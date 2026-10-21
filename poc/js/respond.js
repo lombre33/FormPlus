@@ -5,7 +5,7 @@ import './strings.js'; // enregistre form.* avant tout usage de I18n.t() au char
 import { LAYOUT_KINDS, SINGLE_CHOICE_KINDS, mapFeatureEnabled, LEAFLET_CDN_URL, LEAFLET_CDN_CSS } from './kinds.js';
 import { parseFormLink, migrateLegacy, normalizeCondition } from './links.js';
 import { applyBranding } from './theme.js';
-import { probeCanEdit } from './grist-meta.js';
+import { probeCanEdit, probeRespondentIdentity } from './grist-meta.js';
 import { diag, fragmentFormLink } from './diag.js';
 import { state } from './state.js';
 
@@ -132,6 +132,17 @@ function otherInputHtml(id) {
   return `<input type="text" id="eq-${id}-other" class="pv-other-input hidden" placeholder="${esc(I18n.t('form.respond.specifyPlaceholder'))}" aria-label="${esc(I18n.t('form.respond.specifyAria'))}">`;
 }
 
+// Réservation par identité (mode interne) : une question reste masquée si l'identité résolue du
+// répondant courant n'est pas dans sa liste — vide = tout le monde, identité null/inconnue = jamais
+// autorisée (repli le plus sûr : préférer cacher à tort plutôt que montrer à tort une question
+// réservée). reservedTo est déjà en minuscules à l'enregistrement (config-editor.js) ; `identity`
+// peut venir de Grist avec une casse différente, normalisée ici. Fonction pure (pas de lecture de
+// state.internalIdentity ici) pour rester testable seule, comme conditionMet ci-dessous.
+export function reservationOk(q, identity) {
+  if (!q.reservedTo?.length) return true;
+  return !!identity && q.reservedTo.includes(identity.toLowerCase());
+}
+
 // Une condition d'affichage combine N critères (question source = valeur) en ET (toutes vraies)
 // ou en OU (au moins une) — voir normalizeCondition (links.js) pour les deux formats acceptés en
 // entrée. Chaque critère se lit sur le conteneur #eq-<questionId> de sa question source, avec la
@@ -194,7 +205,7 @@ export function renderExtraQuestion(q) {
   // multiselect ci-dessus. "map" ne l'est QUE si la carte interactive est active
   // (mapFeatureEnabled()) : sinon c'est un <input type=text> normal, directement labelable
   // (repli décrit dans renderExtraQuestion, cas 'map').
-  const isGroupContainer = ['multiselect', 'choice', 'reflist', 'ranking', 'signature'].includes(q.kind)
+  const isGroupContainer = ['multiselect', 'choice', 'reflist', 'ranking', 'signature', 'timeslot'].includes(q.kind)
     || (q.kind === 'select' && q.displayMode === 'radio')
     || (q.kind === 'map' && mapFeatureEnabled());
   const titleFor = isGroupContainer ? '' : ` for="eq-${q.id}"`;
@@ -221,6 +232,12 @@ export function renderExtraQuestion(q) {
       if (q.allowOther) input += otherInputHtml(q.id);
       break;
     }
+    case 'timeslot':
+      // Toujours en pastilles (jamais la bascule menu/radio de 'select', voir FIXED_LIST_KINDS,
+      // kinds.js) : le but même du type, un choix "d'un peu visuel" (demandé par Antoine le 21
+      // oct) — une icône horloge sur chaque créneau, en plus du texte choisi par le concepteur.
+      input = `<div id="eq-${q.id}" class="pv-pill-group" role="group" aria-labelledby="${labelId}">${(q.choices || []).map(c => `<label class="pv-pill pv-timeslot-pill"><input type="radio" name="eq-${q.id}" value="${esc(c)}" data-label="${esc(c)}"${reqAttr}${describedBy}><span><span class="pv-timeslot-icon" aria-hidden="true">${ICONS.clock}</span>${esc(c)}</span></label>`).join('')}</div>`;
+      break;
     case 'multiselect': {
       const otherPill = q.allowOther ? `<label class="pv-pill"><input type="checkbox" name="eqm-${q.id}" value="${OTHER_SENTINEL}"><span>${I18n.t('form.respond.otherOptionText')}</span></label>` : '';
       // Même nuance que ChoiceList/RefList natifs ci-dessus (« au moins une », pas « toutes » :
@@ -387,6 +404,47 @@ function isRequiredFieldMissing(q) {
   if (q.classList.contains('cond-hidden')) return false;
   if (q.dataset.kind === 'bool') return q.querySelector('input[type=checkbox]')?.checked !== true;
   return isAnswered(q) === false;
+}
+
+// Câble la condition d'affichage ET la réservation par identité (mode interne) de chaque question
+// supplémentaire (hors marqueurs "page", voir plus bas) : masque/affiche son conteneur [data-extra]
+// selon conditionMet ET reservationOk (masqué si l'un OU l'autre l'exige, jamais l'inverse — une
+// condition devenue vraie ne doit jamais réafficher une question réservée à quelqu'un d'autre), et
+// réécoute le(s) conteneur(s) #eq-<id> de ses question(s) source(s) pour recalculer à chaque
+// changement. Jamais appelée sur un marqueur "page" (q.kind === 'page') : splitIntoPages le retire
+// de chaque pages[].items avant le rendu (renderFill), donc renderExtraQuestion n'est jamais
+// appelée pour lui et aucun élément [data-extra=<id>] n'existe dans le DOM pour lui correspondre —
+// sans cette exclusion, `target` vaut null pour un marqueur "page" conditionné et
+// `target.classList.toggle` plante dès le premier appel de `check()` (immédiat ci-dessous, ou au
+// moindre changement de la question source), bloquant tout le formulaire (Suivant/Envoi). La
+// condition d'un marqueur "page" est déjà gérée par wirePages/applySkip ci-dessous (saut de page),
+// qui ne passe jamais par ce conteneur.
+export function wireConditions(card, extraQuestions) {
+  for (const q of extraQuestions) {
+    if (q.kind === 'page') continue;
+    const cond = normalizeCondition(q.condition);
+    const hasCond = !!cond?.rules?.length;
+    if (!hasCond && !q.reservedTo?.length) continue;
+    const target = card.querySelector(`[data-extra="${q.id}"]`);
+    if (!target) continue;
+    // Répercute le changement de visibilité sur les conditions EN CASCADE : une question qui
+    // dépend de q (pas de sa propre source directe) n'écoute que le conteneur eq-<q.id> de q,
+    // jamais celui de la source de q — sans cet événement synthétique, un masquage en chaîne (A
+    // masque B, B masque C) ne réveille jamais le check de C quand B se masque à son tour.
+    const check = () => {
+      target.classList.toggle('cond-hidden', !reservationOk(q, state.internalIdentity) || !conditionMet(q.condition, extraQuestions));
+      $(`eq-${q.id}`)?.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    // Une question réservée sans condition propre n'a rien à écouter : un seul check() plus bas
+    // suffit, sa visibilité ne change jamais en cours de remplissage.
+    if (!hasCond) { check(); continue; }
+    // 'input' en plus de 'change' : une source Nombre/Texte/Texte long ne déclenche 'change' qu'au
+    // blur, ce qui masquerait/afficherait la question dépendante avec un temps de retard sensible
+    // par rapport aux sources à choix (select/radio/case), qui réagissent immédiatement.
+    cond.rules.map(r => $(`eq-${r.questionId}`)).filter(Boolean)
+      .forEach(c => ['input', 'change'].forEach(evt => c.addEventListener(evt, check)));
+    check();
+  }
 }
 
 // Navigation entre pages : boutons Précédent/Suivant, "obligatoire" vérifié page par page (pas
@@ -558,6 +616,15 @@ export async function renderFill() {
   state.canEdit = await probeCanEdit(state.options?.vsId ?? link.vsId);
   diag({ event: 'canEdit', canEdit: state.canEdit });
   $('fill-toolbar').classList.toggle('hidden', !state.canEdit);
+
+  // Mode interne (réservation de questions par identité, voir kinds réservées plus bas) :
+  // seulement si le widget tourne réellement dans Grist (window.grist, jamais pour le lien public
+  // anonyme, voir probeRespondentIdentity dans grist-meta.js). Résolu une seule fois par
+  // consultation, avant la construction du formulaire : la réservation ne change jamais en cours
+  // de remplissage, pas besoin de la relire à chaque question.
+  state.internalIdentity = (state.options?.internalMode && window.grist)
+    ? await probeRespondentIdentity() : null;
+  diag({ event: 'internalIdentity', internalMode: !!state.options?.internalMode, resolved: !!state.internalIdentity });
 
   let form;
   try {
@@ -739,25 +806,7 @@ export async function renderFill() {
   // grisée par défaut — voir mapFeatureEnabled, kinds.js, et le repli en case 'map' ci-dessus).
   await wireMaps(card, extraQuestions);
 
-  for (const q of extraQuestions) {
-    const cond = normalizeCondition(q.condition);
-    if (!cond?.rules?.length) continue;
-    const target = card.querySelector(`[data-extra="${q.id}"]`);
-    // Répercute le changement de visibilité sur les conditions EN CASCADE : une question qui
-    // dépend de q (pas de sa propre source directe) n'écoute que le conteneur eq-<q.id> de q,
-    // jamais celui de la source de q — sans cet événement synthétique, un masquage en chaîne (A
-    // masque B, B masque C) ne réveille jamais le check de C quand B se masque à son tour.
-    const check = () => {
-      target.classList.toggle('cond-hidden', !conditionMet(q.condition, extraQuestions));
-      $(`eq-${q.id}`)?.dispatchEvent(new Event('change', { bubbles: true }));
-    };
-    // 'input' en plus de 'change' : une source Nombre/Texte/Texte long ne déclenche 'change' qu'au
-    // blur, ce qui masquerait/afficherait la question dépendante avec un temps de retard sensible
-    // par rapport aux sources à choix (select/radio/case), qui réagissent immédiatement.
-    cond.rules.map(r => $(`eq-${r.questionId}`)).filter(Boolean)
-      .forEach(c => ['input', 'change'].forEach(evt => c.addEventListener(evt, check)));
-    check();
-  }
+  wireConditions(card, extraQuestions);
 
   if (state.options?.showProgress) {
     $('progress').classList.remove('hidden');
@@ -882,8 +931,10 @@ export async function onSubmit(ev, form, link, extraQuestions) {
       value = $(`eq-${q.id}`).checked;
       empty = false;
       missingRequired = q.required && visible && value !== true;
-    } else if (SINGLE_CHOICE_KINDS.has(q.kind)) {
-      // Menu déroulant ou radios selon q.displayMode : même lecture des deux (singleValueOf).
+    } else if (SINGLE_CHOICE_KINDS.has(q.kind) || q.kind === 'timeslot') {
+      // Menu déroulant ou radios selon q.displayMode (select/choice), ou pastilles toujours
+      // (timeslot, jamais de q.allowOther pour ce type) : même lecture dans les deux cas
+      // (singleValueOf).
       let raw = singleValueOf($(`eq-${q.id}`)).value;
       if (q.allowOther && raw === OTHER_SENTINEL) raw = ($(`eq-${q.id}-other`)?.value || '').trim();
       empty = raw === '' || raw == null;

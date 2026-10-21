@@ -100,6 +100,17 @@ export const STRINGS = {
   'form.appearance.endMsgPlaceholder': { fr: 'Merci, votre réponse a bien été enregistrée.', en: 'Thank you, your answer has been recorded.' },
   'form.appearance.redirectLabel': { fr: "Redirection après l'envoi (URL, facultatif)", en: 'Redirect after submission (URL, optional)' },
 
+  // ───────────────────────── widget.html : Mode interne ─────────────────────────
+  'form.internal.heading': { fr: 'Mode interne', en: 'Internal mode' },
+  'form.internal.desc': {
+    fr: "Pour un formulaire ouvert directement sur une page de ce document Grist (pas via le lien public), par des personnes qui ont déjà un compte et un accès au document. Permet de réserver certaines questions à certaines adresses. Donnez d'abord à ces personnes un accès en écriture au document (règle d'accès ou rôle Éditeur) : sans ça, le mode interne ne peut pas fonctionner pour elles. Confort d'affichage, pas une protection : seules les règles d'accès du document protègent vraiment une donnée sensible.",
+    en: "For a form opened directly on a page of this Grist document (not via the public link), by people who already have an account and access to the document. Lets you reserve some questions to specific addresses. First give these people write access to the document (an access rule or Editor role): without that, internal mode cannot work for them. A display convenience, not real protection: only the document's access rules truly protect sensitive data.",
+  },
+  'form.internal.toggleLabel': { fr: 'Activer le mode interne', en: 'Enable internal mode' },
+  'form.internal.enabling': { fr: 'Préparation du mode interne…', en: 'Setting up internal mode…' },
+  'form.internal.enabled': { fr: 'Mode interne activé.', en: 'Internal mode enabled.' },
+  'form.internal.enableError': { fr: "Impossible de préparer le mode interne : {message}", en: 'Could not set up internal mode: {message}' },
+
   // ───────────────────────── widget.html : répondant, secours ─────────────────────────
   'form.respond.configBtn': { fr: 'Configuration', en: 'Configuration' },
   'form.standalone.desc1': {
@@ -207,6 +218,20 @@ export const STRINGS = {
   },
   'form.editor.responsesHint': { fr: 'Pour consulter le détail de chaque réponse, ouvrez cette table dans Grist.', en: 'To see each response in detail, open this table in Grist.' },
   'form.editor.responsesReadError': { fr: 'Impossible de lire les réponses ({message}).', en: 'Could not read the responses ({message}).' },
+  'form.editor.responseCardTitle': { fr: 'Réponse n°{n}', en: 'Response #{n}' },
+  'form.editor.responseEmptyValue': { fr: '—', en: '—' },
+  'form.editor.responseNo': { fr: 'Non', en: 'No' },
+  'form.editor.responseRefDeleted': { fr: '(réponse supprimée depuis)', en: '(deleted since)' },
+  'form.editor.responseAttachmentsCount': { fr: '{n} {n|pièce jointe|pièces jointes}', en: '{n} {n|attachment|attachments}' },
+  'form.editor.responseMapLink': { fr: 'Voir sur la carte', en: 'View on map' },
+  'form.editor.responsesMoreNotShown': {
+    fr: '… et {n} {n|réponse supplémentaire|réponses supplémentaires} — voir la table pour tout consulter.',
+    en: '… and {n} more {n|response|responses} — see the table to view them all.',
+  },
+  'form.editor.responsesSecondaryNote': {
+    fr: 'Les questions écrivant dans une autre table ({tables}) ne sont pas reprises ici : ouvrez ces tables dans Grist pour les consulter.',
+    en: 'Questions writing to another table ({tables}) are not included here: open those tables in Grist to see them.',
+  },
 
   // Types de question (pastille + popover)
   'form.editor.kind.text': { fr: 'Texte', en: 'Text' },
@@ -217,6 +242,7 @@ export const STRINGS = {
   'form.editor.kind.bool': { fr: 'Oui / non', en: 'Yes / No' },
   'form.editor.kind.select': { fr: 'Choix (liste fixe)', en: 'Choice (fixed list)' },
   'form.editor.kind.multiselect': { fr: 'Choix multiples (liste fixe)', en: 'Multiple choice (fixed list)' },
+  'form.editor.kind.timeslot': { fr: 'Créneau horaire', en: 'Time slot' },
   'form.editor.kind.choice': { fr: 'Choix depuis une table', en: 'Choice from a table' },
   'form.editor.kind.reflist': { fr: 'Liste de références', en: 'Reference list' },
   'form.editor.kind.scale': { fr: 'Échelle', en: 'Scale' },
@@ -289,6 +315,13 @@ export const STRINGS = {
     fr: 'Le point posé sur la carte est enregistré comme texte "latitude,longitude" dans une colonne Texte. Carte OpenStreetMap (bibliothèque Leaflet, chargée depuis un CDN) : seule question de ce widget à charger un script externe, grisée par défaut sur cette version (voir le README) — en son absence, le répondant saisit directement les coordonnées.',
     en: 'The point placed on the map is saved as "latitude,longitude" text in a Text column. OpenStreetMap map (Leaflet library, loaded from a CDN): the only question in this widget that loads an external script, greyed out by default on this version (see the README) — without it, the respondent types the coordinates directly.',
   },
+  'form.editor.reservedButton': { fr: 'Réserver à certaines personnes', en: 'Reserve to specific people' },
+  'form.editor.reservedLabel': { fr: 'Adresses autorisées (une par ligne)', en: 'Allowed addresses (one per line)' },
+  'form.editor.reservedPlaceholder': { fr: 'nom@domaine.fr', en: 'name@domain.com' },
+  'form.editor.reservedHint': {
+    fr: 'Vide = tout le monde. Comparée à l\'adresse Grist réelle du répondant (mode interne) : sans effet pour quelqu\'un dont l\'identité ne peut pas être vérifiée.',
+    en: "Empty = everyone. Compared against the respondent's real Grist address (internal mode): has no effect for someone whose identity cannot be verified.",
+  },
   'form.editor.conditionButton': { fr: "Condition d'affichage", en: 'Display condition' },
   'form.editor.condModeAll': { fr: 'Toutes vraies (ET)', en: 'All true (AND)' },
   'form.editor.condModeAny': { fr: 'Au moins une vraie (OU)', en: 'At least one true (OR)' },
@@ -311,6 +344,11 @@ export const STRINGS = {
   'form.editor.pickSourceTableCol': { fr: 'Choisissez une table source et sa colonne affichée.', en: 'Choose a source table and its displayed column.' },
   'form.editor.addAtLeastOneOption': { fr: 'Ajoutez au moins une option (une par ligne).', en: 'Add at least one option (one per line).' },
   'form.editor.pickDestColumn': { fr: 'Choisissez la colonne où enregistrer la réponse.', en: 'Choose the column to save the answer in.' },
+  'form.editor.destColumnTypeChangedTitle': { fr: 'Colonne de destination changée', en: 'Destination column changed' },
+  'form.editor.destColumnTypeChangedMsg': {
+    fr: 'La colonne « {oldCol} » (type {oldType}) ne correspond plus au type de cette question. Les prochaines réponses iront dans une nouvelle colonne, « {newCol} ». Les réponses déjà reçues restent intactes dans « {oldCol} ».',
+    en: 'The column "{oldCol}" (type {oldType}) no longer matches this question\'s type. Future answers will go into a new column, "{newCol}". Answers already received stay untouched in "{oldCol}".',
+  },
 
   // Personnalisation d'un champ natif (fusion visuelle, jalon J2) / réinitialisation
   'form.editor.nativeFieldTag': { fr: 'Champ natif', en: 'Native field' },

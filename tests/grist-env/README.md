@@ -82,6 +82,74 @@ sections).
   à `../../poc/README-poc.md`, section 3.
 - Les en-têtes CORS (`Access-Control-Allow-Origin: *`) sont bien présents,
   donc une page hébergée ailleurs (GitHub Pages) peut appeler l'API.
+- **Écran concepteur en iframe réel (21 oct 2026)** : testable avec Playwright
+  directement contre ce conteneur, voir « Tester avec Playwright » ci-dessous.
+  A révélé une vraie régression de CSP, corrigée le jour même (voir
+  `docs/09-mode-interne.md` et le commit qui suit l'audit GWaudit du
+  21 oct) : `widget.html` n'autorisait plus `docs.getgrist.com` en
+  `script-src`, alors que `plugin-loader.js` en dépend comme repli dès que
+  l'origine qui héberge le widget n'est pas dans sa liste blanche — donc sur
+  **toute** instance auto-hébergée, y compris DINUM, pas seulement ici.
+- **Mode interne, 2 identités réelles distinctes (21 oct 2026)** : `user.Email`
+  (voir `grist-meta.js`, `probeRespondentIdentity`) résout bien l'adresse
+  propre à CHAQUE session authentifiée (`/test/login`), jamais mélangée,
+  jamais `anon@getgrist.com` pour une session réelle. Une question réservée
+  à l'identité B, posée par l'identité A via l'éditeur réel : A ne la voit
+  pas en répondant, B la voit. Détail et portée : `docs/09-mode-interne.md`.
+
+## Tester avec Playwright
+
+Pour piloter le widget EN IFRAME dans ce Grist (écran concepteur ou
+répondant authentifié, pas seulement l'API REST en anonyme) :
+
+1. **Deux identités réelles** : une par `http://localhost:8484/test/login?username=<email>&name=<nom>&next=<url>`,
+   dans un `browser.newContext()` Playwright séparé par identité (cookies
+   isolés). Donner l'accès au document à la seconde avec la clé API de la
+   première : `PATCH /api/docs/<docId>/access`,
+   `{"delta":{"users":{"<email>":"editors"}}}` — sans ça, `AddRecord`
+   échoue pour elle et son identité ne peut jamais être résolue.
+2. **grist-plugin-api.js** : `plugin-loader.js` ne charge l'origine qui
+   héberge réellement le widget que si elle figure dans sa liste blanche
+   (`TRUSTED_ORIGINS`, qui ne contient que `docs.getgrist.com`) ; sinon il
+   retombe sur `https://docs.getgrist.com/grist-plugin-api.js`, injoignable
+   depuis un bac à sable sans réseau sortant vers ce domaine précis.
+   Contournement QUI NE TOUCHE JAMAIS AU WIDGET : intercepter cette requête
+   avec `context.route()` et la servir depuis la copie que CE conteneur
+   héberge lui-même (`curl http://localhost:8484/grist-plugin-api.js`,
+   identique) :
+   ```js
+   await ctx.route('https://docs.getgrist.com/grist-plugin-api.js', route =>
+     route.fulfill({ status: 200, contentType: 'application/javascript',
+       body: fs.readFileSync('/chemin/vers/grist-plugin-api.js', 'utf8') }));
+   ```
+3. **Ouvrir la page du widget** : se connecter (`/test/login?...&next=` vers
+   l'URL du document), puis cliquer l'entrée de page portant son nom dans la
+   barre latérale (`page.getByText('FormPlus', { exact: true }).click()`) —
+   plus fiable que reconstruire l'URL `/p/<n>` à la main. Le widget se
+   trouve ensuite via `page.frames().find(f => f.url().includes('widget.html'))`.
+4. **La vraie clé de partage, pas le `linkId`** (voir « Écart constaté » plus
+   bas) : coller dans le champ lien (`#link`) une adresse `/forms/<clé>/<section>`
+   construite avec la clé réelle (`home.sqlite3`, table `shares`, colonne
+   `key`), jamais celle du fichier JSON produit par `grist_test_doc.py`
+   (c'est un `linkId`, voir plus bas) — sinon `generate()` enregistre un
+   `formLink` qui renvoie `404 Share not known` au moment de l'afficher.
+5. **CSP en HTTP nu** : ce conteneur n'a pas de TLS, donc `connect-src 'self'
+   https:` du widget bloque son propre appel vers l'API REST de CE MÊME
+   Grist (ni same-origin avec le widget servi sur un autre port, ni
+   `https:`). Ouvrir le contexte Playwright avec `bypassCSP: true` pour ce
+   test précis : c'est un artefact du HTTP local, pas un cas réel (DINUM et
+   le SaaS sont servis en HTTPS), donc jamais à reporter dans `widget.html`
+   lui-même.
+6. **Cases à cocher masquées** (`#opt-internal-mode`, etc., stylées par un
+   `.toggle-track` visuel) : `.click()` échoue sur la visibilité réelle ;
+   utiliser `.evaluate(el => { el.checked = true;
+   el.dispatchEvent(new Event('change', {bubbles:true})) })`.
+7. **Auto-enregistrement d'une carte question** (`wireCardFooter`,
+   `config-editor.js`) : seul le `focusout` de `.qf-label`/`.qf-desc`/
+   `.qf-choices` déclenche la sauvegarde, jamais celui de
+   `.qf-reserved-emails` lui-même — quitter la carte depuis le champ libellé
+   (ou un autre champ surveillé), jamais depuis le dernier champ rempli au
+   hasard.
 
 ## Écart constaté : l'adresse `/s/<clé>/p/<page>` générée par le widget
 
@@ -105,6 +173,14 @@ inspectant `home.sqlite3` — pas d'endpoint REST qui l'expose directement),
 la même adresse fonctionne parfaitement, y compris en session anonyme :
 `curl http://localhost:8484/o/formplus-test/s/<clé réelle>/p/9?style=singlePage`
 renvoie 200 et charge le widget.
+
+Même écart pour `/forms/<clé>/<section>` (celle qu'on colle dans le champ
+« Lien du formulaire » du widget) : avec le `linkId` du JSON, l'appel que
+`renderFill()` fait vers `/api/s/<linkId>/forms/<section>` renvoie aussi
+`{"error":"Share not known"}`. Avec la clé réelle, `200`. Confirmé le 21 oct
+en pilotant le widget pour de vrai avec Playwright (voir « Tester avec
+Playwright » ci-dessus) : sans la substitution, impossible de dérouler la
+suite du test (écran répondant) au-delà de l'écran concepteur.
 
 Autrement dit : **le mécanisme d'écriture publique est intact et vérifié**,
 mais la génération d'adresse du widget, dans *cet* environnement, ne pointe

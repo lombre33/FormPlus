@@ -19,9 +19,12 @@ Objectif : dépasser les limites du formulaire natif de Grist avec une interface
 | `docs/02-poc-transport1-resultats.md` | Résultats de la preuve de concept du lien public |
 | `docs/03-roadmap-priorites.md` | Principes d'interface, backlog V1 / V2 / V3 |
 | `docs/04-architecture.md` | Architecture réelle du code : modules, où vit la configuration, suite de tests |
+| `docs/08-tutoriel-cas-usage.md` | Tutoriel pas à pas sur un cas d'usage réel (inscription à un atelier), captures à l'appui |
 | `poc/widget.html` + `poc/js/` + `poc/css/` | Le widget : point d'entrée HTML, modules JavaScript (un rôle par fichier), feuille de style |
-| `poc/poc_transport1.py`, `poc/public-form.html`, `poc/README-poc.md` | Script de test en ligne de commande, page de secours hors-Grist, mode d'emploi |
-| `index.html` | Page d'accueil GitHub Pages avec accès à la page de test |
+| `poc/poc_transport1.py`, `poc/public-form.html` + `poc/public-form.js`, `poc/README-poc.md` | Script de test en ligne de commande, page de secours hors-Grist, mode d'emploi |
+| `index.html` + `index.js` | Page d'accueil GitHub Pages avec accès à la page de test |
+| `manifest.json` | Déclare les points d'entrée du widget (`poc/widget.html`, `poc/public-form.html`) — convention de l'écosystème Grist, lue aussi par les outils d'audit externes |
+| `SECURITY.md` | Canal de signalement d'une vulnérabilité |
 | `.github/workflows/tests.yml` | Relance la suite de tests du widget (181+ vérifications) à chaque push, voir plus bas |
 | `tests/` | Point d'entrée de tout ce qui touche aux tests : suite hors ligne, environnement Grist auto-hébergé pour tester en conditions réelles |
 
@@ -44,7 +47,9 @@ Le lien est placé après `#` : cette partie de l'adresse reste dans le navigate
 
 ### Adresse sur le domaine Grist, générée par le widget
 
-Sur la page qui porte le formulaire natif publié, ajouter un widget Personnalisé avec l'URL `https://lombre33.github.io/FormPlus/poc/widget.html` et l'accès complet. Coller dans le widget le lien obtenu par « Copier le lien » du formulaire natif : il génère l'adresse à diffuser, `https://<instance>/o/<org>/s/<clé>/p/<page>?style=singlePage`. Elle ouvre le document en session « partage » anonyme : le widget s'affiche, la création est possible, aucune réponse n'est lisible, sans règle d'accès et dans le même document. Détails dans `docs/01-etude-comparative.md`, transport 1 bis.
+Sur la page qui porte le formulaire natif publié, ajouter un widget Personnalisé avec l'URL `https://lombre33.github.io/FormPlus/poc/widget.html` et l'accès complet. Coller dans le widget le lien obtenu par « Copier le lien » du formulaire natif : il génère l'adresse à diffuser, `https://<instance>/o/<org>/s/<clé>/p/<page>?style=singlePage`. Elle ouvre le document en session « partage » anonyme, sans règle d'accès et dans le même document. Détails dans `docs/01-etude-comparative.md`, transport 1 bis.
+
+**À vérifier avant de diffuser cette adresse (constat du 21 oct 2026, voir `docs/08-tutoriel-cas-usage.md`) :** testée depuis un navigateur sans aucune session, cette adresse affiche actuellement l'écran de configuration du widget plutôt que le formulaire à remplir. Ne pas la diffuser telle quelle tant que ce point n'est pas corrigé.
 
 ## Où passent les données
 
@@ -80,10 +85,20 @@ Cette suite ne touche jamais un vrai document Grist. Pour tester le widget contr
 [`tests/`](tests/README.md), qui centralise aussi un environnement Grist auto-hébergé prêt à
 l'emploi (`tests/grist-env/`).
 
+## Sécurité
+
+- **Accès Grist `full`** : le widget (`poc/widget.html`) demande l'accès complet au document, y compris des actions de structure (création de table/colonne, ou renommage, au moment de générer un formulaire natif ou une colonne pour une nouvelle question). `poc/public-form.html` ne demande, lui, aucun accès au document — il n'utilise que la clé de partage du formulaire publié, via l'API REST de Grist.
+- **Réseau** : les seules destinations réseau du widget sont (1) l'API REST de l'instance Grist du document lui-même (`<hôte choisi par qui configure le widget>/api/s/<clé>/...`, jamais un tiers fixé par le code) et (2) `unpkg.com`, uniquement pour charger Leaflet (carte GPS), à la demande quand une question de type carte est affichée — jamais au chargement du widget. Aucune autre requête sortante, aucun traceur, aucune télémétrie.
+- **Presse-papiers** : lu uniquement au clic sur le bouton « Coller » de l'écran de configuration (jamais en arrière-plan).
+- **Échappement** : toute donnée de cellule ou de réponse insérée dans le HTML (titres, options, réponses affichées dans l'onglet « Réponses ») passe par une fonction d'échappement HTML dédiée (`esc()`, `poc/js/dom.js`) avant d'être concaténée dans un gabarit — jamais de donnée brute non échappée dans un `innerHTML`. Vérifié à l'audit du 21 septembre 2026 (`audit-formplus-2026-09-21.md`) puis revérifié ponctuellement depuis.
+- **CSP** : `widget.html`, `public-form.html` et `index.html` déclarent une `Content-Security-Policy` restrictive en balise `<meta>` (repli acceptable pour des pages statiques sans serveur applicatif ; une telle balise ne peut pas porter `frame-ancestors`, ignoré par les navigateurs dans ce contexte — Grist encadre de toute façon déjà le widget dans son iframe).
+- **Vulnérabilité trouvée** : voir `SECURITY.md`.
+
 ## Licence
 
 GNU General Public License v3.0, voir `LICENSE`.
 
 ## Dépendances tierces
 
-`poc/qrcode.js` — générateur de QR code, [QRCode for JavaScript](https://github.com/davidshimjs/qrcodejs) par Kazuhiko Arase, licence MIT. Hébergé dans le dépôt (servi depuis la même origine que le widget) plutôt que chargé depuis un CDN, pour que le widget reste autonome et sans dépendance réseau au moment de l'exécution.
+- `poc/qrcode.js` — générateur de QR code, [QRCode for JavaScript](https://github.com/davidshimjs/qrcodejs) par Kazuhiko Arase, licence MIT. Hébergé dans le dépôt (servi depuis la même origine que le widget) plutôt que chargé depuis un CDN, pour que le widget reste autonome et sans dépendance réseau au moment de l'exécution.
+- [Leaflet](https://leafletjs.com/) (licence BSD-2-Clause) — carte GPS pour les questions de type carte, chargé depuis `unpkg.com` à la demande seulement (voir « Sécurité » ci-dessus), jamais embarqué dans le dépôt. Grisé par défaut tant que FormPlus n'est pas intégré à GFS (Grist Factory Suite), qui portera cette fonctionnalité différemment.

@@ -13,7 +13,8 @@ import {
   fetchMeta, getTableRef, tableIdOfRef, columnOptions,
   ensureTableGate, ensureChoiceField, ensureRefListField, ensureFreeColumn,
   findViewRefForSection, findMyWidgetPage, ensureFormulairesTable, saveFormDefinition, fetchManagedVsIds,
-  duplicateFormSection, clearAutoFields, createFormSection,
+  duplicateFormSection, clearAutoFields, createFormSection, getColumnType, KIND_TO_GRIST_TYPE,
+  ensureRespondentProbeTable,
 } from './grist-meta.js';
 import { state } from './state.js';
 import { renderFill, layoutOrder, renderNativeField } from './respond.js';
@@ -77,6 +78,7 @@ export async function saveConfig(publicUrl, widgetPage) {
     submitLabel: $('opt-submit').value.trim(),
     endMessage: $('opt-endmsg').value.trim(),
     redirectUrl: $('opt-redirect').value.trim(),
+    internalMode: $('opt-internal-mode').checked,
   };
   const run = async () => {
     const { self } = await findViewRefForSection(saved.vsId);
@@ -187,6 +189,24 @@ $('link').addEventListener('keydown', (e) => { if (e.key === 'Enter') generate()
     const persisted = await saveConfig(state.options.publicUrl, state.options.viewRef);
     saveMsg($('appearance-msg'), persisted, I18n.t('form.editor.savedGeneric'));
   });
+});
+// Mode interne : à l'activation, prépare tout de suite la table-sonde partagée (ensureRespondentProbeTable,
+// grist-meta.js) — un geste de SCHÉMA, qui a besoin des droits complets du concepteur, jamais de ceux d'un
+// répondant. Sans cette préparation ici, le premier répondant en mode interne tomberait sur une table encore
+// absente et resterait sans identité connue (voir probeRespondentIdentity, qui renvoie alors null sans
+// bloquer le reste du formulaire, mais sans jamais afficher une question réservée).
+$('opt-internal-mode').addEventListener('change', async () => {
+  if (!state.currentFormSection) return;
+  const msg = $('internal-mode-msg');
+  const turnedOn = $('opt-internal-mode').checked;
+  if (turnedOn) {
+    msg.textContent = I18n.t('form.internal.enabling');
+    try { await ensureRespondentProbeTable(); }
+    catch (e) { msg.innerHTML = `<span class="err">${I18n.t('form.internal.enableError', { message: esc(e.message) })}</span>`; $('opt-internal-mode').checked = false; return; }
+  }
+  const persisted = await saveConfig(state.options.publicUrl, state.options.viewRef);
+  saveMsg(msg, persisted, turnedOn ? I18n.t('form.internal.enabled') : I18n.t('form.editor.savedGeneric'));
+  renderQuestionList(); // affiche/masque le bouton "Réserver à..." de chaque carte selon le nouvel état
 });
 $('opt-accent-reset').addEventListener('click', async () => {
   $('opt-accent').value = '#3452e1';
@@ -350,18 +370,122 @@ $('editor').addEventListener('click', (e) => {
   showEditorTab(btn.dataset.etab);
 });
 
+// Synthèse lisible des réponses (V2 de la feuille de route, demandée par Antoine le 21 oct) :
+// jusqu'à ce nombre de réponses les plus récentes sont reconstituées en clair, le reste reste
+// derrière "voir la table" (jamais de pagination complète à maintenir ici, la grille Grist le
+// fait déjà très bien).
+const RESPONSES_PREVIEW_LIMIT = 10;
+
+// Reconstitue le SENS d'une valeur brute (celle écrite par onSubmit, respond.js), plutôt que la
+// forme technique qu'affiche la grille Grist telle quelle : un id de référence seul (Choix depuis
+// une table), un tableau préfixé par son indicateur de type (ChoiceList/RefList/Pièces jointes),
+// une Date/DateTime en secondes depuis l'epoch, une Échelle sans ses bornes. Retourne du HTML déjà
+// échappé (jamais de texte brut), ou null si rien à afficher pour cette réponse.
+// Limite connue de cet environnement (sans accès réseau à un vrai Grist, voir docs/01 et la note
+// correspondante) : la forme exacte renvoyée par fetchMeta pour ChoiceList/RefList (ici supposée
+// alignée sur ce qu'écrit déjà onSubmit, un tableau dont le premier élément est un indicateur à
+// retirer) n'a pas pu être vérifiée contre un document réel — à confirmer par Antoine.
+function formatResponseValue(q, raw, refLabelMaps) {
+  if (raw == null || raw === '') return null;
+  const locale = I18n.language === 'fr' ? 'fr-FR' : 'en-US';
+  switch (q.kind) {
+    case 'bool':
+      return raw === true ? esc(I18n.t('form.respond.yes')) : esc(I18n.t('form.editor.responseNo'));
+    case 'scale': {
+      const bounds = (q.scaleLowLabel || q.scaleHighLabel) ? ` (${esc(q.scaleLowLabel || '')} → ${esc(q.scaleHighLabel || '')})` : '';
+      return `${esc(raw)}/${esc(q.scaleMax ?? 5)}${bounds}`;
+    }
+    case 'ranking': {
+      const items = String(raw).split(', ').filter(Boolean);
+      return items.length ? items.map((it, i) => `${i + 1}. ${esc(it)}`).join(' · ') : null;
+    }
+    case 'date':
+      return esc(new Date(Number(raw) * 1000).toLocaleDateString(locale));
+    case 'datetime':
+      return esc(new Date(Number(raw) * 1000).toLocaleString(locale));
+    case 'choice': {
+      const label = refLabelMaps.get(`${q.sourceTable}:${q.sourceCol}`)?.get(raw);
+      return label != null ? esc(label) : `#${esc(raw)} ${esc(I18n.t('form.editor.responseRefDeleted'))}`;
+    }
+    case 'reflist': {
+      if (!Array.isArray(raw)) return null;
+      const map = refLabelMaps.get(`${q.sourceTable}:${q.sourceCol}`);
+      const ids = raw.slice(1);
+      return ids.length ? ids.map(id => (map?.get(id) != null ? esc(map.get(id)) : `#${esc(id)} ${esc(I18n.t('form.editor.responseRefDeleted'))}`)).join(', ') : null;
+    }
+    case 'multiselect': {
+      if (!Array.isArray(raw)) return null;
+      const items = raw.slice(1);
+      return items.length ? items.map(esc).join(', ') : null;
+    }
+    case 'attachments':
+    case 'signature': {
+      if (!Array.isArray(raw)) return null;
+      const n = raw.length - 1;
+      return n > 0 ? esc(I18n.t('form.editor.responseAttachmentsCount', { n })) : null;
+    }
+    case 'map': {
+      const [lat, lng] = String(raw).split(',').map(s => s.trim());
+      if (!lat || !lng) return esc(raw);
+      const url = `https://www.openstreetmap.org/?mlat=${encodeURIComponent(lat)}&mlon=${encodeURIComponent(lng)}#map=16/${encodeURIComponent(lat)}/${encodeURIComponent(lng)}`;
+      return `${esc(raw)} — <a href="${esc(url)}" target="_blank" rel="noopener">${esc(I18n.t('form.editor.responseMapLink'))}</a>`;
+    }
+    default:
+      return esc(raw);
+  }
+}
+
 // Compte réel des réponses déjà enregistrées (fetchMeta renvoie des tableaux parallèles ;
-// data.id est la liste des id de ligne, sa longueur est donc le nombre de réponses). Jamais de
-// contenu décoratif : si la table n'est pas encore connue, l'onglet le dit plutôt que d'afficher
-// un faux chiffre.
+// data.id est la liste des id de ligne, sa longueur est donc le nombre de réponses), puis la
+// synthèse lisible des RESPONSES_PREVIEW_LIMIT dernières (voir formatResponseValue ci-dessus).
+// Jamais de contenu décoratif : si la table n'est pas encore connue, l'onglet le dit plutôt que
+// d'afficher un faux chiffre. Seules les questions écrivant dans la table principale sont reprises
+// ici (une question "écrire ailleurs" reste dans sa propre table, jamais jointe automatiquement) ;
+// ces tables secondaires sont nommées plutôt que silencieusement ignorées.
 export async function loadResponsesSummary() {
   const el = $('responses-summary');
   if (!state.mainTableIdCache) { el.textContent = I18n.t('form.editor.noFormLinkedYet'); return; }
+  el.classList.remove('muted');
   el.textContent = I18n.t('form.loadingGeneric');
   try {
     const data = await fetchMeta(state.mainTableIdCache);
-    const count = (data.id || []).length;
+    const ids = data.id || [];
+    const count = ids.length;
+    const mainQuestions = state.cfgQuestions.filter(q => !LAYOUT_KINDS.has(q.kind) && (q.writeTable || state.mainTableIdCache) === state.mainTableIdCache);
+    const secondaryTables = [...new Set(state.cfgQuestions.filter(q => !LAYOUT_KINDS.has(q.kind) && q.writeTable && q.writeTable !== state.mainTableIdCache).map(q => q.writeTable))];
+
+    const refLabelMaps = new Map();
+    for (const q of mainQuestions) {
+      if (!TABLE_SOURCED_KINDS.has(q.kind) || !q.sourceTable || !q.sourceCol) continue;
+      const key = `${q.sourceTable}:${q.sourceCol}`;
+      if (refLabelMaps.has(key)) continue;
+      try {
+        const srcData = await fetchMeta(q.sourceTable);
+        const map = new Map();
+        (srcData.id || []).forEach((id, i) => map.set(id, srcData[q.sourceCol]?.[i]));
+        refLabelMaps.set(key, map);
+      } catch (e) { refLabelMaps.set(key, new Map()); }
+    }
+
+    const previewIds = ids.slice(-RESPONSES_PREVIEW_LIMIT).reverse();
+    const cardsHtml = previewIds.map(id => {
+      const rowIndex = ids.indexOf(id);
+      // Toujours une ligne par question (même sans réponse, un tiret) : la même liste de questions
+      // d'une carte à l'autre, plus facile à parcourir que des cartes dont la forme change selon ce
+      // qui a été répondu.
+      const rows = mainQuestions.map(q => {
+        const html = formatResponseValue(q, data[q.writeCol]?.[rowIndex], refLabelMaps) ?? esc(I18n.t('form.editor.responseEmptyValue'));
+        return `<div class="resp-row"><div class="resp-label">${esc(q.label)}</div><div class="resp-value">${html}</div></div>`;
+      }).join('');
+      return `<div class="resp-card"><div class="resp-card-title">${esc(I18n.t('form.editor.responseCardTitle', { n: id }))}</div>${rows}</div>`;
+    }).join('');
+    const moreHtml = count > RESPONSES_PREVIEW_LIMIT
+      ? `<p class="muted">${I18n.t('form.editor.responsesMoreNotShown', { n: count - RESPONSES_PREVIEW_LIMIT })}</p>` : '';
+    const secondaryHtml = secondaryTables.length
+      ? `<p class="muted">${I18n.t('form.editor.responsesSecondaryNote', { tables: secondaryTables.map(esc).join(', ') })}</p>` : '';
+
     el.innerHTML = `<p>${I18n.t('form.editor.responsesCount', { n: count, table: esc(state.mainTableIdCache) })}</p>
+      ${cardsHtml}${moreHtml}${secondaryHtml}
       <p class="muted">${I18n.t('form.editor.responsesHint')}</p>`;
   } catch (e) {
     el.innerHTML = `<span class="err">${I18n.t('form.editor.responsesReadError', { message: esc(e.message) })}</span>`;
@@ -375,9 +499,10 @@ export function questionSummary(q) {
   if (q.kind === 'section') return q.description || '';
   if (q.kind === 'info') return 'Repliable';
   if (q.kind === 'choice') parts.push(`Depuis « ${q.sourceTable} »`);
-  if (q.kind === 'select' || q.kind === 'multiselect') parts.push(`${(q.choices || []).length} option(s)`);
+  if (q.kind === 'select' || q.kind === 'multiselect' || q.kind === 'timeslot') parts.push(`${(q.choices || []).length} option(s)`);
   if (SINGLE_CHOICE_KINDS.has(q.kind) && q.displayMode === 'radio') parts.push('en radio');
   if (q.writeTable && q.writeTable !== state.mainTableIdCache) parts.push(`écrit dans « ${q.writeTable} »`);
+  if (q.reservedTo?.length) parts.push(`réservée à ${q.reservedTo.length} destinataire(s)`);
   const cond = normalizeCondition(q.condition);
   if (cond?.rules?.length) {
     const joiner = cond.mode === 'any' ? ' ou ' : ' et ';
@@ -671,7 +796,7 @@ async function wireConditionEditor(body, q, condCandidates) {
     const combo = mountCombo(cell);
     combo.onChange((v) => { condRules[i].value = v; });
     if (!srcId) { combo.setOptions([]); return; }
-    if (src?.kind === 'select' || src?.kind === 'multiselect') {
+    if (src?.kind === 'select' || src?.kind === 'multiselect' || src?.kind === 'timeslot') {
       combo.setOptions((src.choices || []).map(v => ({ value: v, label: v })), condRules[i].value);
     } else if (src?.kind === 'choice') {
       const data = await fetchMeta(src.sourceTable);
@@ -899,6 +1024,13 @@ export async function renderCardBody(id, body) {
       <div class="qf-cond-rules"></div>
       <button type="button" class="qf-link qf-cond-add">${ICONS.plus}<span>${I18n.t('form.editor.addCondition')}</span></button>
     </div>
+    ${state.options?.internalMode ? `
+    <button type="button" class="qf-link" data-reveal="reserved">${ICONS.lock}<span>${I18n.t('form.editor.reservedButton')}</span></button>
+    <div class="qf-reserved ${q?.reservedTo?.length ? '' : 'hidden'}">
+      <label for="qf-reserved-${id}" class="qf-field-label">${I18n.t('form.editor.reservedLabel')}</label>
+      <textarea id="qf-reserved-${id}" class="qf-reserved-emails" rows="3" placeholder="${esc(I18n.t('form.editor.reservedPlaceholder'))}">${esc((q?.reservedTo || []).join('\n'))}</textarea>
+      <p class="muted qf-reserved-hint">${I18n.t('form.editor.reservedHint')}</p>
+    </div>` : ''}
     <p class="qf-msg muted"></p>
     <div class="qcard-footer">
       <div class="qcard-footer-left">
@@ -918,8 +1050,8 @@ export async function renderCardBody(id, body) {
   wireKindSelector(body, kind, displayMode);
 
   body.querySelectorAll('[data-reveal]').forEach(b => b.addEventListener('click', () => {
-    const el = body.querySelector(b.dataset.reveal === 'table' ? '.qf-table-override' : '.qf-condition');
-    el.classList.toggle('hidden');
+    const sel = b.dataset.reveal === 'table' ? '.qf-table-override' : b.dataset.reveal === 'reserved' ? '.qf-reserved' : '.qf-condition';
+    body.querySelector(sel).classList.toggle('hidden');
   }));
 
   await wireSourceAndWriteCombos(body, q, tableItems, combos);
@@ -971,6 +1103,17 @@ export async function saveQuestionFromCard(id, body, existing, combos, { rerende
     msg.textContent = I18n.t('form.editor.saving');
     const q = { id: existing?.id || uid(), kind, label, description, condition };
     if (existing?.importedFrom) q.importedFrom = existing.importedFrom;
+    // Réservation par identité (mode interne) : lue seulement si le champ existe réellement dans
+    // cette carte (state.options.internalMode au moment du rendu, voir renderCardBody) — sinon le
+    // réglage déjà enregistré est conservé tel quel, jamais effacé silencieusement par le simple
+    // fait que le mode interne soit décoché au moment où CETTE question est enregistrée.
+    const reservedField = body.querySelector('.qf-reserved-emails');
+    if (reservedField) {
+      const list = reservedField.value.split('\n').map(s => s.trim().toLowerCase()).filter(Boolean);
+      if (list.length) q.reservedTo = list;
+    } else if (existing?.reservedTo?.length) {
+      q.reservedTo = existing.reservedTo;
+    }
 
     if (LAYOUT_KINDS.has(kind)) {
       // Titre de section / bloc d'info : ne collecte rien, pas de destination ni d'obligatoire.
@@ -1019,12 +1162,32 @@ export async function saveQuestionFromCard(id, body, existing, combos, { rerende
       }
       q.writeTable = combos.writeTable.value || mainTableId;
       if (!q.writeTable) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.pickDestColumn')}</span>`; return; }
-      // Colonne existante choisie dans la liste : réutilisée telle quelle. Sinon (champ laissé
-      // vide, ou nom tapé sans correspondance dans la liste), la colonne est déduite du nom tapé
-      // ou, à défaut, du libellé de la question, et créée automatiquement avec le type Grist qui
-      // convient (ensureFreeColumn, grist-meta.js) — c'est le principe n°5 de la feuille de route
-      // (docs/03-roadmap-priorites.md), étendu ici à tous les types au lieu du seul "Choix".
-      q.writeCol = combos.writeCol.value || await ensureFreeColumn(q.writeTable, combos.writeCol.rawText || label, kind);
+      // Colonne existante choisie dans la liste : réutilisée SEULEMENT si son type Grist réel
+      // correspond encore au type attendu pour ce type de question. Sans cette vérification, une
+      // question déjà enregistrée dont on change le TYPE (ex. Texte -> Nombre) sur un formulaire
+      // déjà en cours de collecte garderait silencieusement l'ANCIENNE colonne dans le combo (son
+      // champ n'a aucune raison d'être retouché par le concepteur), désormais du mauvais type
+      // Grist : les prochaines réponses y écriraient une valeur incompatible avec son type réel
+      // (cas extrême : Pièces jointes/Signature dans une colonne Texte). Un type qui ne correspond
+      // plus se comporte donc comme si rien n'avait été choisi : repli sur ensureFreeColumn, qui
+      // retrouve une colonne déjà du bon type ou en crée une nouvelle (nom déduit du nom tapé ou,
+      // à défaut, du libellé de la question — principe n°5 de la feuille de route,
+      // docs/03-roadmap-priorites.md, étendu ici à tous les types au lieu du seul "Choix").
+      // Dans tous les cas l'ancienne colonne n'est JAMAIS modifiée ni effacée : les réponses déjà
+      // reçues y restent intactes, seules les PROCHAINES réponses visent la nouvelle colonne — le
+      // concepteur en est averti (Dialogs.notice) pour ne pas la découvrir par surprise plus tard.
+      const chosenCol = combos.writeCol.value;
+      const desiredType = KIND_TO_GRIST_TYPE[kind] || 'Text';
+      const chosenColType = chosenCol ? await getColumnType(q.writeTable, chosenCol) : null;
+      const colTypeMismatch = chosenCol && chosenColType != null && chosenColType !== desiredType;
+      q.writeCol = (chosenCol && !colTypeMismatch) ? chosenCol
+        : await ensureFreeColumn(q.writeTable, combos.writeCol.rawText || label, kind);
+      if (existing && colTypeMismatch && q.writeCol !== chosenCol) {
+        await Dialogs.notice({
+          title: I18n.t('form.editor.destColumnTypeChangedTitle'),
+          message: I18n.t('form.editor.destColumnTypeChangedMsg', { oldCol: chosenCol, oldType: chosenColType, newCol: q.writeCol }),
+        });
+      }
       if (q.writeTable !== mainTableId) await ensureTableGate(q.writeTable, state.currentFormSection.viewRef);
     }
     upsertQuestion(q);
@@ -1234,6 +1397,7 @@ export function fillAppearanceFields(opts) {
   $('opt-submit').value = opts?.submitLabel || '';
   $('opt-endmsg').value = opts?.endMessage || '';
   $('opt-redirect').value = opts?.redirectUrl || '';
+  $('opt-internal-mode').checked = !!opts?.internalMode;
 }
 
 // Une fois un formulaire lié, l'écran de démarrage (tuiles + panneaux) n'a plus rien à faire à
