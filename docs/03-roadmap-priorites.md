@@ -31,6 +31,9 @@ au répondant, sans aucun indice visible. Détails dans `docs/04-architecture.md
 l'architecture réelle du code et remplace la section 2 ci-dessous sur ce point (TypeScript/Vite/
 `FormBuilder_Forms` n'ont jamais été mis en œuvre).
 
+**Note du 21 octobre 2026** : cette licence Apache-2.0 est passée à la GPL 3.0 (décision du porteur
+de Grist Factory Suite pour tous ses dépôts, consigne 004 de GFS) ; voir `GFS-ETAT.md`.
+
 **Mise à jour du 18 septembre 2026 (suite) : conditions combinées ET/OU, pièces jointes et texte
 long.** Les deux points fonctionnels laissés à ce fil de priorisation après la refonte UI (voir
 section 3) sont faits. Une condition d'affichage peut désormais combiner plusieurs critères, en

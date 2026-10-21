@@ -82,7 +82,7 @@ l'emploi (`tests/grist-env/`).
 
 ## Licence
 
-Apache License 2.0, voir `LICENSE`.
+GNU General Public License v3.0, voir `LICENSE`.
 
 ## Dépendances tierces
 

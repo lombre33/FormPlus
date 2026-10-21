@@ -62,7 +62,7 @@ Relevé exhaustif sur l'ensemble des entrées actuelles (une trentaine) :
 
 Rien n'oblige à aller plus loin, mais FormPlus est déjà mieux équipé que le précédent accepté :
 
-- **Licence Apache-2.0** (`LICENSE`, déjà en place depuis le 18 septembre 2026) : pas exigée (Intra Form n'en a aucune), mais un vrai plus de sérieux pour une revue DINUM/ANCT. À garder telle quelle.
+- **Licence GPL 3.0** (`LICENSE` ; Apache-2.0 depuis le 18 septembre 2026, passée à GPL 3.0 le 21 octobre, décision du porteur de Grist Factory Suite pour tous ses dépôts) : pas exigée (Intra Form n'en a aucune), mais un vrai plus de sérieux pour une revue DINUM/ANCT. À garder telle quelle.
 - **README du dépôt FormPlus** (`README.md`) : déjà largement plus complet que celui d'Intra Form. Aucune refonte nécessaire pour la soumission.
 - **Captures d'écran** (section 3 ci-dessous) : pas demandées par le manifeste, mais utiles pour rassurer les relecteurs dans le corps de la PR et pour une éventuelle annonce sur le forum Grist, à la manière d'Intra Form.
 
@@ -108,7 +108,7 @@ multi-table read/write, light/dark theme, public link with no API key
 (reuses the native published-form share key).
 
 Widget: https://lombre33.github.io/FormPlus/poc/widget.html
-Source: https://github.com/lombre33/FormPlus (Apache-2.0)
+Source: https://github.com/lombre33/FormPlus (GPL-3.0)
 
 Screenshots: see attached / linked below.
 ```
@@ -126,7 +126,7 @@ FormPlus est un widget personnalisé pour Grist : questions
 conditionnelles (ET/OU), lecture et écriture dans plusieurs tables,
 thème clair/sombre, personnalisation (logo, couleur d'accent), lien
 public sans compte ni clé API (réutilise la clé de partage d'un
-formulaire natif publié). Licence Apache-2.0, code public.
+formulaire natif publié). Licence GPL 3.0, code public.
 
 Dépôt : https://github.com/lombre33/FormPlus
 Widget : https://lombre33.github.io/FormPlus/poc/widget.html
@@ -165,7 +165,7 @@ Détail technique pour qui reproduirait ces captures : `public-form.html#form=<l
 
 ## 4. Licence
 
-**Apache-2.0, déjà présente (`LICENSE`)**, convient très largement. Preuve concrète qu'aucune licence précise n'est imposée par le catalogue : le widget déjà accepté (Intra Form / `gristgouv/grist-cw-intra-form`) n'a **aucune licence** dans son propre dépôt (`license` vaut `null` côté API GitHub). Rien à changer ici — c'est même un point où FormPlus se présente mieux que le précédent de référence.
+**GPL 3.0, déjà présente (`LICENSE`)** — Apache-2.0 jusqu'au 21 octobre 2026, passée à GPL 3.0 ce jour-là (décision du porteur de Grist Factory Suite pour tous ses dépôts) — convient très largement. Preuve concrète qu'aucune licence précise n'est imposée par le catalogue : le widget déjà accepté (Intra Form / `gristgouv/grist-cw-intra-form`) n'a **aucune licence** dans son propre dépôt (`license` vaut `null` côté API GitHub). Rien à changer ici — c'est même un point où FormPlus se présente mieux que le précédent de référence.
 
 ---
 
