@@ -406,6 +406,47 @@ function isRequiredFieldMissing(q) {
   return isAnswered(q) === false;
 }
 
+// Câble la condition d'affichage ET la réservation par identité (mode interne) de chaque question
+// supplémentaire (hors marqueurs "page", voir plus bas) : masque/affiche son conteneur [data-extra]
+// selon conditionMet ET reservationOk (masqué si l'un OU l'autre l'exige, jamais l'inverse — une
+// condition devenue vraie ne doit jamais réafficher une question réservée à quelqu'un d'autre), et
+// réécoute le(s) conteneur(s) #eq-<id> de ses question(s) source(s) pour recalculer à chaque
+// changement. Jamais appelée sur un marqueur "page" (q.kind === 'page') : splitIntoPages le retire
+// de chaque pages[].items avant le rendu (renderFill), donc renderExtraQuestion n'est jamais
+// appelée pour lui et aucun élément [data-extra=<id>] n'existe dans le DOM pour lui correspondre —
+// sans cette exclusion, `target` vaut null pour un marqueur "page" conditionné et
+// `target.classList.toggle` plante dès le premier appel de `check()` (immédiat ci-dessous, ou au
+// moindre changement de la question source), bloquant tout le formulaire (Suivant/Envoi). La
+// condition d'un marqueur "page" est déjà gérée par wirePages/applySkip ci-dessous (saut de page),
+// qui ne passe jamais par ce conteneur.
+export function wireConditions(card, extraQuestions) {
+  for (const q of extraQuestions) {
+    if (q.kind === 'page') continue;
+    const cond = normalizeCondition(q.condition);
+    const hasCond = !!cond?.rules?.length;
+    if (!hasCond && !q.reservedTo?.length) continue;
+    const target = card.querySelector(`[data-extra="${q.id}"]`);
+    if (!target) continue;
+    // Répercute le changement de visibilité sur les conditions EN CASCADE : une question qui
+    // dépend de q (pas de sa propre source directe) n'écoute que le conteneur eq-<q.id> de q,
+    // jamais celui de la source de q — sans cet événement synthétique, un masquage en chaîne (A
+    // masque B, B masque C) ne réveille jamais le check de C quand B se masque à son tour.
+    const check = () => {
+      target.classList.toggle('cond-hidden', !reservationOk(q, state.internalIdentity) || !conditionMet(q.condition, extraQuestions));
+      $(`eq-${q.id}`)?.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    // Une question réservée sans condition propre n'a rien à écouter : un seul check() plus bas
+    // suffit, sa visibilité ne change jamais en cours de remplissage.
+    if (!hasCond) { check(); continue; }
+    // 'input' en plus de 'change' : une source Nombre/Texte/Texte long ne déclenche 'change' qu'au
+    // blur, ce qui masquerait/afficherait la question dépendante avec un temps de retard sensible
+    // par rapport aux sources à choix (select/radio/case), qui réagissent immédiatement.
+    cond.rules.map(r => $(`eq-${r.questionId}`)).filter(Boolean)
+      .forEach(c => ['input', 'change'].forEach(evt => c.addEventListener(evt, check)));
+    check();
+  }
+}
+
 // Navigation entre pages : boutons Précédent/Suivant, "obligatoire" vérifié page par page (pas
 // seulement à l'envoi final), pages sans condition ou dont la condition est vraie seules
 // comptées. N'est jamais appelée si une seule page (voir paginated, renderFill) : le rendu et le
@@ -745,30 +786,7 @@ export async function renderFill() {
   // grisée par défaut — voir mapFeatureEnabled, kinds.js, et le repli en case 'map' ci-dessus).
   await wireMaps(card, extraQuestions);
 
-  for (const q of extraQuestions) {
-    const cond = normalizeCondition(q.condition);
-    const hasCond = !!cond?.rules?.length;
-    if (!hasCond && !q.reservedTo?.length) continue;
-    const target = card.querySelector(`[data-extra="${q.id}"]`);
-    // Répercute le changement de visibilité sur les conditions EN CASCADE : une question qui
-    // dépend de q (pas de sa propre source directe) n'écoute que le conteneur eq-<q.id> de q,
-    // jamais celui de la source de q — sans cet événement synthétique, un masquage en chaîne (A
-    // masque B, B masque C) ne réveille jamais le check de C quand B se masque à son tour.
-    const check = () => {
-      target.classList.toggle('cond-hidden', !reservationOk(q, state.internalIdentity) || !conditionMet(q.condition, extraQuestions));
-      $(`eq-${q.id}`)?.dispatchEvent(new Event('change', { bubbles: true }));
-    };
-    // 'input' en plus de 'change' : une source Nombre/Texte/Texte long ne déclenche 'change' qu'au
-    // blur, ce qui masquerait/afficherait la question dépendante avec un temps de retard sensible
-    // par rapport aux sources à choix (select/radio/case), qui réagissent immédiatement. Une
-    // question réservée sans condition propre n'a rien à écouter : un seul check() plus bas suffit,
-    // sa visibilité ne change jamais en cours de remplissage.
-    if (hasCond) {
-      cond.rules.map(r => $(`eq-${r.questionId}`)).filter(Boolean)
-        .forEach(c => ['input', 'change'].forEach(evt => c.addEventListener(evt, check)));
-    }
-    check();
-  }
+  wireConditions(card, extraQuestions);
 
   if (state.options?.showProgress) {
     $('progress').classList.remove('hidden');
