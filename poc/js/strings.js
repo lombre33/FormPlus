@@ -317,6 +317,11 @@ export const STRINGS = {
   'form.editor.pickSourceTableCol': { fr: 'Choisissez une table source et sa colonne affichée.', en: 'Choose a source table and its displayed column.' },
   'form.editor.addAtLeastOneOption': { fr: 'Ajoutez au moins une option (une par ligne).', en: 'Add at least one option (one per line).' },
   'form.editor.pickDestColumn': { fr: 'Choisissez la colonne où enregistrer la réponse.', en: 'Choose the column to save the answer in.' },
+  'form.editor.destColumnTypeChangedTitle': { fr: 'Colonne de destination changée', en: 'Destination column changed' },
+  'form.editor.destColumnTypeChangedMsg': {
+    fr: 'La colonne « {oldCol} » (type {oldType}) ne correspond plus au type de cette question. Les prochaines réponses iront dans une nouvelle colonne, « {newCol} ». Les réponses déjà reçues restent intactes dans « {oldCol} ».',
+    en: 'The column "{oldCol}" (type {oldType}) no longer matches this question\'s type. Future answers will go into a new column, "{newCol}". Answers already received stay untouched in "{oldCol}".',
+  },
 
   // Personnalisation d'un champ natif (fusion visuelle, jalon J2) / réinitialisation
   'form.editor.nativeFieldTag': { fr: 'Champ natif', en: 'Native field' },

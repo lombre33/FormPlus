@@ -180,6 +180,21 @@ export const KIND_TO_GRIST_TYPE = {
   ranking: 'Text', map: 'Text', attachments: 'Attachments', signature: 'Attachments',
 };
 
+// Type Grist réel d'une colonne déjà existante (sans le ":Table" d'un Ref/RefList), ou null si
+// elle n'existe pas encore. Partagé par ensureFreeColumn (suffixe numérique en cas de collision
+// de type) et saveQuestionFromCard (config-editor.js, détecte un changement de type de QUESTION
+// qui rendrait incompatible une colonne de destination choisie avant ce changement — voir son
+// commentaire, même principe que ci-dessous : jamais d'écriture silencieuse au mauvais type).
+export async function getColumnType(tableId, colId) {
+  const cols = await fetchMeta('_grist_Tables_column');
+  const tref = await getTableRef(tableId);
+  const count = (cols.id || []).length;
+  for (let i = 0; i < count; i++) {
+    if (cols.parentId?.[i] === tref && cols.colId?.[i] === colId) return (cols.type?.[i] || '').split(':')[0];
+  }
+  return null;
+}
+
 // Comme ensureChoiceField/ensureRefListField : crée la colonne de destination si elle manque
 // encore, plutôt que de bloquer l'enregistrement en attendant que le concepteur en choisisse une
 // à la main (principe n°5 de la feuille de route, docs/03-roadmap-priorites.md : « les colonnes
@@ -192,18 +207,12 @@ export async function ensureFreeColumn(tableId, desiredLabel, kind) {
   const type = KIND_TO_GRIST_TYPE[kind] || 'Text';
   let base = String(desiredLabel || '').trim().replace(/[^A-Za-z0-9_]/g, '_').replace(/^_+/, '');
   if (!/^[A-Za-z]/.test(base)) base = (`Champ_${base}`).replace(/_+$/, '') || 'Champ';
-  const cols = await fetchMeta('_grist_Tables_column');
-  const tref = await getTableRef(tableId);
-  const typeOf = (colId) => {
-    for (let i = 0; i < cols.id.length; i++) if (cols.parentId[i] === tref && cols.colId[i] === colId) return (cols.type[i] || '').split(':')[0];
-    return null;
-  };
   let colId = base;
   let n = 2;
-  let existingType = typeOf(colId);
+  let existingType = await getColumnType(tableId, colId);
   while (existingType != null && existingType !== type) {
     colId = `${base}_${n++}`;
-    existingType = typeOf(colId);
+    existingType = await getColumnType(tableId, colId);
   }
   if (existingType == null) {
     await grist.docApi.applyUserActions([['AddColumn', tableId, colId, { type }]]);

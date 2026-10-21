@@ -13,7 +13,7 @@ import {
   fetchMeta, getTableRef, tableIdOfRef, columnOptions,
   findExistingShareKey, ensureTableGate, ensureChoiceField, ensureRefListField, ensureFreeColumn,
   findViewRefForSection, findMyWidgetPage, persistOptions, duplicateFormSection,
-  clearAutoFields, createFormSection,
+  clearAutoFields, createFormSection, getColumnType, KIND_TO_GRIST_TYPE,
 } from './grist-meta.js';
 import { state } from './state.js';
 import { renderFill, layoutOrder, renderNativeField } from './respond.js';
@@ -1004,12 +1004,32 @@ export async function saveQuestionFromCard(id, body, existing, combos, { rerende
       }
       q.writeTable = combos.writeTable.value || mainTableId;
       if (!q.writeTable) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.pickDestColumn')}</span>`; return; }
-      // Colonne existante choisie dans la liste : réutilisée telle quelle. Sinon (champ laissé
-      // vide, ou nom tapé sans correspondance dans la liste), la colonne est déduite du nom tapé
-      // ou, à défaut, du libellé de la question, et créée automatiquement avec le type Grist qui
-      // convient (ensureFreeColumn, grist-meta.js) — c'est le principe n°5 de la feuille de route
-      // (docs/03-roadmap-priorites.md), étendu ici à tous les types au lieu du seul "Choix".
-      q.writeCol = combos.writeCol.value || await ensureFreeColumn(q.writeTable, combos.writeCol.rawText || label, kind);
+      // Colonne existante choisie dans la liste : réutilisée SEULEMENT si son type Grist réel
+      // correspond encore au type attendu pour ce type de question. Sans cette vérification, une
+      // question déjà enregistrée dont on change le TYPE (ex. Texte -> Nombre) sur un formulaire
+      // déjà en cours de collecte garderait silencieusement l'ANCIENNE colonne dans le combo (son
+      // champ n'a aucune raison d'être retouché par le concepteur), désormais du mauvais type
+      // Grist : les prochaines réponses y écriraient une valeur incompatible avec son type réel
+      // (cas extrême : Pièces jointes/Signature dans une colonne Texte). Un type qui ne correspond
+      // plus se comporte donc comme si rien n'avait été choisi : repli sur ensureFreeColumn, qui
+      // retrouve une colonne déjà du bon type ou en crée une nouvelle (nom déduit du nom tapé ou,
+      // à défaut, du libellé de la question — principe n°5 de la feuille de route,
+      // docs/03-roadmap-priorites.md, étendu ici à tous les types au lieu du seul "Choix").
+      // Dans tous les cas l'ancienne colonne n'est JAMAIS modifiée ni effacée : les réponses déjà
+      // reçues y restent intactes, seules les PROCHAINES réponses visent la nouvelle colonne — le
+      // concepteur en est averti (Dialogs.notice) pour ne pas la découvrir par surprise plus tard.
+      const chosenCol = combos.writeCol.value;
+      const desiredType = KIND_TO_GRIST_TYPE[kind] || 'Text';
+      const chosenColType = chosenCol ? await getColumnType(q.writeTable, chosenCol) : null;
+      const colTypeMismatch = chosenCol && chosenColType != null && chosenColType !== desiredType;
+      q.writeCol = (chosenCol && !colTypeMismatch) ? chosenCol
+        : await ensureFreeColumn(q.writeTable, combos.writeCol.rawText || label, kind);
+      if (existing && colTypeMismatch && q.writeCol !== chosenCol) {
+        await Dialogs.notice({
+          title: I18n.t('form.editor.destColumnTypeChangedTitle'),
+          message: I18n.t('form.editor.destColumnTypeChangedMsg', { oldCol: chosenCol, oldType: chosenColType, newCol: q.writeCol }),
+        });
+      }
       if (q.writeTable !== mainTableId) await ensureTableGate(q.writeTable, state.currentFormSection.viewRef);
     }
     upsertQuestion(q);

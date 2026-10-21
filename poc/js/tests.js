@@ -647,6 +647,90 @@ export async function runTests() {
     assertEqual('la colonne suffixée est bien créée avec le bon type', addColumnCalls[0]?.[3], { type: 'Text' });
   });
 
+  await group('saveQuestionFromCard : changement de type sur une question déjà enregistrée, formulaire déjà en cours de collecte (point soulevé par Antoine le 21 oct)', async () => {
+    // Avant ce correctif : changer le TYPE d'une question existante sans retoucher la combo
+    // "colonne de destination" (préremplie avec l'ANCIENNE colonne, le concepteur n'a aucune
+    // raison de la retoucher lui-même) faisait écrire les PROCHAINES réponses dans une colonne
+    // désormais du mauvais type Grist, sans aucun avertissement — risque réel sur un formulaire
+    // déjà en cours de collecte, exactement le cas que corrige ce groupe.
+    const mkGrist = (addColumnCalls) => makeGristStub({
+      listTables: ['Main'],
+      fetchTable: (t) => (
+        t === '_grist_Tables' ? { id: [1], tableId: ['Main'] }
+        : t === '_grist_Tables_column' ? { id: [100], colId: ['colA'], parentId: [1], type: ['Text'] }
+        : { id: [10], colA: ['x'] }
+      ),
+      onAction: (a) => { if (a[0] === 'AddColumn') addColumnCalls.push(a); },
+    }).grist;
+
+    // 1) Type incompatible (Texte -> Nombre) : repli sur une NOUVELLE colonne (suffixée), avec
+    //    avertissement au concepteur ; l'ancienne colonne "colA" (et ses réponses déjà reçues)
+    //    n'est jamais touchée.
+    {
+      state.cfgQuestions = [{ id: 'q1', kind: 'text', label: 'Âge', writeTable: 'Main', writeCol: 'colA', required: false }];
+      state.mainTableIdCache = 'Main';
+      state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+      state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
+      const addColumnCalls = [];
+      window.grist = mkGrist(addColumnCalls);
+      const body = mount(document.createElement('div'));
+      const { combos } = await renderCardBody('q1', body);
+      assertEqual('combo "colonne de destination" préremplie avec l’ancienne colonne au chargement', combos.writeCol.value, 'colA');
+      body.querySelector('[data-kind="number"]').click();
+      const savePromise = saveQuestionFromCard('q1', body, state.cfgQuestions.find(x => x.id === 'q1'), combos);
+      for (let i = 0; i < 20 && document.querySelector('#pp-dialog-title')?.textContent !== I18n.t('form.editor.destColumnTypeChangedTitle'); i++) await tick();
+      assertEqual('avertissement affiché au concepteur', document.querySelector('#pp-dialog-title')?.textContent, I18n.t('form.editor.destColumnTypeChangedTitle'));
+      document.querySelector('#pp-dialog-modal .pp-modal-actions button:not(.pp-modal-primary)').click();
+      await savePromise;
+      assertEqual('nouvelle colonne, suffixée, jamais "colA"', state.cfgQuestions[0]?.writeCol, 'colA_2');
+      assertEqual('une seule colonne créée (la nouvelle, pas "colA" qui existe déjà)', addColumnCalls.length, 1);
+      assertEqual('la nouvelle colonne est bien du type Numeric attendu pour "number"', addColumnCalls[0]?.[3], { type: 'Numeric' });
+    }
+
+    // 2) Type toujours compatible (Texte -> Texte long) : l'ancienne colonne est réutilisée telle
+    //    quelle, sans aucun avertissement ni nouvelle colonne.
+    {
+      state.cfgQuestions = [{ id: 'q2', kind: 'text', label: 'Remarque', writeTable: 'Main', writeCol: 'colA', required: false }];
+      state.mainTableIdCache = 'Main';
+      state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+      state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
+      const addColumnCalls = [];
+      window.grist = mkGrist(addColumnCalls);
+      const body = mount(document.createElement('div'));
+      const { combos } = await renderCardBody('q2', body);
+      body.querySelector('[data-kind="longtext"]').click();
+      // Aucun avertissement attendu ici : si le correctif en affichait un à tort, cet `await`
+      // resterait bloqué sur une fenêtre que rien ne referme (même logique que le scénario 1,
+      // mais dans l'autre sens).
+      await saveQuestionFromCard('q2', body, state.cfgQuestions.find(x => x.id === 'q2'), combos);
+      assertEqual('type compatible -> ancienne colonne conservée', state.cfgQuestions[0]?.writeCol, 'colA');
+      assertEqual('aucune colonne créée', addColumnCalls.length, 0);
+    }
+
+    // 3) Même colonne existante d'un autre type choisie dans la combo, mais sur une question
+    //    TOUTE NEUVE (existing=null) : le repli sur une nouvelle colonne a bien lieu (même garde
+    //    de type que pour une question existante), mais sans avertissement — aucune réponse
+    //    précédente n'est concernée puisque la question vient d'être créée.
+    {
+      state.cfgQuestions = [];
+      state.mainTableIdCache = 'Main';
+      state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+      state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
+      const addColumnCalls = [];
+      window.grist = mkGrist(addColumnCalls);
+      const body = mount(document.createElement('div'));
+      const { combos } = await renderCardBody('__new__', body);
+      body.querySelector('[data-kind="number"]').click();
+      body.querySelector('.qf-label').value = 'Montant';
+      selectCombo(body.querySelector('[data-combo="writeCol"]'), 'colA');
+      // Même garde : pas d'avertissement attendu pour une question neuve (existing=null) -> un
+      // `await` direct, comme au scénario 2.
+      await saveQuestionFromCard('__new__', body, null, combos);
+      assertEqual('nouvelle question : repli sur une nouvelle colonne malgré le choix de "colA"', state.cfgQuestions[0]?.writeCol, 'colA_2');
+      assertEqual('une seule colonne créée', addColumnCalls.length, 1);
+    }
+  });
+
   await group('saveQuestionFromCard : colonne de destination laissée vide -> créée automatiquement (écart relevé par l’audit UI/UX du 21 oct, corrigé ici pour tous les types libres)', async () => {
     const EXPECTED_TYPE = {
       text: 'Text', longtext: 'Text', number: 'Numeric', date: 'Date', datetime: 'DateTime', bool: 'Bool',
