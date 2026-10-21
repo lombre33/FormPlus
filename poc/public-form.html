@@ -41,6 +41,12 @@
   .err { color: var(--error); font-size: .9rem; margin-top: 6px; display: none; }
   .q.invalid .err { display: block; }
   .q.invalid input, .q.invalid select, .q.invalid textarea { border-color: var(--error); }
+  /* Les champs obligatoires portent l'attribut HTML natif `required` (jamais pour bloquer
+     l'envoi : le <form> reste novalidate — mais lu par les lecteurs d'écran comme
+     aria-required). Neutralise uniquement l'indication visuelle ":invalid" que certains
+     navigateurs appliquent dès qu'un champ obligatoire est vide, avant tout envoi : seule notre
+     propre classe .invalid doit piloter l'indication visuelle d'erreur, au moment voulu. */
+  input:invalid, select:invalid, textarea:invalid { box-shadow: none; }
   .actions { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
   .hp { position: absolute; left: -9999px; }
   .ok { color: var(--ok); }
@@ -124,27 +130,43 @@
     const req = o.formRequired ? 'req' : '';
     const hidden = o.formIsHidden;
     const prefill = o.formAcceptFromUrl ? params.get(name) : null;
-    const head = `<label class="title ${req}" for="i${id}">${esc(fl.question)}</label>` +
+    const labelId = `qlabel-i${id}`;
+    const errId = `err-i${id}`;
+    // Obligatoire : attribut HTML natif `required` (jamais pour bloquer l'envoi — le <form>
+    // reste novalidate, seule la validation JS d'onSubmit ci-dessous fait foi — mais lu par les
+    // lecteurs d'écran comme aria-required). aria-describedby relie le champ à son message
+    // d'erreur, uniquement quand il est obligatoire (seul cas où ce message a un sens).
+    const reqAttr = o.formRequired ? ' required' : '';
+    const describedBy = o.formRequired ? ` aria-describedby="${errId}"` : '';
+    // "for" ne vise le titre que vers un contrôle réellement labelable : pour Choix multiples et
+    // Choix-en-boutons-radio, les options sont regroupées dans un conteneur <div> dédié (ajouté
+    // ci-dessous) qui porte role="group" + aria-labelledby à la place — un `for` pointant vers
+    // un <div> ne crée aucune association pour les lecteurs d'écran.
+    const isGroupList = fl.type === 'ChoiceList' || fl.type === 'RefList' || ((fl.type === 'Choice' || fl.type === 'Ref') && o.formSelectFormat === 'radio');
+    const forAttr = isGroupList ? '' : ` for="i${id}"`;
+    const head = `<label class="title ${req}" id="${labelId}"${forAttr}>${esc(fl.question)}</label>` +
       (fl.description ? `<p class="desc">${esc(fl.description)}</p>` : '');
     let input = '';
     const choices = o.choices || [];
     const refs = fl.refValues || [];
     switch (fl.type) {
       case 'Int': case 'Numeric':
-        input = `<input id="i${id}" type="number" step="any" name="${nameAttr}" value="${esc(prefill ?? '')}">`; break;
+        input = `<input id="i${id}" type="number" step="any" name="${nameAttr}" value="${esc(prefill ?? '')}"${reqAttr}${describedBy}>`; break;
       case 'Bool':
-        input = `<label class="switch"><input type="checkbox" name="${nameAttr}" ${prefill === 'true' ? 'checked' : ''}> Oui</label>`; break;
+        input = `<label class="switch"><input id="i${id}" type="checkbox" name="${nameAttr}"${reqAttr}${describedBy} ${prefill === 'true' ? 'checked' : ''}> Oui</label>`; break;
       case 'Date':
-        input = `<input id="i${id}" type="date" name="${nameAttr}" value="${esc(prefill ?? '')}">`; break;
+        input = `<input id="i${id}" type="date" name="${nameAttr}" value="${esc(prefill ?? '')}"${reqAttr}${describedBy}>`; break;
       case 'DateTime':
-        input = `<input id="i${id}" type="datetime-local" name="${nameAttr}" value="${esc(prefill ?? '')}">`; break;
+        input = `<input id="i${id}" type="datetime-local" name="${nameAttr}" value="${esc(prefill ?? '')}"${reqAttr}${describedBy}>`; break;
       case 'Choice':
       case 'Ref': {
         const opts = fl.type === 'Choice' ? choices.map(c => [c, c]) : refs.map(([rid, v]) => [rid, v]);
         if (o.formSelectFormat === 'radio') {
-          input = opts.map(([v, l]) => `<label class="opt"><input type="radio" name="${nameAttr}" value="${esc(v)}" ${String(v) === prefill ? 'checked' : ''}> ${esc(l)}</label>`).join('');
+          input = `<div role="group" aria-labelledby="${labelId}">` +
+            opts.map(([v, l]) => `<label class="opt"><input type="radio" name="${nameAttr}" value="${esc(v)}"${reqAttr}${describedBy} ${String(v) === prefill ? 'checked' : ''}> ${esc(l)}</label>`).join('') +
+            `</div>`;
         } else {
-          input = `<select id="i${id}" name="${nameAttr}"><option value="">Choisir…</option>` +
+          input = `<select id="i${id}" name="${nameAttr}"${reqAttr}${describedBy}><option value="">Choisir…</option>` +
             opts.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === prefill ? 'selected' : ''}>${esc(l)}</option>`).join('') + `</select>`;
         }
         break;
@@ -152,17 +174,20 @@
       case 'ChoiceList':
       case 'RefList': {
         const opts = fl.type === 'ChoiceList' ? choices.map(c => [c, c]) : refs.map(([rid, v]) => [rid, v]);
-        input = opts.map(([v, l]) => `<label class="opt"><input type="checkbox" name="${nameAttr}[]" value="${esc(v)}"> ${esc(l)}</label>`).join('');
+        // aria-required sur le GROUPE, jamais sur chaque case : « au moins une », pas « toutes ».
+        input = `<div role="group" aria-labelledby="${labelId}"${o.formRequired ? ' aria-required="true"' : ''}>` +
+          opts.map(([v, l]) => `<label class="opt"><input type="checkbox" name="${nameAttr}[]" value="${esc(v)}"${describedBy}> ${esc(l)}</label>`).join('') +
+          `</div>`;
         break;
       }
       case 'Attachments':
-        input = `<input id="i${id}" type="file" name="${nameAttr}" multiple>`; break;
+        input = `<input id="i${id}" type="file" name="${nameAttr}" multiple${reqAttr}${describedBy}>`; break;
       default:
         input = o.formTextFormat === 'multiline'
-          ? `<textarea id="i${id}" name="${nameAttr}" rows="${o.formTextLineCount || 3}">${esc(prefill ?? '')}</textarea>`
-          : `<input id="i${id}" type="text" name="${nameAttr}" value="${esc(prefill ?? '')}" ${o.formTextMaximumLength ? `maxlength="${o.formTextMaximumLength}"` : ''}>`;
+          ? `<textarea id="i${id}" name="${nameAttr}"${reqAttr}${describedBy} rows="${o.formTextLineCount || 3}">${esc(prefill ?? '')}</textarea>`
+          : `<input id="i${id}" type="text" name="${nameAttr}" value="${esc(prefill ?? '')}"${reqAttr}${describedBy} ${o.formTextMaximumLength ? `maxlength="${o.formTextMaximumLength}"` : ''}>`;
     }
-    return `<div class="q" data-type="${fl.type}" data-col="${nameAttr}" data-required="${o.formRequired ? 1 : 0}" ${hidden ? 'hidden' : ''}>${head}${input}<div class="err">Ce champ est obligatoire.</div></div>`;
+    return `<div class="q" data-type="${fl.type}" data-col="${nameAttr}" data-required="${o.formRequired ? 1 : 0}" ${hidden ? 'hidden' : ''}>${head}${input}<div class="err" id="${errId}">Ce champ est obligatoire.</div></div>`;
   }
 
   async function onSubmit(ev) {

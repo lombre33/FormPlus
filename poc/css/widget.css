@@ -208,6 +208,13 @@
   .err-msg { color: var(--error); font-size: .85rem; margin-top: 6px; display: none; }
   .q.invalid .err-msg { display: block; }
   .q.invalid input, .q.invalid select, .q.invalid textarea { border-color: var(--error); }
+  /* Les champs obligatoires portent l'attribut HTML natif `required` (jamais pour bloquer
+     l'envoi : le <form> reste novalidate, seule notre validation JS ci-dessus fait foi — mais
+     lu par les lecteurs d'écran comme aria-required). Neutralise uniquement l'indication
+     visuelle ":invalid" que certains navigateurs appliquent dès qu'un champ obligatoire est
+     vide, AVANT toute tentative d'envoi : seule notre propre classe .invalid doit piloter
+     l'indication visuelle d'erreur, au moment voulu. */
+  #fill input:invalid, #fill select:invalid, #fill textarea:invalid { box-shadow: none; }
   .actions { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
   .hp { position: absolute; left: -9999px; }
   #qrCanvas { display: inline-block; background: #fff; padding: 12px; border-radius: 8px; border: 1px solid var(--border-soft); line-height: 0; }

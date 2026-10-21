@@ -32,27 +32,46 @@ export function renderNativeField(id, fl, prefillParams) {
   const req = o.formRequired ? 'req' : '';
   const hidden = o.formIsHidden;
   const prefill = o.formAcceptFromUrl ? prefillParams.get(name) : null;
-  const head = `<label class="title ${req}" for="i${id}">${esc(fl.question)}</label>` +
+  const labelId = `qlabel-i${id}`;
+  const errId = `err-i${id}`;
+  // Obligatoire : attribut HTML natif `required` (jamais pour bloquer l'envoi — le <form> reste
+  // novalidate, seule notre propre validation ci-dessous fait foi — mais lu par les lecteurs
+  // d'écran comme aria-required, cf. spécification ARIA-en-HTML). aria-describedby relie le
+  // champ à son message d'erreur (#err-i<id>, masqué visuellement tant que .q n'est pas
+  // .invalid, mais toujours présent dans l'arbre d'accessibilité) — uniquement quand le champ
+  // est obligatoire, seul cas où ce message a un sens.
+  const reqAttr = o.formRequired ? ' required' : '';
+  const describedBy = o.formRequired ? ` aria-describedby="${errId}"` : '';
+  // "for" ne vise le titre que vers un contrôle réellement « labelable » (id posé directement
+  // sur lui) : pour Choix multiples et Choix-en-boutons-radio, c'est un conteneur générique
+  // <div class="pv-pill-group"> qui porte le regroupement — un `for` pointant vers un <div> ne
+  // crée AUCUNE association pour les lecteurs d'écran (seul un contrôle réellement labelable
+  // peut l'être), c'était jusqu'ici le cas pour ces deux types sans que rien ne le remplace.
+  // role="group" + aria-labelledby sur le conteneur prend le relais ; chaque option garde par
+  // ailleurs son propre intitulé, déjà correct, via le <label class="pv-pill"> qui l'entoure.
+  const isGroupList = fl.type === 'ChoiceList' || fl.type === 'RefList' || ((fl.type === 'Choice' || fl.type === 'Ref') && o.formSelectFormat === 'radio');
+  const forAttr = isGroupList ? '' : ` for="i${id}"`;
+  const head = `<label class="title ${req}" id="${labelId}"${forAttr}>${esc(fl.question)}</label>` +
     (fl.description ? `<p class="desc">${esc(fl.description)}</p>` : '');
   let input = '';
   const choices = o.choices || [];
   const refs = fl.refValues || [];
   switch (fl.type) {
     case 'Int': case 'Numeric':
-      input = `<input id="i${id}" type="number" step="any" name="${nameAttr}" value="${esc(prefill ?? '')}">`; break;
+      input = `<input id="i${id}" type="number" step="any" name="${nameAttr}" value="${esc(prefill ?? '')}"${reqAttr}${describedBy}>`; break;
     case 'Bool':
-      input = `<label class="switch"><input type="checkbox" name="${nameAttr}" ${prefill === 'true' ? 'checked' : ''}> Oui</label>`; break;
+      input = `<label class="switch"><input id="i${id}" type="checkbox" name="${nameAttr}"${reqAttr}${describedBy} ${prefill === 'true' ? 'checked' : ''}> Oui</label>`; break;
     case 'Date':
-      input = `<input id="i${id}" type="date" name="${nameAttr}" value="${esc(prefill ?? '')}">`; break;
+      input = `<input id="i${id}" type="date" name="${nameAttr}" value="${esc(prefill ?? '')}"${reqAttr}${describedBy}>`; break;
     case 'DateTime':
-      input = `<input id="i${id}" type="datetime-local" name="${nameAttr}" value="${esc(prefill ?? '')}">`; break;
+      input = `<input id="i${id}" type="datetime-local" name="${nameAttr}" value="${esc(prefill ?? '')}"${reqAttr}${describedBy}>`; break;
     case 'Choice':
     case 'Ref': {
       const opts = fl.type === 'Choice' ? choices.map(c => [c, c]) : refs.map(([rid, v]) => [rid, v]);
       if (o.formSelectFormat === 'radio') {
-        input = `<div class="pv-pill-group">${opts.map(([v, l]) => `<label class="pv-pill"><input type="radio" name="${nameAttr}" value="${esc(v)}" ${String(v) === prefill ? 'checked' : ''}><span>${esc(l)}</span></label>`).join('')}</div>`;
+        input = `<div class="pv-pill-group" role="group" aria-labelledby="${labelId}">${opts.map(([v, l]) => `<label class="pv-pill"><input type="radio" name="${nameAttr}" value="${esc(v)}"${reqAttr}${describedBy} ${String(v) === prefill ? 'checked' : ''}><span>${esc(l)}</span></label>`).join('')}</div>`;
       } else {
-        input = `<select id="i${id}" name="${nameAttr}"><option value="">Choisir…</option>` +
+        input = `<select id="i${id}" name="${nameAttr}"${reqAttr}${describedBy}><option value="">Choisir…</option>` +
           opts.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === prefill ? 'selected' : ''}>${esc(l)}</option>`).join('') + `</select>`;
       }
       break;
@@ -60,17 +79,24 @@ export function renderNativeField(id, fl, prefillParams) {
     case 'ChoiceList':
     case 'RefList': {
       const opts = fl.type === 'ChoiceList' ? choices.map(c => [c, c]) : refs.map(([rid, v]) => [rid, v]);
-      input = `<div class="pv-pill-group">${opts.map(([v, l]) => `<label class="pv-pill"><input type="checkbox" name="${nameAttr}[]" value="${esc(v)}"><span>${esc(l)}</span></label>`).join('')}</div>`;
+      // `required` par case signifierait « toutes » doivent être cochées, alors qu'il s'agit
+      // d'« au moins une » (même nuance que pour le kind "multiselect" des questions
+      // supplémentaires, voir renderExtraQuestion) : aucun des deux n'est posé ici. aria-required
+      // sur le groupe serait la façon la plus proche de le dire malgré tout, mais la spécification
+      // ARIA ne l'autorise pas sur role="group" (confirmé par axe-core, règle "aria-allowed-attr")
+      // — seuls l'astérisque visuel (classe .req) et le message d'erreur lié (aria-describedby,
+      // ci-dessous) restent disponibles pour ce cas, limitation ARIA assumée.
+      input = `<div class="pv-pill-group" role="group" aria-labelledby="${labelId}">${opts.map(([v, l]) => `<label class="pv-pill"><input type="checkbox" name="${nameAttr}[]" value="${esc(v)}"${describedBy}><span>${esc(l)}</span></label>`).join('')}</div>`;
       break;
     }
     case 'Attachments':
-      input = `<input id="i${id}" type="file" name="${nameAttr}" multiple>`; break;
+      input = `<input id="i${id}" type="file" name="${nameAttr}" multiple${reqAttr}${describedBy}>`; break;
     default:
       input = o.formTextFormat === 'multiline'
-        ? `<textarea id="i${id}" name="${nameAttr}" rows="${o.formTextLineCount || 3}">${esc(prefill ?? '')}</textarea>`
-        : `<input id="i${id}" type="text" name="${nameAttr}" value="${esc(prefill ?? '')}" ${o.formTextMaximumLength ? `maxlength="${o.formTextMaximumLength}"` : ''}>`;
+        ? `<textarea id="i${id}" name="${nameAttr}"${reqAttr}${describedBy} rows="${o.formTextLineCount || 3}">${esc(prefill ?? '')}</textarea>`
+        : `<input id="i${id}" type="text" name="${nameAttr}" value="${esc(prefill ?? '')}"${reqAttr}${describedBy} ${o.formTextMaximumLength ? `maxlength="${o.formTextMaximumLength}"` : ''}>`;
   }
-  return `<div class="q pv-q" data-native="1" data-type="${fl.type}" data-col="${nameAttr}" data-required="${o.formRequired ? 1 : 0}" ${hidden ? 'hidden' : ''}>${head}${input}<div class="err-msg">Ce champ est obligatoire.</div></div>`;
+  return `<div class="q pv-q" data-native="1" data-type="${fl.type}" data-col="${nameAttr}" data-required="${o.formRequired ? 1 : 0}" ${hidden ? 'hidden' : ''}>${head}${input}<div class="err-msg" id="${errId}">Ce champ est obligatoire.</div></div>`;
 }
 
 // Lit la valeur courante d'un champ à choix unique, qu'il s'affiche en menu déroulant (élément
@@ -91,8 +117,9 @@ export function singleValueOf(container) {
   return { value: container.value ?? '', label: container.value ?? '' };
 }
 
-export function radioGroup(name, choices) {
-  return `<div class="pv-pill-group">${choices.map(c => `<label class="pv-pill"><input type="radio" name="${name}" value="${esc(c)}" data-label="${esc(c)}"><span>${esc(c)}</span></label>`).join('')}</div>`;
+export function radioGroup(name, choices, opts) {
+  const { required = false, describedBy = null } = opts || {};
+  return `<div class="pv-pill-group">${choices.map(c => `<label class="pv-pill"><input type="radio" name="${name}" value="${esc(c)}" data-label="${esc(c)}"${required ? ' required' : ''}${describedBy ? ` aria-describedby="${describedBy}"` : ''}><span>${esc(c)}</span></label>`).join('')}</div>`;
 }
 
 // Une condition d'affichage combine N critères (question source = valeur) en ET (toutes vraies)
@@ -140,45 +167,67 @@ export function renderExtraQuestion(q) {
     </details>`;
   }
   const req = q.required ? 'req' : '';
+  const labelId = `eqlabel-${q.id}`;
+  const errId = `eqerr-${q.id}`;
+  // Même principe que renderNativeField ci-dessus : attribut `required` natif (jamais bloquant,
+  // le <form> reste novalidate — lu par les lecteurs d'écran comme aria-required) et
+  // aria-describedby vers le message d'erreur, uniquement quand la question est obligatoire.
+  const reqAttr = q.required ? ' required' : '';
+  const describedBy = q.required ? ` aria-describedby="${errId}"` : '';
+  // "for" ne vise le titre que vers un contrôle réellement labelable — jamais le conteneur
+  // générique <div id="eq-${q.id}"> des types à options multiples ou chargés depuis une table
+  // (select/radios injectés après coup par renderFill une fois les libellés connus) : un `for`
+  // pointant vers un <div> ne crée aucune association pour les lecteurs d'écran. Même id que
+  // celui déjà lu partout ailleurs par $(`eq-${q.id}`) (singleValueOf, conditionMet, onSubmit,
+  // les écouteurs de condition) : INCHANGÉ, seuls role="group" + aria-labelledby s'y ajoutent.
+  const isGroupContainer = q.kind === 'multiselect' || q.kind === 'choice' || (q.kind === 'select' && q.displayMode === 'radio');
+  const titleFor = isGroupContainer ? '' : ` for="eq-${q.id}"`;
   let input;
   switch (q.kind) {
     case 'choice':
       // Conteneur générique : le chargement (renderFill) y injecte un <select> ou des radios
-      // selon q.displayMode, une fois les libellés lus dans la table source.
-      input = `<div id="eq-${q.id}"><span class="muted">Chargement…</span></div>`;
+      // selon q.displayMode, une fois les libellés lus dans la table source — il garde alors
+      // role="group"/aria-labelledby déjà posés ici (innerHTML remplacé, pas l'élément lui-même).
+      // aria-required n'est pas ici, bien que la question puisse être obligatoire : la
+      // spécification ARIA ne l'autorise pas sur role="group" (confirmé par axe-core, règle
+      // "aria-allowed-attr") — limitation assumée, cf. ChoiceList/RefList dans
+      // renderNativeField ci-dessus. L'astérisque visuel et le message d'erreur lié restent.
+      input = `<div id="eq-${q.id}" role="group" aria-labelledby="${labelId}"><span class="muted">Chargement…</span></div>`;
       break;
     case 'select':
       input = q.displayMode === 'radio'
-        ? `<div id="eq-${q.id}">${radioGroup(`eq-${q.id}`, q.choices || [])}</div>`
-        : `<select id="eq-${q.id}"><option value="">Choisir…</option>${(q.choices || []).map(c => `<option value="${esc(c)}" data-label="${esc(c)}">${esc(c)}</option>`).join('')}</select>`;
+        ? `<div id="eq-${q.id}" role="group" aria-labelledby="${labelId}">${radioGroup(`eq-${q.id}`, q.choices || [], { required: q.required, describedBy: q.required ? errId : null })}</div>`
+        : `<select id="eq-${q.id}"${reqAttr}${describedBy}><option value="">Choisir…</option>${(q.choices || []).map(c => `<option value="${esc(c)}" data-label="${esc(c)}">${esc(c)}</option>`).join('')}</select>`;
       break;
     case 'multiselect':
-      input = `<div id="eq-${q.id}" class="pv-pill-group">` +
-        (q.choices || []).map(c => `<label class="pv-pill"><input type="checkbox" name="eqm-${q.id}" value="${esc(c)}"><span>${esc(c)}</span></label>`).join('') +
+      // Même nuance que ChoiceList/RefList natifs ci-dessus (« au moins une », pas « toutes » :
+      // pas de `required` par case) et même limitation ARIA (pas d'aria-required sur role="group").
+      input = `<div id="eq-${q.id}" class="pv-pill-group" role="group" aria-labelledby="${labelId}">` +
+        (q.choices || []).map(c => `<label class="pv-pill"><input type="checkbox" name="eqm-${q.id}" value="${esc(c)}"${describedBy}><span>${esc(c)}</span></label>`).join('') +
         `</div>`;
       break;
     case 'number':
-      input = `<input id="eq-${q.id}" type="number" step="any">`;
+      input = `<input id="eq-${q.id}" type="number" step="any"${reqAttr}${describedBy}>`;
       break;
     case 'date':
-      input = `<input id="eq-${q.id}" type="date">`;
+      input = `<input id="eq-${q.id}" type="date"${reqAttr}${describedBy}>`;
       break;
     case 'bool':
-      input = `<label class="switch"><input id="eq-${q.id}" type="checkbox"> Oui</label>`;
+      input = `<label class="switch"><input id="eq-${q.id}" type="checkbox"${reqAttr}${describedBy}> Oui</label>`;
       break;
     case 'longtext':
-      input = `<textarea id="eq-${q.id}" rows="4"></textarea>`;
+      input = `<textarea id="eq-${q.id}" rows="4"${reqAttr}${describedBy}></textarea>`;
       break;
     case 'attachments':
-      input = `<input id="eq-${q.id}" type="file" multiple>`;
+      input = `<input id="eq-${q.id}" type="file" multiple${reqAttr}${describedBy}>`;
       break;
     default:
-      input = `<input id="eq-${q.id}" type="text">`;
+      input = `<input id="eq-${q.id}" type="text"${reqAttr}${describedBy}>`;
   }
   return `<div class="q pv-q" data-extra="${q.id}" data-kind="${q.kind}" data-required="${q.required ? 1 : 0}">
-    <label class="title ${req}" for="eq-${q.id}">${esc(q.label)}</label>
+    <label class="title ${req}" id="${labelId}"${titleFor}>${esc(q.label)}</label>
     ${q.description ? `<p class="desc pv-hint">${esc(q.description)}</p>` : ''}
-    ${input}<div class="err-msg">Ce champ est obligatoire.</div></div>`;
+    ${input}<div class="err-msg" id="${errId}">Ce champ est obligatoire.</div></div>`;
 }
 
 // Un champ compte comme "répondu" pour la barre de progression : mêmes règles de "vide" que la
@@ -280,9 +329,15 @@ export async function renderFill() {
         const v = rawLabels[i];
         return (v !== undefined && v !== null && v !== '') ? String(v) : `#${id}`;
       });
+      // aria-labelledby posé directement sur le <select> injecté : le role="group" déjà présent
+      // sur le conteneur (renderExtraQuestion) regroupe les radios, mais ne donne pas à lui seul
+      // un nom au <select> — sans quoi un lecteur d'écran l'annonce comme un contrôle sans nom
+      // (confirmé par axe-core, règle "select-name").
+      const choiceReq = q.required ? ' required' : '';
+      const choiceDescribedBy = q.required ? ` aria-describedby="eqerr-${q.id}"` : '';
       box.innerHTML = q.displayMode === 'radio'
-        ? ids.map((id, i) => `<label class="opt"><input type="radio" name="eq-${q.id}" value="${id}" data-label="${esc(labels[i])}"> ${esc(labels[i])}</label>`).join('')
-        : '<select><option value="">Choisir…</option>' + ids.map((id, i) => `<option value="${id}" data-label="${esc(labels[i])}">${esc(labels[i])}</option>`).join('') + '</select>';
+        ? ids.map((id, i) => `<label class="opt"><input type="radio" name="eq-${q.id}" value="${id}" data-label="${esc(labels[i])}"${choiceReq}${choiceDescribedBy}> ${esc(labels[i])}</label>`).join('')
+        : `<select aria-labelledby="eqlabel-${q.id}"${choiceReq}${choiceDescribedBy}><option value="">Choisir…</option>` + ids.map((id, i) => `<option value="${id}" data-label="${esc(labels[i])}">${esc(labels[i])}</option>`).join('') + '</select>';
       diag({ event: 'choice-loaded', questionId: q.id, sourceTable: q.sourceTable, sourceCol: q.sourceCol, hasCol, rowCount: ids.length });
     } catch (e) {
       box.innerHTML = '<span class="muted">(indisponible)</span>';
