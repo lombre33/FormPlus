@@ -1,5 +1,8 @@
 import { $, esc, uid, show } from './dom.js';
 import { ICONS } from './icons.js';
+import { I18n } from '../../kit/js/i18n.js';
+import { Dialogs } from '../../kit/js/dialogs.js';
+import './strings.js'; // enregistre form.* avant tout usage de I18n.t() au chargement de ce module (voir strings.js)
 import {
   KINDS, LAYOUT_KINDS, SINGLE_CHOICE_KINDS, NON_COMPARABLE_KINDS, FREE_ENTRY_KINDS,
   TABLE_SOURCED_KINDS, FIXED_LIST_KINDS, mapFeatureEnabled,
@@ -32,8 +35,12 @@ import { renderFill } from './respond.js';
 function saveMsg(el, persisted, okText) {
   el.innerHTML = persisted
     ? `<span class="ok">${okText}</span>`
-    : `<span class="err">${okText} Non persisté : cliquez sur <strong>Enregistrer</strong> dans la barre du widget Grist pour conserver ce changement.</span>`;
+    : `<span class="err">${okText}${I18n.t('form.editor.notPersistedSuffix')}</span>`;
 }
+
+// Libellé affiché d'un type de question (voir kinds.js : KINDS ne garde que id/icon, le texte
+// vient d'ici pour rester FR/EN comme le reste de l'interface).
+function kindLabel(id) { return I18n.t(`form.editor.kind.${id}`); }
 
 // Chaîne toutes les sauvegardes entre elles (FIFO) : sans ce verrou, deux appels lancés à
 // quelques centaines de ms d'écart (ex. blur sur deux champs successifs avant que le premier
@@ -95,12 +102,12 @@ export async function generate() {
   $('generate').disabled = true;
   try {
     const pastedLink = parseFormLink($('link').value);
-    if (!pastedLink) { msg.innerHTML = '<span class="err">Lien non reconnu. Il doit contenir <code>/forms/&lt;clé&gt;/&lt;numéro&gt;</code>.</span>'; return; }
-    msg.textContent = 'Recherche de la page du formulaire…';
+    if (!pastedLink) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.linkNotRecognized')}</span>`; return; }
+    msg.textContent = I18n.t('form.editor.searchingPage');
     let formPage = null, widgetPage = null, self = null, samePage = null, onFormPage = 0, ambiguous = false;
     try { ({ formPage, widgetPage, self, samePage, onFormPage, ambiguous } = await findViewRefForSection(pastedLink.vsId)); }
-    catch (e) { msg.innerHTML = `<span class="err">Impossible de lire les métadonnées du document (${esc(e.message)}). Le widget a-t-il l'accès complet ?</span>`; return; }
-    if (!formPage) { msg.innerHTML = '<span class="err">Cette section de formulaire n\'existe pas dans ce document. Le lien vient-il bien d\'ici ?</span>'; return; }
+    catch (e) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.metaReadError', { message: esc(e.message) })}</span>`; return; }
+    if (!formPage) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.sectionMissing')}</span>`; return; }
 
     // FormPlus ne travaille jamais directement sur un formulaire natif qu'il n'a pas lui-même
     // créé. Même lien déjà collé auparavant (sourceVsId inchangé) : on garde la copie déjà faite,
@@ -115,9 +122,9 @@ export async function generate() {
     if (isSameSource && state.options?.vsId) {
       vsId = state.options.vsId;
     } else {
-      msg.textContent = "Duplication du formulaire (le vôtre n'est jamais modifié)…";
+      msg.textContent = I18n.t('form.editor.duplicating');
       try { vsId = await duplicateFormSection(pastedLink.vsId); }
-      catch (e) { msg.innerHTML = `<span class="err">Impossible de dupliquer ce formulaire (${esc(e.message)}).</span>`; return; }
+      catch (e) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.duplicateError', { message: esc(e.message) })}</span>`; return; }
     }
     const link = { ...pastedLink, vsId, sourceVsId: pastedLink.vsId };
     state.currentLink = link;
@@ -130,20 +137,21 @@ export async function generate() {
     state.stayOnConfig = true;
     const publicUrl = buildPublicUrl(link, widgetPage);
     const persisted = await saveConfig(publicUrl, widgetPage);
-    const dupNote = isSameSource ? '' : 'Copie du formulaire créée pour FormPlus, le vôtre est inchangé. ';
+    const dupNote = isSameSource ? '' : I18n.t('form.editor.dupNote');
     msg.innerHTML = persisted
-      ? `<span class="ok">${dupNote}Configuration enregistrée dans le document.</span>`
-      : `<span class="err">${dupNote}Configuration posée dans cette session seulement : cliquez sur <strong>Enregistrer</strong> dans la barre du widget pour la conserver.</span>`;
+      ? `<span class="ok">${dupNote}${I18n.t('form.editor.configSavedDoc')}</span>`
+      : `<span class="err">${dupNote}${I18n.t('form.editor.configSessionOnly')}</span>`;
     $('public-url').textContent = publicUrl;
     $('qrPanel').classList.add('hidden'); // évite d'afficher un QR code périmé après une nouvelle adresse
     if (!self && ambiguous) {
-      $('page-check').innerHTML = `<span class="err">Plusieurs widgets personnalisés utilisant ce même fichier existent sur la page ${widgetPage} : impossible de savoir lequel enregistrer. Supprimez les widgets FormPlus superflus laissés par d'anciens essais sur cette page, ne gardez que celui-ci, puis cliquez de nouveau sur Générer l'adresse.</span>`;
+      $('page-check').innerHTML = `<span class="err">${I18n.t('form.editor.multiWidgetAmbiguous', { page: widgetPage })}</span>`;
     } else if (!self) {
-      $('page-check').innerHTML = `<span class="err">Impossible de déterminer la page de ce widget (adresse de la page Grist illisible). L'adresse pointe vers la page du formulaire natif (page ${formPage}), qui affichera aussi son propre habillage.</span>`;
+      $('page-check').innerHTML = `<span class="err">${I18n.t('form.editor.pageUnreadable', { page: formPage })}</span>`;
     } else if (samePage) {
-      $('page-check').innerHTML = `<span class="ok">Le widget est sur la même page (${formPage}) que le formulaire natif${onFormPage > 1 ? `, avec ${onFormPage} widgets personnalisés dessus` : ''}. L'adresse fonctionnera, mais affichera aussi l'habillage du formulaire natif au-dessus ou à côté. Pour un rendu plus propre, déplacez ce widget seul sur une autre page : la clé reste valable, elle porte sur la table, pas sur la page.</span>`;
+      const samePageExtra = onFormPage > 1 ? I18n.t('form.editor.samePageExtra', { n: onFormPage }) : '';
+      $('page-check').innerHTML = `<span class="ok">${I18n.t('form.editor.samePageWarning', { page: formPage, extra: samePageExtra })}</span>`;
     } else {
-      $('page-check').innerHTML = `<span class="ok">Le widget est seul sur la page ${widgetPage}, distincte de la page ${formPage} qui porte le formulaire natif. L'adresse n'affichera que ce widget : c'est la configuration la plus propre.</span>`;
+      $('page-check').innerHTML = `<span class="ok">${I18n.t('form.editor.cleanPage', { widgetPage, formPage })}</span>`;
     }
     $('editor').classList.remove('hidden');
     renderQuestionList();
@@ -162,14 +170,14 @@ $('link').addEventListener('keydown', (e) => { if (e.key === 'Enter') generate()
   $(id).addEventListener('change', async () => {
     if (!state.currentFormSection) return; // rien à sauvegarder tant qu'aucun formulaire n'est lié
     const persisted = await saveConfig(state.options.publicUrl, state.options.viewRef);
-    saveMsg($('appearance-msg'), persisted, 'Enregistré.');
+    saveMsg($('appearance-msg'), persisted, I18n.t('form.editor.savedGeneric'));
   });
 });
 $('opt-accent-reset').addEventListener('click', async () => {
   $('opt-accent').value = '#3452e1';
   if (!state.currentFormSection) return;
   const persisted = await saveConfig(state.options.publicUrl, state.options.viewRef);
-  saveMsg($('appearance-msg'), persisted, 'Couleur réinitialisée.');
+  saveMsg($('appearance-msg'), persisted, I18n.t('form.editor.colorReset'));
 });
 
 // Forme des coins / ambiance de fond de la page répondant : dérivées uniquement de --accent
@@ -192,16 +200,16 @@ $('editor').addEventListener('click', async (e) => {
   if (moodBtn) setBgMood(moodBtn.dataset.mood);
   if (!state.currentFormSection) return;
   const persisted = await saveConfig(state.options.publicUrl, state.options.viewRef);
-  saveMsg($('appearance-msg'), persisted, 'Enregistré.');
+  saveMsg($('appearance-msg'), persisted, I18n.t('form.editor.savedGeneric'));
 });
 $('paste').addEventListener('click', async () => {
   try { $('link').value = (await navigator.clipboard.readText()).trim(); generate(); }
-  catch (e) { $('cfg-msg').textContent = 'Lecture du presse-papiers refusée : collez le lien dans le champ avec Ctrl+V.'; $('link').focus(); }
+  catch (e) { $('cfg-msg').textContent = I18n.t('form.editor.clipboardReadDenied'); $('link').focus(); }
 });
 $('copy').addEventListener('click', async () => {
   const url = $('public-url').textContent;
-  try { await navigator.clipboard.writeText(url); $('copy').textContent = 'Copiée'; setTimeout(() => $('copy').textContent = "Copier l'adresse", 1500); }
-  catch (e) { window.prompt('Copiez cette adresse :', url); }
+  try { await navigator.clipboard.writeText(url); $('copy').textContent = I18n.t('form.settings.copiedBtn'); setTimeout(() => $('copy').textContent = I18n.t('form.settings.copyBtn'), 1500); }
+  catch (e) { await Dialogs.prompt({ title: I18n.t('form.settings.copyBtn'), message: I18n.t('form.editor.copyFallbackMsg'), value: url }); }
 });
 $('open').addEventListener('click', () => window.open($('public-url').textContent, '_blank', 'noopener'));
 $('done').addEventListener('click', () => { state.stayOnConfig = false; if (state.options?.formLink) renderFill(); });
@@ -245,7 +253,7 @@ $('step1').addEventListener('click', (e) => {
 // « Partir de zéro » : l'utilisateur choisit explicitement entre créer une table vide et
 // repartir d'une table déjà présente dans le document (au lieu de le déduire d'un nom tapé
 // à l'aveugle, qui peut ou non correspondre à une table existante).
-const scratchExistingCombo = mountCombo($('scratch-existing-fields').querySelector('.combo-host'), 'Choisir une table…');
+const scratchExistingCombo = mountCombo($('scratch-existing-fields').querySelector('.combo-host'), I18n.t('form.editor.pickTablePlaceholder'));
 export async function setScratchMode(mode) {
   state.scratchMode = mode;
   $('step1').querySelectorAll('[data-scratchmode]').forEach(b => b.classList.toggle('active', b.dataset.scratchmode === mode));
@@ -267,14 +275,14 @@ export async function createEmptyForm() {
   const msg = $('scratch-msg');
   const widgetPage = await findMyWidgetPage();
   if (!widgetPage) {
-    msg.innerHTML = '<span class="err">Impossible de déterminer la page de ce widget (adresse de la page Grist illisible). Créez le formulaire manuellement depuis Grist : Ajouter une page → Formulaire.</span>';
+    msg.innerHTML = `<span class="err">${I18n.t('form.editor.widgetPageUnreadable')}</span>`;
     return;
   }
 
   if (state.scratchMode === 'existing') {
     const tableId = scratchExistingCombo.value;
-    if (!tableId) { msg.innerHTML = '<span class="err">Choisissez une table.</span>'; return; }
-    msg.textContent = 'Création en cours…';
+    if (!tableId) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.pickTable')}</span>`; return; }
+    msg.textContent = I18n.t('form.editor.creating');
     try {
       const tref = await getTableRef(tableId);
       const sectionId = await createFormSection(tref, widgetPage, tableId);
@@ -282,16 +290,16 @@ export async function createEmptyForm() {
       // ce nettoyage, une table existante déjà pourvue de colonnes donnerait un formulaire natif
       // rempli de tous ses champs, pas « vide » comme annoncé ci-dessous.
       await clearAutoFields(sectionId);
-      msg.innerHTML = `<span class="ok">Formulaire natif vide créé sur cette page pour la table « ${esc(tableId)} ». Cliquez sur <strong>Publier</strong> dans ce nouveau formulaire (repliez-le une fois publié), puis <strong>Copier le lien</strong>, et collez-le ci-dessus.</span>`;
+      msg.innerHTML = `<span class="ok">${I18n.t('form.editor.emptyFormCreated', { table: esc(tableId) })}</span>`;
     } catch (e) {
-      msg.innerHTML = `<span class="err">Erreur : ${esc(e.message)}</span>`;
+      msg.innerHTML = `<span class="err">${I18n.t('form.editor.genericError', { message: esc(e.message) })}</span>`;
     }
     return;
   }
 
   const name = $('scratchTable').value.trim();
-  if (!name) { msg.innerHTML = '<span class="err">Indiquez un nom de table.</span>'; return; }
-  msg.textContent = 'Création en cours…';
+  if (!name) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.giveTableName')}</span>`; return; }
+  msg.textContent = I18n.t('form.editor.creating');
   try {
     const existingRef = await getTableRef(name);
     let tableId = existingRef ? name : null;
@@ -300,15 +308,15 @@ export async function createEmptyForm() {
       await grist.docApi.applyUserActions([['AddTable', name, [{ id: 'A', type: 'Text' }]]]);
       const after = await fetchMeta('_grist_Tables');
       tableId = after.tableId.find(t => !before.tableId.includes(t));
-      if (!tableId) throw new Error("La table n'a pas pu être créée.");
+      if (!tableId) throw new Error(I18n.t('form.editor.tableCreateFailed'));
     }
     const tref = await getTableRef(tableId);
     const sectionId = await createFormSection(tref, widgetPage, tableId);
     await clearAutoFields(sectionId);
-    msg.innerHTML = `<span class="ok">Formulaire natif vide créé sur cette page pour la table « ${esc(tableId)} ». Cliquez sur <strong>Publier</strong> dans ce nouveau formulaire (repliez-le une fois publié), puis <strong>Copier le lien</strong>, et collez-le ci-dessus.</span>`;
+    msg.innerHTML = `<span class="ok">${I18n.t('form.editor.emptyFormCreated', { table: esc(tableId) })}</span>`;
     $('scratchTable').value = '';
   } catch (e) {
-    msg.innerHTML = `<span class="err">Erreur : ${esc(e.message)}</span>`;
+    msg.innerHTML = `<span class="err">${I18n.t('form.editor.genericError', { message: esc(e.message) })}</span>`;
   }
 }
 
@@ -331,15 +339,15 @@ $('editor').addEventListener('click', (e) => {
 // un faux chiffre.
 export async function loadResponsesSummary() {
   const el = $('responses-summary');
-  if (!state.mainTableIdCache) { el.textContent = "Aucun formulaire lié pour l'instant."; return; }
-  el.textContent = 'Chargement…';
+  if (!state.mainTableIdCache) { el.textContent = I18n.t('form.editor.noFormLinkedYet'); return; }
+  el.textContent = I18n.t('form.loadingGeneric');
   try {
     const data = await fetchMeta(state.mainTableIdCache);
     const count = (data.id || []).length;
-    el.innerHTML = `<p>${count} réponse${count > 1 ? 's' : ''} enregistrée${count > 1 ? 's' : ''} dans la table « ${esc(state.mainTableIdCache)} ».</p>
-      <p class="muted">Pour consulter le détail de chaque réponse, ouvrez cette table dans Grist.</p>`;
+    el.innerHTML = `<p>${I18n.t('form.editor.responsesCount', { n: count, table: esc(state.mainTableIdCache) })}</p>
+      <p class="muted">${I18n.t('form.editor.responsesHint')}</p>`;
   } catch (e) {
-    el.innerHTML = `<span class="err">Impossible de lire les réponses (${esc(e.message)}).</span>`;
+    el.innerHTML = `<span class="err">${I18n.t('form.editor.responsesReadError', { message: esc(e.message) })}</span>`;
   }
 }
 
@@ -374,11 +382,11 @@ export function cardShell(q, i, total, isNew) {
   const id = isNew ? '__new__' : q.id;
   return `<div class="qcard" data-id="${id}" data-kind="${isNew ? '' : q.kind}">
     <div class="qcard-toolbar">
-      ${!isNew ? `<span class="qgrip" draggable="true" data-qid="${id}" title="Glisser pour réordonner">${ICONS.grip}</span>
+      ${!isNew ? `<span class="qgrip" draggable="true" data-qid="${id}" title="${esc(I18n.t('form.editor.dragToReorder'))}">${ICONS.grip}</span>
       <div class="qcard-order">
-        <button type="button" class="icon-btn" data-move="up" data-qid="${id}" ${i === 0 ? 'disabled' : ''} title="Monter">${ICONS.arrowUp}</button>
-        <button type="button" class="icon-btn" data-move="down" data-qid="${id}" ${i === total - 1 ? 'disabled' : ''} title="Descendre">${ICONS.arrowDown}</button>
-      </div>` : `<span class="qcard-new-flag">${ICONS.plus}<span>Nouvelle question</span></span>`}
+        <button type="button" class="icon-btn" data-move="up" data-qid="${id}" ${i === 0 ? 'disabled' : ''} title="${esc(I18n.t('form.editor.moveUp'))}">${ICONS.arrowUp}</button>
+        <button type="button" class="icon-btn" data-move="down" data-qid="${id}" ${i === total - 1 ? 'disabled' : ''} title="${esc(I18n.t('form.editor.moveDown'))}">${ICONS.arrowDown}</button>
+      </div>` : `<span class="qcard-new-flag">${ICONS.plus}<span>${I18n.t('form.editor.newQuestionFlag')}</span></span>`}
     </div>
     <div class="qcard-body"></div>
   </div>`;
@@ -481,7 +489,7 @@ export function conditionSourceCandidates(excludeId) {
 // Combobox de recherche, remplace un <select> pour les listes de tables/colonnes qui peuvent
 // être longues. Filtre en tapant, ferme au clic extérieur, aucune dépendance externe.
 export function mountCombo(host, placeholder) {
-  host.innerHTML = `<div class="combo"><input type="text" class="combo-input" placeholder="${esc(placeholder || 'Rechercher…')}" autocomplete="off"><div class="combo-list hidden"></div></div>`;
+  host.innerHTML = `<div class="combo"><input type="text" class="combo-input" placeholder="${esc(placeholder || I18n.t('form.editor.searchPlaceholder'))}" autocomplete="off"><div class="combo-list hidden"></div></div>`;
   const input = host.querySelector('.combo-input');
   const listEl = host.querySelector('.combo-list');
   let items = [];
@@ -492,7 +500,7 @@ export function mountCombo(host, placeholder) {
     const filtered = items.filter(it => it.label.toLowerCase().includes(f));
     listEl.innerHTML = filtered.length
       ? filtered.map(it => `<div class="combo-opt" data-value="${esc(it.value)}">${esc(it.label)}</div>`).join('')
-      : `<div class="combo-empty">Aucun résultat</div>`;
+      : `<div class="combo-empty">${I18n.t('form.editor.noResults')}</div>`;
   }
   input.addEventListener('focus', () => { renderOptions(''); listEl.classList.remove('hidden'); });
   input.addEventListener('input', () => { renderOptions(input.value); listEl.classList.remove('hidden'); });
@@ -530,7 +538,7 @@ function wireKindSelector(body, kind, displayMode) {
     const layout = LAYOUT_KINDS.has(k);
     const kindDef = KINDS.find(x => x.id === k) || KINDS[0];
     body.querySelector('.qtype-pill-icon').innerHTML = kindDef.icon;
-    body.querySelector('.qtype-pill-label').textContent = kindDef.label;
+    body.querySelector('.qtype-pill-label').textContent = kindLabel(kindDef.id);
     body.querySelectorAll('.qtype-opt').forEach(b => b.classList.toggle('active', b.dataset.kind === k));
     body.querySelector('.qf-choice-fields').classList.toggle('hidden', !TABLE_SOURCED_KINDS.has(k));
     body.querySelector('.qf-fixed-options').classList.toggle('hidden', !FIXED_LIST_KINDS.has(k));
@@ -662,11 +670,11 @@ async function wireConditionEditor(body, q, condCandidates) {
     condRulesEl.innerHTML = condRules.map((r, i) => `
       <div class="qf-cond-rule" data-idx="${i}">
         <div class="qf-cond-rule-head">
-          <label>Afficher si</label>
-          ${condRules.length > 1 ? `<button type="button" class="icon-btn danger qf-cond-remove" data-idx="${i}" title="Retirer cette condition">${ICONS.trash}</button>` : ''}
+          <label>${I18n.t('form.editor.showIfLabel')}</label>
+          ${condRules.length > 1 ? `<button type="button" class="icon-btn danger qf-cond-remove" data-idx="${i}" title="${esc(I18n.t('form.editor.removeCondition'))}">${ICONS.trash}</button>` : ''}
         </div>
-        <select class="qf-condQ" data-idx="${i}"><option value="">— choisir une question —</option>${condCandidates.map(c => `<option value="${c.id}" ${c.id === r.questionId ? 'selected' : ''}>${esc(c.label)}</option>`).join('')}</select>
-        <label>égale</label><div class="qf-cond-value" data-idx="${i}"></div>
+        <select class="qf-condQ" data-idx="${i}"><option value="">${I18n.t('form.editor.pickQuestionOption')}</option>${condCandidates.map(c => `<option value="${c.id}" ${c.id === r.questionId ? 'selected' : ''}>${esc(c.label)}</option>`).join('')}</select>
+        <label>${I18n.t('form.editor.equalsLabel')}</label><div class="qf-cond-value" data-idx="${i}"></div>
       </div>`).join('');
     const rows = [...condRulesEl.querySelectorAll('.qf-cond-rule')];
     rows.forEach((row, i) => {
@@ -780,94 +788,94 @@ export async function renderCardBody(id, body) {
   const displayMode = q?.displayMode || 'dropdown';
   body.innerHTML = `
     <div class="qtitle-row">
-      <label for="qf-label-${id}" class="visually-hidden">Intitulé</label>
-      <input id="qf-label-${id}" class="qf-label" type="text" placeholder="Question sans titre" value="${esc(q?.label || '')}">
-      <label class="qf-required-row" title="Rendre obligatoire">
+      <label for="qf-label-${id}" class="visually-hidden">${I18n.t('form.editor.labelFieldSr')}</label>
+      <input id="qf-label-${id}" class="qf-label" type="text" placeholder="${esc(I18n.t('form.editor.untitledQuestion'))}" value="${esc(q?.label || '')}">
+      <label class="qf-required-row" title="${esc(I18n.t('form.editor.makeRequiredTitle'))}">
         <input type="checkbox" class="qf-required visually-hidden" ${q?.required ? 'checked' : ''}>
         <span class="req-star" aria-hidden="true">${ICONS.star}</span>
       </label>
     </div>
-    <label for="qf-desc-${id}" class="qf-desc-label-short visually-hidden">Description</label>
-    <input id="qf-desc-${id}" class="qf-desc" type="text" placeholder="Description (facultatif)" value="${esc(q?.description || '')}">
-    <label for="qf-desc-long-${id}" class="qf-desc-label-long hidden visually-hidden">Contenu du bloc</label>
-    <textarea id="qf-desc-long-${id}" class="qf-desc-long hidden" rows="4" placeholder="Texte affiché une fois le bloc déplié">${esc(q?.description || '')}</textarea>
+    <label for="qf-desc-${id}" class="qf-desc-label-short visually-hidden">${I18n.t('form.editor.descriptionFieldSr')}</label>
+    <input id="qf-desc-${id}" class="qf-desc" type="text" placeholder="${esc(I18n.t('form.editor.descriptionOptionalPlaceholder'))}" value="${esc(q?.description || '')}">
+    <label for="qf-desc-long-${id}" class="qf-desc-label-long hidden visually-hidden">${I18n.t('form.editor.blockContentLabel')}</label>
+    <textarea id="qf-desc-long-${id}" class="qf-desc-long hidden" rows="4" placeholder="${esc(I18n.t('form.editor.blockContentPlaceholder'))}">${esc(q?.description || '')}</textarea>
     <div class="qtype-pill-wrap">
       <button type="button" class="qtype-pill" data-role="type-toggle">
         <span class="qtype-pill-icon">${currentKind.icon}</span>
-        <span class="qtype-pill-label">${esc(currentKind.label)}</span>
+        <span class="qtype-pill-label">${esc(kindLabel(currentKind.id))}</span>
         ${ICONS.chevronDown}
       </button>
       <div class="qtype-popover hidden">
         ${KINDS.map(k => {
           const disabled = k.id === 'map' && k.id !== kind && !mapFeatureEnabled();
-          const title = disabled ? "Carte interactive désactivée sur cette version (nécessite une dépendance externe, voir le README)" : k.label;
+          const title = disabled ? I18n.t('form.editor.mapDisabledTitle') : kindLabel(k.id);
           return `<button type="button" class="qtype-opt${k.id === kind ? ' active' : ''}${disabled ? ' qtype-opt-disabled' : ''}" data-kind="${k.id}" title="${esc(title)}" ${disabled ? 'disabled' : ''}>${k.icon}</button>`;
         }).join('')}
       </div>
     </div>
     <div class="qf-choice-fields hidden">
-      <label class="qf-field-label">Table source</label><div class="combo-host" data-combo="srcTable"></div>
-      <label class="qf-field-label">Colonne affichée (libellé)</label><div class="combo-host" data-combo="srcCol"></div>
+      <label class="qf-field-label">${I18n.t('form.editor.sourceTableLabel')}</label><div class="combo-host" data-combo="srcTable"></div>
+      <label class="qf-field-label">${I18n.t('form.editor.displayedColumnLabel')}</label><div class="combo-host" data-combo="srcCol"></div>
     </div>
     <div class="qf-fixed-options hidden">
-      <label for="qf-choices-${id}" class="qf-field-label">Options (une par ligne)</label>
-      <textarea id="qf-choices-${id}" class="qf-choices" rows="4" placeholder="Option 1&#10;Option 2">${esc((q?.choices || []).join('\n'))}</textarea>
+      <label for="qf-choices-${id}" class="qf-field-label">${I18n.t('form.editor.optionsFieldLabel')}</label>
+      <textarea id="qf-choices-${id}" class="qf-choices" rows="4" placeholder="${I18n.t('form.editor.optionsPlaceholder')}">${esc((q?.choices || []).join('\n'))}</textarea>
       <label class="qf-other-option hidden checkbox-row">
         <input type="checkbox" class="qf-allow-other" ${q?.allowOther ? 'checked' : ''}>
-        <span>Permettre une réponse libre en plus (« Autre »)</span>
+        <span>${I18n.t('form.editor.allowOtherOption')}</span>
       </label>
     </div>
     <div class="qf-display-mode hidden">
-      <button type="button" class="qf-display-btn" data-display="dropdown" title="Menu déroulant">${ICONS.list}</button>
-      <button type="button" class="qf-display-btn" data-display="radio" title="Boutons radio">${ICONS.radio}</button>
+      <button type="button" class="qf-display-btn" data-display="dropdown" title="${esc(I18n.t('form.editor.displayDropdown'))}">${ICONS.list}</button>
+      <button type="button" class="qf-display-btn" data-display="radio" title="${esc(I18n.t('form.editor.displayRadio'))}">${ICONS.radio}</button>
     </div>
     <div class="qf-scale-fields hidden">
-      <label class="qf-field-label">Valeurs</label>
+      <label class="qf-field-label">${I18n.t('form.editor.valuesLabel')}</label>
       <div class="qf-scale-minmax">
-        <input type="number" class="qf-scale-min" value="${esc(q?.scaleMin ?? 1)}" aria-label="Minimum">
-        <span>à</span>
-        <input type="number" class="qf-scale-max" value="${esc(q?.scaleMax ?? 5)}" aria-label="Maximum">
+        <input type="number" class="qf-scale-min" value="${esc(q?.scaleMin ?? 1)}" aria-label="${esc(I18n.t('form.editor.minimumAria'))}">
+        <span>${I18n.t('form.editor.toSeparator')}</span>
+        <input type="number" class="qf-scale-max" value="${esc(q?.scaleMax ?? 5)}" aria-label="${esc(I18n.t('form.editor.maximumAria'))}">
       </div>
-      <label class="qf-field-label">Libellés aux extrémités (facultatif)</label>
+      <label class="qf-field-label">${I18n.t('form.editor.endpointLabelsLabel')}</label>
       <div class="qf-scale-minmax">
-        <input type="text" class="qf-scale-low" placeholder="Ex. Pas du tout" value="${esc(q?.scaleLowLabel || '')}">
-        <input type="text" class="qf-scale-high" placeholder="Ex. Tout à fait" value="${esc(q?.scaleHighLabel || '')}">
+        <input type="text" class="qf-scale-low" placeholder="${esc(I18n.t('form.editor.scaleLowPlaceholder'))}" value="${esc(q?.scaleLowLabel || '')}">
+        <input type="text" class="qf-scale-high" placeholder="${esc(I18n.t('form.editor.scaleHighPlaceholder'))}" value="${esc(q?.scaleHighLabel || '')}">
       </div>
     </div>
     <div class="qf-text-fields hidden">
       <div class="qf-write-col-field">
-        <label class="qf-field-label">Colonne de destination</label><div class="combo-host" data-combo="writeCol"></div>
+        <label class="qf-field-label">${I18n.t('form.editor.destColumnLabel')}</label><div class="combo-host" data-combo="writeCol"></div>
       </div>
-      <button type="button" class="qf-link" data-reveal="table">${ICONS.settings}<span>Écrire dans une autre table</span></button>
+      <button type="button" class="qf-link" data-reveal="table">${ICONS.settings}<span>${I18n.t('form.editor.writeToOtherTable')}</span></button>
       <div class="qf-table-override ${tableOverrideOpen ? '' : 'hidden'}">
-        <label class="qf-field-label">Table de destination</label><div class="combo-host" data-combo="writeTable"></div>
-        <p class="qf-choice-table-hint muted hidden">Ce type de question crée sa propre colonne (référence cachée) dans la table choisie : rien à régler pour la colonne, seulement la table.</p>
+        <label class="qf-field-label">${I18n.t('form.editor.destTableLabel')}</label><div class="combo-host" data-combo="writeTable"></div>
+        <p class="qf-choice-table-hint muted hidden">${I18n.t('form.editor.choiceTableHint')}</p>
       </div>
     </div>
     <label class="qf-capture-option hidden checkbox-row">
       <input type="checkbox" class="qf-allow-capture" ${q?.allowCapture ? 'checked' : ''}>
-      <span>Proposer la prise de photo directement (mobile)</span>
+      <span>${I18n.t('form.editor.allowCaptureOption')}</span>
     </label>
-    <p class="qf-attachments-hint muted hidden">⚠️ L'envoi de pièces jointes par un répondant échoue encore sur certaines instances Grist (limitation connue de Grist pour les fichiers envoyés de façon anonyme, pas un réglage de ce widget) : à tester sur votre instance avant de compter sur cette question.</p>
-    <p class="qf-signature-hint muted hidden">La signature est envoyée comme une image, dans une colonne « Pièces jointes » (même limitation d'envoi anonyme que ci-dessus sur certaines instances Grist, à tester avant de compter sur cette question).</p>
-    <p class="qf-map-hint muted hidden">Le point posé sur la carte est enregistré comme texte "latitude,longitude" dans une colonne Texte. Carte OpenStreetMap (bibliothèque Leaflet, chargée depuis un CDN) : seule question de ce widget à charger un script externe, grisée par défaut sur cette version (voir le README) — en son absence, le répondant saisit directement les coordonnées.</p>
-    <button type="button" class="qf-link" data-reveal="condition">${ICONS.branch}<span>Condition d'affichage</span></button>
+    <p class="qf-attachments-hint muted hidden">${I18n.t('form.editor.attachmentsHint')}</p>
+    <p class="qf-signature-hint muted hidden">${I18n.t('form.editor.signatureHint')}</p>
+    <p class="qf-map-hint muted hidden">${I18n.t('form.editor.mapHint')}</p>
+    <button type="button" class="qf-link" data-reveal="condition">${ICONS.branch}<span>${I18n.t('form.editor.conditionButton')}</span></button>
     <div class="qf-condition ${conditionOpen ? '' : 'hidden'}">
       <div class="qf-cond-mode hidden">
-        <button type="button" class="qf-cond-mode-btn" data-mode="all">Toutes vraies (ET)</button>
-        <button type="button" class="qf-cond-mode-btn" data-mode="any">Au moins une vraie (OU)</button>
+        <button type="button" class="qf-cond-mode-btn" data-mode="all">${I18n.t('form.editor.condModeAll')}</button>
+        <button type="button" class="qf-cond-mode-btn" data-mode="any">${I18n.t('form.editor.condModeAny')}</button>
       </div>
       <div class="qf-cond-rules"></div>
-      <button type="button" class="qf-link qf-cond-add">${ICONS.plus}<span>Ajouter une condition</span></button>
+      <button type="button" class="qf-link qf-cond-add">${ICONS.plus}<span>${I18n.t('form.editor.addCondition')}</span></button>
     </div>
     <p class="qf-msg muted"></p>
     <div class="qcard-footer">
       <div class="qcard-footer-left">
-        ${!isNew ? `<button type="button" class="icon-btn" data-dup title="Dupliquer">${ICONS.copy}</button><button type="button" class="icon-btn danger" data-del title="Supprimer">${ICONS.trash}</button>` : ''}
+        ${!isNew ? `<button type="button" class="icon-btn" data-dup title="${esc(I18n.t('form.editor.duplicateTitle'))}">${ICONS.copy}</button><button type="button" class="icon-btn danger" data-del title="${esc(I18n.t('form.editor.deleteTitle'))}">${ICONS.trash}</button>` : ''}
       </div>
       <div class="qcard-footer-right ${isNew ? '' : 'hidden'}">
-        <button type="button" class="qf-cancel">Annuler</button>
-        <button type="button" class="qf-save primary hidden">Enregistrer</button>
+        <button type="button" class="qf-cancel">${I18n.t('kit.cancel')}</button>
+        <button type="button" class="qf-save primary hidden">${I18n.t('form.editor.saveBtn')}</button>
       </div>
     </div>`;
 
@@ -907,18 +915,22 @@ export async function saveQuestionFromCard(id, body, existing, combos, { rerende
   const msg = body.querySelector('.qf-msg');
   const kind = body.querySelector('.qtype-opt.active')?.dataset.kind || 'text';
   const label = body.querySelector('.qf-label').value.trim() ||
-    (kind === 'choice' ? 'Votre choix' : kind === 'section' ? 'Section' : kind === 'info' ? "Bloc d'info" : kind === 'page' ? 'Nouvelle page' : 'Réponse');
+    (kind === 'choice' ? I18n.t('form.editor.defaultLabelChoice')
+      : kind === 'section' ? I18n.t('form.editor.defaultLabelSection')
+      : kind === 'info' ? I18n.t('form.editor.defaultLabelInfo')
+      : kind === 'page' ? I18n.t('form.editor.defaultLabelPage')
+      : I18n.t('form.editor.defaultLabelAnswer'));
   const description = (kind === 'info' ? body.querySelector('.qf-desc-long') : body.querySelector('.qf-desc')).value.trim();
   const condition = body.getCondition ? body.getCondition() : null;
 
   const done = (persisted) => {
     if (rerender) { state.expandedId = null; renderQuestionList(); return; }
-    saveMsg(msg, persisted, 'Enregistré.');
+    saveMsg(msg, persisted, I18n.t('form.editor.savedGeneric'));
     if (persisted) setTimeout(() => { if (msg.isConnected) msg.textContent = ''; }, 1500);
   };
 
   try {
-    msg.textContent = 'Enregistrement…';
+    msg.textContent = I18n.t('form.editor.saving');
     const q = { id: existing?.id || uid(), kind, label, description, condition };
     if (existing?.importedFrom) q.importedFrom = existing.importedFrom;
 
@@ -937,7 +949,7 @@ export async function saveQuestionFromCard(id, body, existing, combos, { rerende
     if (kind === 'scale') {
       q.scaleMin = Number(body.querySelector('.qf-scale-min').value) || 1;
       q.scaleMax = Number(body.querySelector('.qf-scale-max').value) || 5;
-      if (q.scaleMax <= q.scaleMin) { msg.innerHTML = '<span class="err">Le maximum doit être supérieur au minimum.</span>'; return; }
+      if (q.scaleMax <= q.scaleMin) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.scaleMaxError')}</span>`; return; }
       q.scaleLowLabel = body.querySelector('.qf-scale-low').value.trim();
       q.scaleHighLabel = body.querySelector('.qf-scale-high').value.trim();
     }
@@ -945,7 +957,7 @@ export async function saveQuestionFromCard(id, body, existing, combos, { rerende
     if (TABLE_SOURCED_KINDS.has(kind)) {
       q.sourceTable = combos.srcTable.value;
       q.sourceCol = combos.srcCol.value;
-      if (!q.sourceTable || !q.sourceCol) { msg.innerHTML = '<span class="err">Choisissez une table source et sa colonne affichée.</span>'; return; }
+      if (!q.sourceTable || !q.sourceCol) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.pickSourceTableCol')}</span>`; return; }
       // La colonne de destination est TOUJOURS la référence cachée que crée/retrouve
       // ensureChoiceField/ensureRefListField, jamais un choix libre : c'est ce qui garantit que
       // la lecture fonctionne aussi pour la session anonyme (voir docs/01, "piège visibleCol").
@@ -965,11 +977,11 @@ export async function saveQuestionFromCard(id, body, existing, combos, { rerende
     } else {
       if (FIXED_LIST_KINDS.has(kind)) {
         q.choices = body.querySelector('.qf-choices').value.split('\n').map(s => s.trim()).filter(Boolean);
-        if (!q.choices.length) { msg.innerHTML = '<span class="err">Ajoutez au moins une option (une par ligne).</span>'; return; }
+        if (!q.choices.length) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.addAtLeastOneOption')}</span>`; return; }
       }
       q.writeTable = combos.writeTable.value;
       q.writeCol = combos.writeCol.value;
-      if (!q.writeTable || !q.writeCol) { msg.innerHTML = '<span class="err">Choisissez la colonne où enregistrer la réponse.</span>'; return; }
+      if (!q.writeTable || !q.writeCol) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.pickDestColumn')}</span>`; return; }
       if (q.writeTable !== mainTableId) await ensureTableGate(q.writeTable, state.currentFormSection.viewRef);
     }
     upsertQuestion(q);
@@ -977,7 +989,7 @@ export async function saveQuestionFromCard(id, body, existing, combos, { rerende
     done(persisted);
     return q;
   } catch (e) {
-    msg.innerHTML = `<span class="err">Erreur : ${esc(e.message)}</span>`;
+    msg.innerHTML = `<span class="err">${I18n.t('form.editor.genericError', { message: esc(e.message) })}</span>`;
   }
 }
 
@@ -994,7 +1006,7 @@ export async function saveQuestionFromCard(id, body, existing, combos, { rerende
 // champs qu'il a lui-même importés).
 export async function importNativeFields() {
   const msg = $('import-msg');
-  msg.textContent = 'Lecture du formulaire natif…';
+  msg.textContent = I18n.t('form.editor.readingNativeForm');
   try {
     const r = await fetch(`${state.currentLink.api}/forms/${state.currentLink.vsId}`);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -1033,13 +1045,13 @@ export async function importNativeFields() {
       if (kind === 'choice' || kind === 'select') q.displayMode = o.formSelectFormat === 'radio' ? 'radio' : 'dropdown';
       if (TABLE_SOURCED_KINDS.has(kind)) {
         const colIdx = cols.colId.findIndex((c, i) => c === fl.colId && cols.parentId[i] === mainTableRef);
-        if (colIdx < 0) { skipped['Référence (introuvable)'] = (skipped['Référence (introuvable)'] || 0) + 1; continue; }
+        if (colIdx < 0) { const skipKey = I18n.t('form.editor.skipRefNotFound'); skipped[skipKey] = (skipped[skipKey] || 0) + 1; continue; }
         const m = REF_TYPE_RE[kind].exec(cols.type[colIdx] || '');
         const sourceTable = m ? m[1] : null;
         const visibleColRef = cols.visibleCol[colIdx];
         const visIdx = visibleColRef ? cols.id.indexOf(visibleColRef) : -1;
         const sourceCol = visIdx >= 0 ? cols.colId[visIdx] : 'id';
-        if (!sourceTable) { skipped['Référence (table introuvable)'] = (skipped['Référence (table introuvable)'] || 0) + 1; continue; }
+        if (!sourceTable) { const skipKey = I18n.t('form.editor.skipRefTableNotFound'); skipped[skipKey] = (skipped[skipKey] || 0) + 1; continue; }
         q.kind = kind;
         q.sourceTable = sourceTable;
         q.sourceCol = sourceCol;
@@ -1076,14 +1088,16 @@ export async function importNativeFields() {
       persisted = await saveConfig(state.options.publicUrl, state.options.viewRef);
       renderQuestionList();
     }
-    const skipMsg = Object.keys(skipped).length ? ` Ignorés (type non pris en charge pour l'instant) : ${Object.entries(skipped).map(([t, n]) => `${n} ${t}`).join(', ')}.` : '';
+    const skipMsg = Object.keys(skipped).length
+      ? I18n.t('form.editor.skippedTypes', { list: Object.entries(skipped).map(([t, n]) => `${n} ${t}`).join(', ') })
+      : '';
     if (imported.length) {
-      saveMsg(msg, persisted, `${imported.length} champ(s) importé(s).${skipMsg}`);
+      saveMsg(msg, persisted, `${I18n.t('form.editor.importedCount', { n: imported.length })}${skipMsg}`);
     } else {
-      msg.innerHTML = `<span class="muted">Rien à importer.${skipMsg || ' Tous les champs sont déjà pris en charge ou déjà importés.'}</span>`;
+      msg.innerHTML = `<span class="muted">${I18n.t('form.editor.nothingToImport')}${skipMsg || I18n.t('form.editor.allFieldsHandled')}</span>`;
     }
   } catch (e) {
-    msg.innerHTML = `<span class="err">Erreur : ${esc(e.message)}</span>`;
+    msg.innerHTML = `<span class="err">${I18n.t('form.editor.genericError', { message: esc(e.message) })}</span>`;
   }
 }
 
@@ -1095,7 +1109,12 @@ export async function importNativeFields() {
 // n'est touchée, seule la définition des questions l'est.
 export async function resetQuestions() {
   if (!state.cfgQuestions.length) return;
-  const ok = confirm('Retirer toutes les questions supplémentaires de ce widget ? Les champs natifs importés redeviendront visibles dans le formulaire natif. Les réponses déjà enregistrées ne sont pas touchées.');
+  const ok = await Dialogs.confirm({
+    title: I18n.t('form.main.resetBtn'),
+    message: I18n.t('form.editor.resetConfirmMsg'),
+    confirmLabel: I18n.t('form.editor.resetConfirmBtn'),
+    danger: true,
+  });
   if (!ok) return;
   const msg = $('import-msg');
   try {
@@ -1118,9 +1137,9 @@ export async function resetQuestions() {
     state.expandedId = null;
     const persisted = await saveConfig(state.options.publicUrl, state.options.viewRef);
     renderQuestionList();
-    saveMsg(msg, persisted, 'Questions réinitialisées.');
+    saveMsg(msg, persisted, I18n.t('form.editor.questionsReset'));
   } catch (e) {
-    msg.innerHTML = `<span class="err">Erreur : ${esc(e.message)}</span>`;
+    msg.innerHTML = `<span class="err">${I18n.t('form.editor.genericError', { message: esc(e.message) })}</span>`;
   }
 }
 
@@ -1187,7 +1206,7 @@ export async function showConfig() {
 // clé secrète que « Publier » crée, voir findExistingShareKey et docs/01-etude-comparative.md).
 export async function populateFormPicker() {
   const sel = $('formPicker');
-  sel.innerHTML = '<option value="">Chargement…</option>';
+  sel.innerHTML = `<option value="">${I18n.t('form.loadingGeneric')}</option>`;
   try {
     const sections = await fetchMeta('_grist_Views_section');
     const tables = await fetchMeta('_grist_Tables');
@@ -1207,10 +1226,10 @@ export async function populateFormPicker() {
     }
     state.formPickerItems = items;
     sel.innerHTML = items.length
-      ? '<option value="">— choisir —</option>' + items.map(it => `<option value="${it.vsId}">${esc(it.tableId)}${it.published ? '' : ' (non publié)'}</option>`).join('')
-      : '<option value="">Aucun formulaire natif trouvé dans ce document</option>';
+      ? `<option value="">${I18n.t('form.editor.pickGeneric')}</option>` + items.map(it => `<option value="${it.vsId}">${esc(it.tableId)}${it.published ? '' : I18n.t('form.editor.notPublishedSuffix')}</option>`).join('')
+      : `<option value="">${I18n.t('form.editor.noNativeFormFound')}</option>`;
   } catch (e) {
-    sel.innerHTML = '<option value="">Liste indisponible</option>';
+    sel.innerHTML = `<option value="">${I18n.t('form.editor.listUnavailable')}</option>`;
     diag({ event: 'populateFormPicker-failed', message: e.message });
   }
 }
@@ -1221,19 +1240,19 @@ $('formPicker').addEventListener('change', async () => {
   const item = state.formPickerItems.find(it => it.vsId === vsId);
   if (!item) return;
   if (!item.published) {
-    msg.innerHTML = `<span class="err">Ce formulaire n'est pas encore publié. Ouvrez-le sur sa page, cliquez sur <strong>Publier</strong>, puis <strong>Copier le lien</strong> et collez-le ci-dessous.</span>`;
+    msg.innerHTML = `<span class="err">${I18n.t('form.editor.formNotPublishedYet')}</span>`;
     return;
   }
-  msg.textContent = "Recherche de l'adresse déjà publiée…";
+  msg.textContent = I18n.t('form.editor.lookingUpPublishedUrl');
   const key = await findExistingShareKey(item.viewRef);
   const origin = hostOrgFromReferrer();
   if (!key || !origin) {
-    msg.innerHTML = `<span class="err">Adresse publiée non retrouvée automatiquement. Ouvrez ce formulaire, <strong>Copier le lien</strong>, et collez-le ci-dessous.</span>`;
+    msg.innerHTML = `<span class="err">${I18n.t('form.editor.publishedUrlNotFound')}</span>`;
     return;
   }
   const base = origin.org ? `${origin.host}/o/${origin.org}` : origin.host;
   $('link').value = `${base}/forms/${key}/${item.vsId}`;
-  msg.innerHTML = '<span class="ok">Adresse retrouvée automatiquement.</span>';
+  msg.innerHTML = `<span class="ok">${I18n.t('form.editor.urlFoundAuto')}</span>`;
   await generate();
 });
 

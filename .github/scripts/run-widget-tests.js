@@ -33,7 +33,11 @@ async function runOnce(browser, locale) {
   const page = await context.newPage();
   const consoleErrors = [];
   page.on('pageerror', (e) => consoleErrors.push('PAGEERROR: ' + e.message));
-  page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push('CONSOLE ERROR: ' + m.text()); });
+  // Un avertissement compte comme un échec, pas seulement une erreur : le kit (once.js, i18n.js)
+  // avertit par console.warn, jamais console.error, pour un module chargé deux fois, une clé
+  // inconnue, une clé redéfinie ou une traduction manquante — autant de bugs d'intégration que ce
+  // job doit détecter plutôt que laisser passer silencieusement.
+  page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') consoleErrors.push(`CONSOLE ${m.type().toUpperCase()}: ${m.text()}`); });
 
   await page.goto(`http://localhost:${port}/poc/widget.html#test`, { waitUntil: 'networkidle' });
   // Attend la fin réelle de la suite (« N / N tests réussis », avec ou sans échec), pas la simple

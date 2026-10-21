@@ -3,25 +3,27 @@ import { ICONS } from './icons.js';
 // Types de question disponibles dans l'éditeur (question supplémentaire ou import de champ natif).
 // 'section' et 'info' ne collectent aucune réponse : ce sont des blocs de mise en page insérés
 // dans la même liste, réordonnables comme les autres (mêmes cartes, mêmes conditions d'affichage).
+// Le libellé affiché n'est pas ici : il vient de I18n.t('form.editor.kind.<id>') (poc/js/strings.js,
+// config-editor.js/kindLabel), pour rester FR/EN comme le reste de l'interface.
 export const KINDS = [
-  { id: 'text', label: 'Texte', icon: ICONS.text },
-  { id: 'longtext', label: 'Texte long', icon: ICONS.paragraph },
-  { id: 'number', label: 'Nombre', icon: ICONS.hash },
-  { id: 'date', label: 'Date', icon: ICONS.calendar },
-  { id: 'datetime', label: 'Date et heure', icon: ICONS.calendar },
-  { id: 'bool', label: 'Oui / non', icon: ICONS.toggleOn },
-  { id: 'select', label: 'Choix (liste fixe)', icon: ICONS.list },
-  { id: 'multiselect', label: 'Choix multiples (liste fixe)', icon: ICONS.checkSquare },
-  { id: 'choice', label: 'Choix depuis une table', icon: ICONS.table },
-  { id: 'reflist', label: 'Liste de références', icon: ICONS.layers },
-  { id: 'scale', label: 'Échelle', icon: ICONS.slider },
-  { id: 'ranking', label: 'Classement', icon: ICONS.ranking },
-  { id: 'signature', label: 'Signature / dessin', icon: ICONS.pen },
-  { id: 'map', label: 'Lieu sur carte', icon: ICONS.pin },
-  { id: 'attachments', label: 'Pièces jointes', icon: ICONS.paperclip },
-  { id: 'section', label: 'Titre de section', icon: ICONS.heading },
-  { id: 'info', label: "Bloc d'info repliable", icon: ICONS.info },
-  { id: 'page', label: 'Nouvelle page', icon: ICONS.pageBreak },
+  { id: 'text', icon: ICONS.text },
+  { id: 'longtext', icon: ICONS.paragraph },
+  { id: 'number', icon: ICONS.hash },
+  { id: 'date', icon: ICONS.calendar },
+  { id: 'datetime', icon: ICONS.calendar },
+  { id: 'bool', icon: ICONS.toggleOn },
+  { id: 'select', icon: ICONS.list },
+  { id: 'multiselect', icon: ICONS.checkSquare },
+  { id: 'choice', icon: ICONS.table },
+  { id: 'reflist', icon: ICONS.layers },
+  { id: 'scale', icon: ICONS.slider },
+  { id: 'ranking', icon: ICONS.ranking },
+  { id: 'signature', icon: ICONS.pen },
+  { id: 'map', icon: ICONS.pin },
+  { id: 'attachments', icon: ICONS.paperclip },
+  { id: 'section', icon: ICONS.heading },
+  { id: 'info', icon: ICONS.info },
+  { id: 'page', icon: ICONS.pageBreak },
 ];
 export const LAYOUT_KINDS = new Set(['section', 'info', 'page']); // ne collectent pas de réponse
 export const SINGLE_CHOICE_KINDS = new Set(['select', 'choice']); // peuvent s'afficher en menu ou en radio

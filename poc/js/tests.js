@@ -1,6 +1,8 @@
 import { $, show } from './dom.js';
 import { parseFormLink, buildPublicUrl, parseCustomView, migrateLegacy, hostOrgFromReferrer, normalizeCondition } from './links.js';
-import { hexToRgb, softenColor, contrastText } from './theme.js';
+import { hexToRgb, softenColor, contrastText, applyBranding } from './theme.js';
+import { I18n, KIT_STRINGS } from '../../kit/js/i18n.js';
+import { STRINGS } from './strings.js';
 import { KINDS, LAYOUT_KINDS, TABLE_SOURCED_KINDS, FIXED_LIST_KINDS, mapFeatureEnabled } from './kinds.js';
 import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet, splitIntoPages, wirePages } from './respond.js';
 import {
@@ -980,13 +982,15 @@ export async function runTests() {
         : (t === '_grist_Views_section' ? { id: [1], parentId: [5], parentKey: ['custom'], tableRef: [1], options: ['{}'] } : {}),
     });
     window.grist = grist;
-    const origConfirm = window.confirm;
-    window.confirm = () => true;
     state.cfgQuestions = [{ id: 'q1', kind: 'text', label: 'Importée', importedFrom: '10' }, { id: 'q2', kind: 'number', label: 'Manuelle' }];
     state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
     state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1 };
-    await resetQuestions();
-    window.confirm = origConfirm;
+    // resetQuestions() ouvre la confirmation du kit (Dialogs.confirm, plus de window.confirm) :
+    // la fenêtre est déjà affichée au retour de l'appel (synchrone jusqu'au premier await), on
+    // clique son bouton principal « Réinitialiser » avant d'attendre la fin de resetQuestions().
+    const resetDone = resetQuestions();
+    document.querySelector('#pp-dialog-modal .pp-modal-primary').click();
+    await resetDone;
     assertEqual('liste vidée', state.cfgQuestions, []);
     const unhideActions = calls.filter(a => a[0][0] === 'UpdateRecord' && a[0][1] === '_grist_Views_section_field');
     assertEqual('un seul champ démasqué (le champ importé, pas le manuel)', unhideActions.length, 1);
@@ -1141,7 +1145,10 @@ export async function runTests() {
     $('link').value = '';
     $('formPicker').dispatchEvent(new Event('change'));
     await tick();
-    assert('message explicite : publier puis copier le lien', $('formPicker-msg').innerHTML.includes('Publier'));
+    // Indépendant de la langue active (I18n.t) : le texte français en dur ferait échouer ce test
+    // en anglais (voir kit, I18n.setLanguage et run-widget-tests.js, qui joue la suite en fr-FR
+    // ET en en-US).
+    assertEqual('message explicite : publier puis copier le lien', $('formPicker-msg').innerHTML, `<span class="err">${I18n.t('form.editor.formNotPublishedYet')}</span>`);
     assertEqual('le champ lien manuel reste vide (aucune tentative)', $('link').value, '');
   });
 
@@ -1661,6 +1668,28 @@ export async function runTests() {
     assertEqual('question annexe texte obligatoire remplie d’espaces -> invalide', formEl.querySelector('[data-extra="q1"]').classList.contains('invalid'), true);
     assertEqual('oui/non obligatoire non cochée -> invalide', formEl.querySelector('[data-extra="q2"]').classList.contains('invalid'), true);
     assertEqual('aucun envoi tant que des champs obligatoires ne sont pas valides', submitted, false);
+  });
+
+  await group('I18n : chaque clé du dictionnaire (kit.* et form.*) a le français et l\'anglais', () => {
+    const allEntries = { ...KIT_STRINGS, ...STRINGS };
+    const missing = Object.entries(allEntries)
+      .filter(([, v]) => !v || typeof v.fr !== 'string' || !v.fr || typeof v.en !== 'string' || !v.en)
+      .map(([k]) => k);
+    assertEqual('aucune clé sans français ou sans anglais', missing, []);
+  });
+
+  await group('applyBranding : la couleur personnalisée va sur #fill, jamais sur <html>', () => {
+    // Piège mesuré par GFS (consigne 005) : poser les jetons d'accent sur document.documentElement
+    // les ferait fuir sur l'écran du concepteur et sur les fenêtres du kit (partagées avec toute
+    // la page), pas seulement sur le rendu du répondant.
+    document.documentElement.style.removeProperty('--accent');
+    applyBranding({ accentColor: '#e5484d' });
+    assertEqual('rien posé sur <html>', document.documentElement.style.getPropertyValue('--accent'), '');
+    assertEqual('--accent posé sur #fill', $('fill').style.getPropertyValue('--accent'), '#e5484d');
+    assertEqual('--accent-solid posé sur #fill', $('fill').style.getPropertyValue('--accent-solid'), '#e5484d');
+    assert('--on-accent posé sur #fill', !!$('fill').style.getPropertyValue('--on-accent'));
+    applyBranding({}); // sans couleur : les jetons posés plus haut sont retirés, pas juste vidés
+    assertEqual('--accent retiré de #fill sans couleur choisie', $('fill').style.getPropertyValue('--accent'), '');
   });
 
   // Restauration de l'état global et des stubs, pour ne rien laisser fuiter si la page reste ouverte.
