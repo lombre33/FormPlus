@@ -8,13 +8,37 @@ export const KINDS = [
   { id: 'longtext', label: 'Texte long', icon: ICONS.paragraph },
   { id: 'number', label: 'Nombre', icon: ICONS.hash },
   { id: 'date', label: 'Date', icon: ICONS.calendar },
+  { id: 'datetime', label: 'Date et heure', icon: ICONS.calendar },
   { id: 'bool', label: 'Oui / non', icon: ICONS.toggleOn },
   { id: 'select', label: 'Choix (liste fixe)', icon: ICONS.list },
   { id: 'multiselect', label: 'Choix multiples (liste fixe)', icon: ICONS.checkSquare },
   { id: 'choice', label: 'Choix depuis une table', icon: ICONS.table },
+  { id: 'reflist', label: 'Liste de références', icon: ICONS.layers },
+  { id: 'scale', label: 'Échelle', icon: ICONS.slider },
+  { id: 'ranking', label: 'Classement', icon: ICONS.ranking },
+  { id: 'signature', label: 'Signature / dessin', icon: ICONS.pen },
+  { id: 'map', label: 'Lieu sur carte', icon: ICONS.pin },
   { id: 'attachments', label: 'Pièces jointes', icon: ICONS.paperclip },
   { id: 'section', label: 'Titre de section', icon: ICONS.heading },
   { id: 'info', label: "Bloc d'info repliable", icon: ICONS.info },
 ];
 export const LAYOUT_KINDS = new Set(['section', 'info']); // ne collectent pas de réponse
 export const SINGLE_CHOICE_KINDS = new Set(['select', 'choice']); // peuvent s'afficher en menu ou en radio
+// Types dont la réponse n'a pas de valeur simple à comparer dans une condition d'affichage : un
+// fichier (attachments, signature), un point de carte (map) et un ordre (ranking) n'ont pas
+// d'égalité qui ait du sens question par question ; une liste de références (reflist) est
+// exclue pour la même raison que ChoiceList/multiselect ne l'était pas dès le départ — exposer
+// un à un les identifiants de lignes référencées n'aiderait personne à écrire une condition.
+export const NON_COMPARABLE_KINDS = new Set(['attachments', 'signature', 'map', 'ranking', 'reflist']);
+// Types sans valeurs prédéfinies à choisir dans une liste pour la cellule "égale" d'une
+// condition : saisie libre plutôt qu'un combo de recherche (voir wireConditionEditor,
+// config-editor.js). 'scale' est un nombre comme 'number' ; 'datetime' prend un sélecteur natif
+// plutôt qu'un champ texte générique.
+export const FREE_ENTRY_KINDS = new Set(['number', 'text', 'longtext', 'scale', 'datetime']);
+// Types dont les options (table source + colonne affichée) viennent d'une autre table, comme
+// 'choice', et qui gèrent donc eux aussi leur propre colonne de destination cachée (voir
+// ensureChoiceField / ensureRefListField) plutôt qu'une colonne choisie à la main.
+export const TABLE_SOURCED_KINDS = new Set(['choice', 'reflist']);
+// Types dont la liste d'options fixes se règle comme pour 'select'/'multiselect' (une option par
+// ligne) : 'ranking' classe les mêmes options plutôt que d'en choisir une ou plusieurs.
+export const FIXED_LIST_KINDS = new Set(['select', 'multiselect', 'ranking']);
