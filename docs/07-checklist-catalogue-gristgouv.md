@@ -1,5 +1,14 @@
 # Checklist concrète : inscription de FormPlus au catalogue `gristgouv/widgets-config`
 
+**Abandonné le 21 octobre 2026, quelques heures après la rédaction de ce document.** Le README de
+`gristgouv/widgets-config` dit explicitement : « Configuration for the list of custom widgets
+offered on the LaSuite and ANCT Grist instances. » — ce catalogue sert les instances **LaSuite et
+ANCT**, pas l'instance **DINUM** qu'Antoine utilise réellement. Y inscrire FormPlus ne l'aurait
+donc pas rendu visible là où ça compte. Document gardé tel quel ci-dessous à titre de référence
+(le travail de recherche sur le format réel du dépôt reste valable si la question se repose pour
+une autre instance), mais **ne pas relancer cette PR sans vérifier d'abord si DINUM a son propre
+catalogue équivalent.**
+
 Date : 21 octobre 2026. Objectif mentionné depuis le POC (`03-roadmap-priorites.md`, section « Qualité, à ne pas laisser de côté ») et jamais détaillé jusqu'ici. Ce document comble ce manque : il décrit ce que le dépôt **exige réellement** (vérifié en lisant son contenu en direct, pas supposé), prépare les pièces à copier-coller le jour venu, et liste les captures d'écran déjà prises.
 
 **Aucune pull request n'a été ouverte vers `gristgouv/widgets-config`.** C'est un dépôt externe, l'action est publique et visible par l'équipe qui l'audite (DINUM/ANCT) : elle attend le feu vert explicite d'Antoine. Tout ce qui suit est un brouillon prêt à l'emploi dans **notre** dépôt.

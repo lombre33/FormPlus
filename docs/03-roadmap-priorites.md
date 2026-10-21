@@ -109,8 +109,8 @@ les deux divergent (stockage de la définition, TypeScript/Vite jamais introduit
 - ~~Conditions d'affichage ouvertes à tous les types de question~~, ~~« Choix depuis une table » écrivant dans une autre table~~ et ~~secours `#form=` réparé~~ faits le 29 septembre 2026 (écarts relevés par l'audit du 21 septembre, voir bilan ci-dessus) : ne reste hors périmètre qu'un champ natif Grist non importé comme source/cible de condition, reporté à la fusion native/questions ci-dessus.
 
 **Qualité, à ne pas laisser de côté avant de considérer V1 vraiment fini :**
-- Vérification d'accessibilité réelle (lecteur d'écran) sur l'écran répondant : le principe RGAA est posé depuis le début mais n'a encore été vérifié qu'à l'œil, jamais avec un lecteur d'écran.
-- Checklist concrète pour l'inscription au catalogue `gristgouv/widgets-config` (README au format attendu par ce dépôt, captures d'écran, ouverture de la pull request) : objectif mentionné depuis le POC, jamais détaillé en tâche actionnable.
+- ~~Vérification d'accessibilité réelle~~ faite le 21 octobre 2026 : audit axe-core (pas à l'œil) sur la vue répondant, plusieurs correctifs ARIA/labels poussés sur `main`. Détail dans `docs/07-checklist-catalogue-gristgouv.md` n'en parle pas (sans rapport) — voir l'historique Git du 21 oct pour le détail des correctifs.
+- **Inscription au catalogue `gristgouv/widgets-config` : abandonnée le 21 octobre 2026.** Checklist et brouillon de PR préparés (`docs/07-checklist-catalogue-gristgouv.md`), puis Antoine a fait remarquer que ce catalogue ne sert que les instances **LaSuite et ANCT** (lu tel quel dans le README du dépôt), pas l'instance **DINUM** qu'il utilise réellement — y être listé ne l'aurait donc pas rendu visible là où ça compte. Ne pas retenter cette piste sans d'abord vérifier si DINUM a son propre catalogue équivalent.
 
 ### V2, forte valeur, plus technique
 
