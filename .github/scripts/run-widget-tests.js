@@ -3,6 +3,10 @@
 // (Playwright) et fait échouer le job si un test de la suite interne échoue. La suite elle-même
 // (poc/js/tests.js) est entièrement hors ligne : aucune requête réseau réelle, aucun document
 // Grist touché. Voir docs/04-architecture.md, section "Suite de tests".
+// Jouée deux fois (kit commun, consigne 005 point 2.5.2) : le Chromium de la CI est en anglais,
+// et la suite lirait de l'anglais là où elle attend du français si on ne forçait pas la langue —
+// un essai qui compare un texte de l'interface le compare à I18n.t(clé), jamais à du français
+// écrit en dur, donc les deux langues doivent passer, pas seulement celle du conteneur.
 'use strict';
 const { chromium } = require('playwright');
 const http = require('http');
@@ -22,16 +26,24 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(port, async () => {
-  const browser = await chromium.launch();
-  const page = await browser.newPage();
+async function runOnce(browser, locale) {
+  // locale pilote navigator.language/navigator.languages (Playwright) : I18n (kit) les lit à
+  // l'init faute de langue stockée ou donnée par GFS (browserLanguage, kit/js/i18n.js).
+  const context = await browser.newContext({ locale });
+  const page = await context.newPage();
   const consoleErrors = [];
   page.on('pageerror', (e) => consoleErrors.push('PAGEERROR: ' + e.message));
   page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push('CONSOLE ERROR: ' + m.text()); });
 
   await page.goto(`http://localhost:${port}/poc/widget.html#test`, { waitUntil: 'networkidle' });
+  // Attend la fin réelle de la suite (« N / N tests réussis », avec ou sans échec), pas la simple
+  // présence d'un texte : « Exécution… » (poc/js/tests.js) est lui aussi non vide, et un module
+  // chargé par le réseau local peut laisser le temps à une frame de l'afficher avant la fin.
   await page.waitForFunction(
-    () => document.getElementById('test-summary') && document.getElementById('test-summary').textContent.trim().length > 0,
+    () => {
+      const el = document.getElementById('test-summary');
+      return !!(el && /\d+\s*\/\s*\d+/.test(el.textContent || ''));
+    },
     { timeout: 60000 },
   );
 
@@ -39,17 +51,22 @@ server.listen(port, async () => {
   const log = (await page.textContent('#test-log')) || '';
   const failLines = log.split('\n').filter((l) => l.startsWith('✗'));
 
-  console.log(summary);
-  if (failLines.length) {
-    console.log('\nÉchecs :\n' + failLines.join('\n'));
-  }
-  if (consoleErrors.length) {
-    console.log('\nErreurs console :\n' + consoleErrors.join('\n'));
+  await context.close();
+  return { locale, summary, failLines, consoleErrors };
+}
+
+server.listen(port, async () => {
+  const browser = await chromium.launch();
+  let anyFailed = false;
+  for (const locale of ['fr-FR', 'en-US']) {
+    const { summary, failLines, consoleErrors } = await runOnce(browser, locale);
+    console.log(`[${locale}] ${summary}`);
+    if (failLines.length) console.log(`[${locale}] Échecs :\n` + failLines.join('\n'));
+    if (consoleErrors.length) console.log(`[${locale}] Erreurs console :\n` + consoleErrors.join('\n'));
+    if (failLines.length > 0 || /\d+ échec/.test(summary) || consoleErrors.length > 0) anyFailed = true;
   }
 
   await browser.close();
   server.close();
-
-  const failed = failLines.length > 0 || /\d+ échec/.test(summary) || consoleErrors.length > 0;
-  process.exit(failed ? 1 : 0);
+  process.exit(anyFailed ? 1 : 0);
 });

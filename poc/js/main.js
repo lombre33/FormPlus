@@ -3,7 +3,10 @@
 // charger — et à câbler leurs propres écouteurs — tous les autres modules du widget.
 import { $, show } from './dom.js';
 import { ICONS } from './icons.js';
-import { getStoredTheme, setStoredTheme, applyTheme, applyBranding, effectiveDark } from './theme.js';
+import { Theme } from '../../kit/js/theme.js';
+import { I18n } from '../../kit/js/i18n.js';
+import { applyBranding, updateThemeToggleIcon } from './theme.js';
+import { STRINGS } from './strings.js';
 import { diag, hashParams, fragmentFormLink } from './diag.js';
 import { runRepair } from './grist-meta.js';
 import { state } from './state.js';
@@ -12,16 +15,26 @@ import { renderFill } from './respond.js';
 import { runTests } from './tests.js';
 import { loadPluginApi } from './plugin-loader.js';
 
-$('qadd').innerHTML = ICONS.plus + '<span>Ajouter une question</span>';
-$('qimport').innerHTML = ICONS.download + '<span>Importer les champs du formulaire natif</span>';
-$('qreset').innerHTML = ICONS.refresh + '<span>Réinitialiser les questions</span>';
+// Thème et langue d'abord, avant que rien ne soit dessiné (sinon la page s'affiche en clair, en
+// français, puis bascule — kit/README.md). Pas encore de langue venue de GFS (client du courtier,
+// étape 5) : stockage par navigateur, sinon celle du navigateur lui-même.
+Theme.init({ storageKey: 'formplus_theme' });
+I18n.add(STRINGS);
+I18n.init({ storageKey: 'formplus_lang' });
+I18n.translateDom();
+I18n.onChange(() => I18n.translateDom());
+
+$('qadd').innerHTML = ICONS.plus + `<span>${I18n.t('form.main.addQuestionBtn')}</span>`;
+$('qimport').innerHTML = ICONS.download + `<span>${I18n.t('form.main.importBtn')}</span>`;
+$('qreset').innerHTML = ICONS.refresh + `<span>${I18n.t('form.main.resetBtn')}</span>`;
 $('qrToggle').innerHTML = ICONS.qrcode;
+$('scratchTable').value = I18n.t('form.scratch.defaultTableName');
 document.querySelectorAll('.start-tile-icon[data-icon]').forEach(el => { el.innerHTML = ICONS[el.dataset.icon] || ''; });
 
 // applyBranding dépend de `state.options`, pas encore chargé à ce stade du démarrage : appelée
-// séparément, jamais depuis applyTheme lui-même.
-$('themeToggle').addEventListener('click', () => { const next = effectiveDark() ? 'light' : 'dark'; setStoredTheme(next); applyTheme(next); applyBranding(state.options); });
-applyTheme(getStoredTheme());
+// séparément, jamais depuis le thème lui-même.
+updateThemeToggleIcon();
+$('themeToggle').addEventListener('click', () => { Theme.set(Theme.isDark() ? 'light' : 'dark'); updateThemeToggleIcon(); applyBranding(state.options); });
 
 (async () => {
   // Suite de non-régression, hors ligne, indépendante de Grist : mêmes conditions qu'un vrai
