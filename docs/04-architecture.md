@@ -24,9 +24,9 @@ sans cette étape : c'est le compromis retenu ici.
 - **Écran répondant** (`renderFill`) : lit `/forms/<clé>/<section>` via l'API REST anonyme,
   affiche les champs natifs puis les questions supplémentaires, valide et envoie.
 
-Le mode dépend des options déjà enregistrées (`options.formLink` présent ou non) et du fragment
-d'URL : `#test` (suite de tests), `#repair` (réparation d'une configuration corrompue), `#form=`
-(secours hors iframe). Voir `poc/README-poc.md` pour le détail de chaque mode.
+Le mode dépend de la Definition déjà enregistrée (`formLink` présent ou non, voir plus bas « Où vit
+la configuration ») et du fragment d'URL : `#test` (suite de tests), `#form=` (secours hors
+iframe). Voir `poc/README-poc.md` pour le détail de chaque mode.
 
 ## Modules (`poc/js/`)
 
@@ -41,7 +41,7 @@ Un rôle par fichier, chargé depuis `main.js` (le seul `<script type="module">`
 | `links.js` | Analyse du lien de formulaire, décodage des options stockées, migration de l'ancien format |
 | `diag.js` | Journal de diagnostic affiché dans les écrans (`#diag`, `#diag-fill`) |
 | `state.js` | État mutable partagé entre l'écran de configuration et le rendu répondant (un seul objet, voir plus bas) |
-| `grist-meta.js` | Lecture des métadonnées du document (`_grist_Views_section`, `_grist_Shares`…), `ensureTableGate`, `ensureChoiceField`, `probeCanEdit`, `runRepair` |
+| `grist-meta.js` | Lecture des métadonnées du document (`_grist_Views_section`…), table `FormPlus_Formulaires` (`ensureFormulairesTable`, `saveFormDefinition`, `resolveMyDefinition`, `fetchManagedVsIds`), `ensureTableGate`, `ensureChoiceField`, `probeCanEdit` |
 | `config-editor.js` | Tout l'écran de configuration : questions, apparence, import des champs natifs |
 | `respond.js` | Tout le rendu répondant : champs natifs et questions supplémentaires, soumission |
 | `plugin-loader.js` | Charge `grist-plugin-api.js` depuis l'origine qui héberge le widget |
@@ -62,14 +62,22 @@ modifierait et verrait changer ; un objet partagé, si.
 
 ### Où vit la configuration
 
-Aucune table `FormBuilder_Forms`. La définition (lien du formulaire, questions, apparence) est
-sérialisée en JSON et stockée dans `_grist_Views_section.options.customView.widgetOptions` — les
-options de la section qui porte LE WIDGET LUI-MÊME, pas une table du document. C'est ce qui
-permet à `persistOptions` de rendre la configuration visible à toute session (y compris anonyme)
-sans dépendre de `grist.setOptions` (qui ne modifie que la session du concepteur). C'est aussi ce
-qui a rendu nécessaires les deux outils de réparation (`#repair` et `poc/repair_section_options.py`) :
-une valeur mal sérialisée à cet endroit précis casse le chargement de toute la page Grist qui
-porte le widget, pas seulement le widget.
+Depuis l'entrée dans GFS (consigne 007, voir `GFS-ETAT.md`), la définition de chaque formulaire
+(lien du formulaire, questions, apparence) est une ligne de la table du document
+`FormPlus_Formulaires` — colonne `Definition`, la définition entière en JSON. Chaque instance du
+widget retrouve sa propre ligne via `IdSectionWidget` (l'id de la section qui héberge le widget
+lui-même, auto-découverte par `findMySection`/référent, voir `resolveMyDefinition`) ; un répondant
+anonyme la lit via l'API REST du partage (`ensureTableGate` ouvre l'accès en lecture à cette
+table), en comparant `Definition.vsId` (l'id du formulaire natif) à celui de son lien.
+
+Avant la 007, la définition était sérialisée dans
+`_grist_Views_section.options.customView.widgetOptions` — les options de la section qui porte LE
+WIDGET LUI-MÊME. GFS a mesuré que son courtier refuse toute écriture de `options` (une app ne
+maîtrise jamais l'adresse/l'accès d'un widget hébergé) ; c'est resté lisible pour les formulaires
+pas encore migrés (migration à leur premier enregistrement, voir `resolveMyDefinition`). Un
+formulaire mal sérialisé à cet endroit cassait le chargement de toute la page Grist qui porte le
+widget ; `poc/repair_section_options.py` (outil externe, hors app) reste disponible pour ces
+documents encore sur l'ancien format.
 
 ## Pourquoi `poc/` et `widget.html` gardent leur nom et leur emplacement
 

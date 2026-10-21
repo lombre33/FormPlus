@@ -534,6 +534,26 @@ export async function renderFill() {
   const link = parseFormLink(formLink);
   if (!link) { card.innerHTML = `<h1>${I18n.t('form.respond.formUnavailable')}</h1><p class="muted">${I18n.t('form.respond.linkUnreadable')}</p>`; return; }
 
+  // state.options ne porte pas déjà la Definition de CE formulaire (secours #form= autonome,
+  // ou tout contexte hors iframe où resolveMyDefinition n'a jamais tourné) : la lit dans
+  // FormPlus_Formulaires via l'API REST du partage, table ouverte à la clé par ensureTableGate
+  // (consigne 007) — même mécanisme que les tables secondaires d'une question "choix depuis une
+  // table" (onSubmit, plus bas dans ce fichier). vsId (déjà dans chaque Definition, voir
+  // saveFormDefinition) sert de clé de jointure : c'est l'id du formulaire NATIF, connu ici dans
+  // les deux cas (iframe ou lien direct) via le lien lui-même.
+  if (state.options?.formLink !== formLink) {
+    try {
+      const r = await fetch(`${link.api}/tables/FormPlus_Formulaires/records`);
+      if (r.ok) {
+        const { records } = await r.json();
+        for (const rec of records || []) {
+          let def = null; try { def = JSON.parse(rec.fields?.Definition || 'null'); } catch (e) { /* ignore */ }
+          if (def && def.vsId === link.vsId) { state.options = def; break; }
+        }
+      }
+    } catch (e) { diag({ event: 'formulaires-table-fetch-failed', message: e.message }); }
+  }
+
   applyBranding(state.options);
   state.canEdit = await probeCanEdit(state.options?.vsId ?? link.vsId);
   diag({ event: 'canEdit', canEdit: state.canEdit });

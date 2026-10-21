@@ -27,6 +27,61 @@ Mis à jour le 2026-10-21, au commit `39e0740` (dernier commit de code que cette
   reste le commit `54c48f3`, rien à bouger chez nous) — question retirée ci-dessous. Les deux
   dernières couleurs en dur de `widget.css` (`.toggle-thumb`, `.pv-q`) remplacées par
   `--shadow-card`/`--shadow-float` du kit, commit `39e0740`.
+- 007 · faite · `PENDING_COMMIT` · la définition de chaque formulaire vit maintenant dans une table
+  du document, **`FormPlus_Formulaires`**, une ligne par formulaire, colonnes :
+  - `Nom` (Text) — le titre du formulaire.
+  - `TypeFormulaire` (Text) — toujours `formulaire` (le manifeste).
+  - `DateModif` (DateTime) — horodatage de la dernière sauvegarde, en secondes.
+  - `ModifiePar` (Text) — toujours `Form+` aujourd'hui : aucune méthode de l'API plugin ne rend
+    l'identité de la personne connectée (vérifié dans `prototype/js/demo.js`,
+    `prototype/labo/run-form.mjs` : même GFS n'a qu'un nom statique). Dès qu'un client du courtier
+    l'expose (point 4 de la 007), cette colonne prendra la vraie identité.
+  - `Definition` (Text) — la définition entière en JSON, ce que `persistOptions` mettait avant dans
+    `customView.widgetOptions`. GFS ne lit que les quatre colonnes ci-dessus, celle-ci reste
+    opaque pour lui. Exemple (formulaire d'inscription à 2 questions supplémentaires) :
+    ```json
+    {
+      "formLink": "https://grist.exemple.org/o/equipe/forms/AbCdEf123456/18",
+      "vsId": 42, "sourceVsId": 18, "viewRef": 9,
+      "publicUrl": "https://grist.exemple.org/o/equipe/s/AbCdEf123456/p/9?style=singlePage",
+      "formTitle": "Inscription à la formation", "formDescription": "",
+      "questions": [
+        { "id": "q1", "kind": "text", "label": "Allergie alimentaire", "writeTable": "Reponses", "writeCol": "Allergie" },
+        { "id": "q2", "kind": "choice", "label": "Repas", "sourceTable": "Menus", "sourceCol": "Nom" }
+      ]
+    }
+    ```
+    `vsId` est l'id de la section de formulaire natif que FormPlus a dupliquée pour ce formulaire
+    (déjà présent avant la 007) : c'est la clé de jointure réutilisée par les répondants (ci-dessous).
+  - `IdSectionWidget` (Numeric) — colonne propre à Form+, au-delà des quatre que lit le manifeste
+    (« si tu veux d'autres colonnes, dis-le dans ta page ») : l'id de la section PERSONNALISÉE qui
+    héberge ce widget-ci (`parentKey='custom'`, jamais le formulaire natif). Sert uniquement à
+    cette instance du widget pour retrouver sa propre ligne à la réouverture
+    (`resolveMyDefinition`/`findMySection`, `grist-meta.js`), sans dépendre de
+    `grist.onOptions()`/`getOptions()` (confirmés inopérants dans GFS par la mesure de la 007).
+  - **Comment les répondants la lisent** : l'adresse publique donnée au répondant
+    (`buildPublicUrl`) est une page Grist en session de partage (`/s/<clé>/p/<page>`) qui héberge CE
+    MÊME widget — le répondant est donc, de son point de vue, "dans" le widget comme le
+    concepteur, et `resolveMyDefinition()` (même mécanisme, même `IdSectionWidget`) lui sert
+    directement sa Definition ; `ensureTableGate` (déjà utilisé pour toute autre table lue par une
+    question "Choix depuis une table") ouvre la lecture de `FormPlus_Formulaires` à cette session
+    de partage de la même façon. Pour le secours hors Grist (`#form=<lien>`,
+    `poc/public-form.html`, pas de session Grist du tout) : `renderFill()` (`respond.js`) fait un
+    `fetch` direct de l'API REST du partage (`<api>/tables/FormPlus_Formulaires/records`, la même
+    déjà utilisée pour l'envoi des réponses) et retient la ligne dont `Definition.vsId` correspond
+    au `vsId` du lien ouvert — avant la 007, ce secours n'affichait jamais les questions
+    supplémentaires (écart connu de l'audit du 21 oct), c'est désormais corrigé.
+  - **Aucune clé de réglage de vue** n'a été nécessaire (point 4 de la 007) : `IdSectionWidget`
+    suffit, rien à déclarer côté GFS pour ce pas-ci.
+  - Plus écrit : `persistOptions`, le marqueur de copie (`formplusDuplicate`/`formplusSource`,
+    remplacé par une comparaison aux `Definition.vsId` déjà enregistrés, `fetchManagedVsIds`), la
+    réparation (`#repair`, retirée du widget — `poc/repair_section_options.py` reste disponible en
+    dehors de Grist pour un formulaire pas encore migré). Plus lu : `_grist_Shares`
+    (`findExistingShareKey` retirée ; choisir un formulaire natif publié dans la liste affiche
+    maintenant une consigne de copier son lien, au lieu d'une adresse reconstruite). Les
+    formulaires faits avant la 007 restent lisibles (`options` toujours lu en repli,
+    `resolveMyDefinition`) et migrent vers la table à leur prochain enregistrement, avec le même
+    consentement que pour un document qui n'a encore aucun formulaire FormPlus.
 
 ## Changements qui touchent GFS
 - 2026-10-21 · `90958ac` · référence le kit commun `grist-factory-kit` en sous-module `kit/`, au
@@ -46,6 +101,12 @@ Mis à jour le 2026-10-21, au commit `39e0740` (dernier commit de code que cette
   (`ensureRefListField`, `FormPlus_srcL_<table>_<colonne>`) et y écrit
   `_grist_Tables_column.visibleCol`, comme pour un choix simple : sans cela la session de partage
   anonyme affiche l'identifiant numérique au lieu du libellé choisi.
+- 2026-10-21 · `PENDING_COMMIT` (consigne 007) · plus aucune écriture dans
+  `_grist_Views_section.options` ni lecture de `_grist_Shares` : la définition de chaque
+  formulaire vit dans la table du document `FormPlus_Formulaires` (une ligne par formulaire,
+  colonnes et détail dans « Consignes » ci-dessus), créée avec l'accord de la personne (fenêtre du
+  kit) et ouverte en lecture aux sessions de partage par `ensureTableGate`, déjà utilisé pour toute
+  autre table lue par une question "Choix depuis une table".
 
 ## Questions pour GFS
 (aucune en attente)

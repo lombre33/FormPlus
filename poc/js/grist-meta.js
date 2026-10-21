@@ -1,6 +1,10 @@
-import { $, show, esc } from './dom.js';
+import { esc } from './dom.js';
 import { parseCustomView, myPageFromReferrer } from './links.js';
 import { diag } from './diag.js';
+import { I18n } from '../../kit/js/i18n.js';
+import { Dialogs } from '../../kit/js/dialogs.js';
+import './strings.js'; // enregistre form.* avant tout usage de I18n.t() au chargement de ce module (voir strings.js)
+import { state } from './state.js';
 
 export async function fetchMeta(tableId) { return grist.docApi.fetchTable(tableId); }
 export async function getTableRef(tableId) {
@@ -32,33 +36,6 @@ export async function getFormTableId(vsId) {
   if (idx < 0) return null;
   return tableIdOfRef(sections.tableRef[idx]);
 }
-// Retrouve, pour une page déjà publiée, la clé de partage déjà générée par « Publier » — sans
-// que le concepteur ait besoin de la copier-coller. D'après docs/01-etude-comparative.md
-// (ACLRulesReader.ts, vérifié dans le code source) : _grist_Pages.shareRef pointe vers la ligne
-// _grist_Shares dont le linkId EST la clé utilisée dans /forms/<clé>/... et /s/<clé>/... Terrain
-// non vérifié en direct sur un document réel (pas d'accès à un document Grist depuis cet
-// environnement) : en cas d'échec, renvoie null sans jamais lever d'erreur, et journalise les
-// noms de colonnes réellement lus dans _grist_Shares pour corriger rapidement si le schéma
-// diffère. Le champ « coller un lien manuellement » reste toujours disponible en repli.
-export async function findExistingShareKey(viewRef) {
-  try {
-    const pages = await fetchMeta('_grist_Pages');
-    const pIdx = pages.viewRef.indexOf(viewRef);
-    if (pIdx < 0) { diag({ event: 'findExistingShareKey-no-page', viewRef }); return null; }
-    const shareRef = pages.shareRef[pIdx];
-    if (!shareRef) { diag({ event: 'findExistingShareKey-no-shareRef', viewRef }); return null; }
-    const shares = await fetchMeta('_grist_Shares');
-    const sIdx = shares.id.indexOf(shareRef);
-    if (sIdx < 0) { diag({ event: 'findExistingShareKey-share-not-found', shareRef }); return null; }
-    const key = shares.linkId ? shares.linkId[sIdx] : null;
-    diag({ event: 'findExistingShareKey', viewRef, shareRef, found: !!key, shareColumns: Object.keys(shares) });
-    return key || null;
-  } catch (e) {
-    diag({ event: 'findExistingShareKey-error', message: e.message });
-    return null;
-  }
-}
-
 // Crée une section Formulaire et renvoie directement son id, sans jamais avoir à le deviner :
 // applyUserActions renvoie déjà l'id créé dans retValues[0].sectionRef (vérifié contre un vrai
 // document Grist par tests/grist-env/grist_test_doc.py, qui l'utilise déjà côté harness Python).
@@ -254,12 +231,13 @@ export async function duplicateFormSection(sourceVsId) {
     )));
   }
 
-  // « formplusDuplicate » marque cette section comme une copie gérée par FormPlus : ignorée par
-  // populateFormPicker (jamais proposée comme SOURCE d'une autre duplication) et par nous-mêmes
-  // si on la retrouve un jour dans les métadonnées. shareOptions la rend utilisable tout de suite.
+  // Rend la copie utilisable tout de suite, sous la clé déjà existante. Avant la consigne 007,
+  // un marqueur (formplusDuplicate/formplusSource) était aussi écrit ici, dans `options` — plus
+  // possible (table FormPlus_Formulaires, voir plus bas) : populateFormPicker reconnaît maintenant
+  // une copie gérée par FormPlus en comparant son id aux Definition.vsId déjà enregistrés, et
+  // Definition.sourceVsId (saveFormDefinition) garde la même information que formplusSource.
   await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section', newVsId, {
     shareOptions: JSON.stringify({ publish: true, form: true }),
-    options: JSON.stringify({ formplusDuplicate: true, formplusSource: sourceVsId }),
   }]]);
 
   return newVsId;
@@ -327,44 +305,159 @@ export async function findViewRefForSection(vsId) {
   return { formPage, widgetPage, self, samePage: widgetPage === formPage, onFormPage, ambiguous: myPage != null && !self };
 }
 
-// grist.setOptions ne modifie que la session du concepteur : Grist attend ensuite un clic sur
-// « Enregistrer » dans la barre du widget. On écrit donc directement la configuration dans les
-// métadonnées de la section, ce qui la rend visible à toutes les sessions, anonymes comprises.
-// customView doit rester une chaîne JSON dans options.
-export async function persistOptions(self, saved) {
-  const current = self.options || {};
-  const nextCustomView = { ...(self.customView || {}), widgetOptions: saved };
-  const next = { ...current, customView: JSON.stringify(nextCustomView) };
-  await grist.docApi.applyUserActions([
-    ['UpdateRecord', '_grist_Views_section', self.id, { options: JSON.stringify(next) }],
-  ]);
+// ───────────────────────── Définition du formulaire : table FormPlus_Formulaires (consigne 007) ─────────────────────────
+// Avant la 007, la définition (questions, apparence…) vivait dans _grist_Views_section.options
+// (persistOptions, repli grist.setOptions) : hébergée dans GFS, cette colonne n'est jamais
+// écrite par une app (le courtier refuse), et grist.setOptions/getOptions n'y déclarent aucune
+// clé Form+ (silencieux, inopérant). La définition vit donc maintenant dans une table normale du
+// document, FormPlus_Formulaires — une ligne par formulaire, lisible et inscriptible comme
+// n'importe quelle autre table (manifeste GFS : lit/ecrit "*").
+export const FORMULAIRES_TABLE = 'FormPlus_Formulaires';
+const FORMULAIRES_COLUMNS = [
+  ['Nom', 'Text'], ['TypeFormulaire', 'Text'], ['DateModif', 'DateTime'],
+  ['ModifiePar', 'Text'], ['Definition', 'Text'],
+  // Colonne propre à Form+, au-delà des quatre que GFS lit (manifeste, "colonnes") : relie une
+  // ligne à SA section de widget (parentKey='custom'), pour que ce widget retrouve sa propre
+  // définition à la réouverture sans jamais dépendre de grist.onOptions()/getOptions() (repli
+  // désormais inopérant dans GFS). Documentée dans GFS-ETAT.md, consigne 007 ("si tu veux
+  // d'autres colonnes pour la définition, dis-le dans ta page").
+  ['IdSectionWidget', 'Numeric'],
+];
+
+// Repère la section personnalisée (parentKey='custom') qui EST ce widget lui-même — même
+// mécanisme de repérage (référent puis nom de fichier) que findMyWidgetPage/findViewRefForSection
+// ci-dessus, mais renvoie l'enregistrement de section complet (pas seulement sa page) : c'est
+// cette section, pas le formulaire natif qu'elle gère, que IdSectionWidget référence.
+async function findMySection() {
+  const sections = await fetchMeta('_grist_Views_section');
+  const myPage = myPageFromReferrer();
+  const myFile = location.pathname.split('/').pop();
+  const candidates = [];
+  for (let i = 0; i < sections.id.length; i++) {
+    if (sections.parentKey[i] !== 'custom') continue;
+    let o = {}; try { o = JSON.parse(sections.options[i] || '{}') || {}; } catch (e) { /* ignore */ }
+    candidates.push({ id: sections.id[i], parentId: sections.parentId[i], url: parseCustomView(o).url || '', options: o });
+  }
+  if (myPage != null) {
+    const onMyPage = candidates.filter(s => s.parentId === myPage);
+    const named = onMyPage.filter(s => s.url.includes(myFile));
+    if (named.length === 1) return named[0];
+    if (onMyPage.length === 1) return onMyPage[0];
+  }
+  const matches = candidates.filter(s => s.url.includes(myFile));
+  if (matches.length === 1) return matches[0];
+  if (candidates.length === 1) return candidates[0];
+  return null;
 }
 
-// Mode réparation (URL du widget terminée par #repair) : rétablit customView en chaîne JSON
-// pour toutes les sections personnalisées du document dont la valeur a été corrompue.
-export async function runRepair() {
-  show('repair');
-  const out = $('repair-log');
-  const lines = [];
+// Résout la Définition de CETTE instance de widget au démarrage, sans jamais dépendre de
+// grist.onOptions()/getOptions() au-delà du simple signal « prêt » (opts n'est plus lu) :
+// repère sa propre section (ci-dessus), cherche sa ligne dans FormPlus_Formulaires
+// (IdSectionWidget) si la table existe déjà, et ne retombe sur l'ancien
+// _grist_Views_section.options.customView.widgetOptions (lecture directe, toujours permise,
+// jamais via grist.onOptions) que si aucune ligne n'a encore été créée — formulaires faits avant
+// la 007, migrés vers la table dès le premier enregistrement (saveFormDefinition plus bas).
+export async function resolveMyDefinition() {
+  let self;
+  try { self = await findMySection(); } catch (e) { diag({ event: 'resolveMyDefinition-self-failed', message: e.message }); return {}; }
+  if (!self) return {};
   try {
-    const sections = await fetchMeta('_grist_Views_section');
-    const fixes = [];
-    for (let i = 0; i < sections.id.length; i++) {
-      if (sections.parentKey[i] !== 'custom') continue;
-      let o;
-      try { o = JSON.parse(sections.options[i] || '{}') || {}; }
-      catch (e) { lines.push(`Section ${sections.id[i]} : options illisibles, ignorée.`); continue; }
-      if (o.customView == null || typeof o.customView === 'string') continue;
-      const cv = parseCustomView(o);
-      fixes.push(['UpdateRecord', '_grist_Views_section', sections.id[i], { options: JSON.stringify({ ...o, customView: JSON.stringify(cv) }) }]);
-      lines.push(`Section ${sections.id[i]} (page ${sections.parentId[i]}) : customView rétabli, widget ${cv.url || 'sans URL'}.`);
+    const table = await fetchMeta(FORMULAIRES_TABLE);
+    const idx = (table.IdSectionWidget || []).indexOf(self.id);
+    if (idx >= 0) {
+      let def = {}; try { def = JSON.parse(table.Definition[idx] || '{}') || {}; } catch (e) { /* ignore */ }
+      state.formRowId = table.id[idx];
+      return def;
     }
-    if (fixes.length) { await grist.docApi.applyUserActions(fixes); lines.push('', `${fixes.length} section(s) réparée(s). Rechargez le document, puis retirez #repair de l'URL de ce widget ou supprimez-le.`); }
-    else lines.push('Aucune section corrompue trouvée.');
-  } catch (e) {
-    lines.push(`Erreur : ${e.message}. Le widget a-t-il l'accès complet ?`);
+  } catch (e) { diag({ event: 'resolveMyDefinition-table-failed', message: e.message }); }
+  // Repli : formulaire pas encore migré (ou table pas encore créée).
+  const cv = parseCustomView(self.options);
+  return (cv && typeof cv.widgetOptions === 'object' && cv.widgetOptions) ? cv.widgetOptions : {};
+}
+
+// Crée FormPlus_Formulaires avec l'accord de la personne (une fenêtre du kit, règle 4 du guide
+// GFS) si elle n'existe pas encore ; sinon, s'assure que ses colonnes sont toutes présentes
+// (idempotent, jamais d'écriture dans une colonne absente ailleurs dans ce module) et ouvre sa
+// lecture aux sessions de partage anonymes (ensureTableGate, même mécanisme déjà utilisé pour
+// toute autre table lue par un répondant). Jamais appelée depuis saveFormDefinition lui-même : un
+// seul point d'entrée, generate() (voir config-editor.js), pour qu'une frappe dans les champs
+// d'apparence ne déclenche jamais cette fenêtre de consentement à chaque sauvegarde automatique.
+export async function ensureFormulairesTable(viewRef) {
+  let tref = await getTableRef(FORMULAIRES_TABLE);
+  if (!tref) {
+    const ok = await Dialogs.confirm({
+      title: I18n.t('form.editor.formulairesTableTitle'),
+      message: I18n.t('form.editor.formulairesTableMsg'),
+      confirmLabel: I18n.t('form.editor.formulairesTableConfirm'),
+    });
+    if (!ok) throw new Error(I18n.t('form.editor.formulairesTableDeclined'));
+    await grist.docApi.applyUserActions([['AddTable', FORMULAIRES_TABLE, FORMULAIRES_COLUMNS.map(([id, type]) => ({ id, type }))]]);
+    // Jamais supposé : l'identifiant réel de la table nouvellement créée est relu, pas déduit.
+    tref = await getTableRef(FORMULAIRES_TABLE);
+    if (!tref) throw new Error(I18n.t('form.editor.tableCreateFailed'));
   }
-  out.textContent = lines.join('\n');
+  for (const [colId, type] of FORMULAIRES_COLUMNS) {
+    if (!(await colExists(FORMULAIRES_TABLE, colId))) {
+      await grist.docApi.applyUserActions([['AddColumn', FORMULAIRES_TABLE, colId, { type }]]);
+    }
+  }
+  if (viewRef != null) await ensureTableGate(FORMULAIRES_TABLE, viewRef);
+}
+
+// Écrit la Définition de self (la section de CE widget) dans sa ligne de FormPlus_Formulaires,
+// la crée si c'est la première fois. Suppose la table déjà créée (ensureFormulairesTable,
+// appelée une seule fois par generate()) : si elle manque encore (jamais générée, ou fenêtre de
+// consentement refusée), échoue simplement — à l'appelant (saveConfig) de retomber sur "non
+// enregistré", jamais de nouvelle tentative de création ici.
+export async function saveFormDefinition(self, saved) {
+  const tref = await getTableRef(FORMULAIRES_TABLE);
+  if (!tref) throw new Error(`Table « ${FORMULAIRES_TABLE} » introuvable.`);
+  const fields = {
+    Nom: saved.formTitle || I18n.t('form.editor.defaultFormulaireName'),
+    TypeFormulaire: 'formulaire',
+    DateModif: Math.floor(Date.now() / 1000),
+    ModifiePar: 'Form+',
+    Definition: JSON.stringify(saved),
+    IdSectionWidget: self.id,
+  };
+  let rowId = state.formRowId;
+  if (rowId == null) {
+    const table = await fetchMeta(FORMULAIRES_TABLE);
+    const idx = (table.IdSectionWidget || []).indexOf(self.id);
+    if (idx >= 0) rowId = table.id[idx];
+  }
+  if (rowId != null) {
+    await grist.docApi.applyUserActions([['UpdateRecord', FORMULAIRES_TABLE, rowId, fields]]);
+  } else {
+    const res = await grist.docApi.applyUserActions([['AddRecord', FORMULAIRES_TABLE, null, fields]]);
+    rowId = res.retValues?.[0];
+    if (rowId == null) {
+      // Jamais supposé, comme pour AddTable ci-dessus : relecture explicite si la création n'a
+      // pas renvoyé l'id directement.
+      const table = await fetchMeta(FORMULAIRES_TABLE);
+      const idx = (table.IdSectionWidget || []).map((v, i) => (v === self.id ? i : -1)).filter(i => i >= 0).pop();
+      rowId = idx != null && idx >= 0 ? table.id[idx] : null;
+    }
+  }
+  state.formRowId = rowId;
+  return rowId;
+}
+
+// Les vsId déjà gérés par FormPlus (copies créées par duplicateFormSection) : un ensemble des
+// Definition.vsId de chaque ligne déjà enregistrée, pour que populateFormPicker (config-editor.js)
+// les exclue de la liste des formulaires natifs proposés — remplace l'ancien marqueur
+// formplusDuplicate (_grist_Views_section.options, plus écrit depuis la 007).
+export async function fetchManagedVsIds() {
+  try {
+    const table = await fetchMeta(FORMULAIRES_TABLE);
+    const vsIds = new Set();
+    (table.Definition || []).forEach((d) => {
+      try { const def = JSON.parse(d || '{}') || {}; if (def.vsId != null) vsIds.add(def.vsId); } catch (e) { /* ignore */ }
+    });
+    return vsIds;
+  } catch (e) {
+    return new Set();
+  }
 }
 
 // Deux pistes écartées, chacune pour une raison précise et vérifiée :

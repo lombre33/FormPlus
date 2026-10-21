@@ -82,16 +82,6 @@ export function myPageFromReferrer() {
   } catch (e) { return null; }
 }
 
-// Hôte + organisation Grist, déduits du référent (même logique que myPageFromReferrer), pour
-// reconstruire une adresse .../forms/<clé>/<section> sans que le concepteur ait à la coller.
-export function hostOrgFromReferrer() {
-  try {
-    const u = new URL(document.referrer);
-    const m = /^\/o\/([^/]+)\//.exec(u.pathname);
-    return { host: u.origin, org: m ? m[1] : null };
-  } catch (e) { return null; }
-}
-
 // Exposé pour un débogage externe (console, script tiers) : jamais utilisé par le widget
 // lui-même ni par sa suite de tests, qui importent ces fonctions directement comme modules.
 window.FormPlus = { parseFormLink, buildPublicUrl, parseCustomView: (o) => parseCustomView(o) };

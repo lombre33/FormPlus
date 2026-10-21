@@ -100,14 +100,8 @@ export const STRINGS = {
   'form.appearance.endMsgPlaceholder': { fr: 'Merci, votre réponse a bien été enregistrée.', en: 'Thank you, your answer has been recorded.' },
   'form.appearance.redirectLabel': { fr: "Redirection après l'envoi (URL, facultatif)", en: 'Redirect after submission (URL, optional)' },
 
-  // ───────────────────────── widget.html : répondant, réparation, secours ─────────────────────────
+  // ───────────────────────── widget.html : répondant, secours ─────────────────────────
   'form.respond.configBtn': { fr: 'Configuration', en: 'Configuration' },
-  'form.repair.heading': { fr: 'Réparation', en: 'Repair' },
-  'form.repair.desc': {
-    fr: 'Rétablit le format des options des widgets personnalisés du document.',
-    en: "Restores the options format of the document's custom widgets.",
-  },
-  'form.repair.analyzing': { fr: 'Analyse…', en: 'Analyzing…' },
   'form.standalone.desc1': {
     fr: "Cette page est un widget Grist. Ajoutez-la dans un document : Ajouter un widget, Personnalisé, URL personnalisée, puis collez l'adresse de cette page. Niveau d'accès : accès complet, nécessaire au concepteur pour retrouver la page et gérer les questions.",
     en: "This page is a Grist widget. Add it to a document: Add widget, Custom, Custom URL, then paste this page's address. Access level: full access, needed by the designer to find the page again and manage the questions.",
@@ -339,12 +333,18 @@ export const STRINGS = {
     fr: "Ce formulaire n'est pas encore publié. Ouvrez-le sur sa page, cliquez sur <strong>Publier</strong>, puis <strong>Copier le lien</strong> et collez-le ci-dessous.",
     en: 'This form is not published yet. Open it on its page, click <strong>Publish</strong>, then <strong>Copy link</strong> and paste it below.',
   },
-  'form.editor.lookingUpPublishedUrl': { fr: "Recherche de l'adresse déjà publiée…", en: 'Looking up the already-published address…' },
-  'form.editor.publishedUrlNotFound': {
-    fr: 'Adresse publiée non retrouvée automatiquement. Ouvrez ce formulaire, <strong>Copier le lien</strong>, et collez-le ci-dessous.',
-    en: 'Published address not found automatically. Open this form, <strong>Copy link</strong>, and paste it below.',
+  'form.editor.pickedPasteLink': {
+    fr: 'Ouvrez ce formulaire, cliquez sur <strong>Publier</strong> puis <strong>Copier le lien</strong>, et collez-le ci-dessous.',
+    en: 'Open this form, click <strong>Publish</strong> then <strong>Copy link</strong>, and paste it below.',
   },
-  'form.editor.urlFoundAuto': { fr: 'Adresse retrouvée automatiquement.', en: 'Address found automatically.' },
+  'form.editor.formulairesTableTitle': { fr: 'Table « FormPlus_Formulaires »', en: '"FormPlus_Formulaires" table' },
+  'form.editor.formulairesTableMsg': {
+    fr: "FormPlus enregistre la définition de chaque formulaire (questions, apparence…) dans une table de ce document, « FormPlus_Formulaires », une ligne par formulaire. Elle n'existe pas encore : la créer ?",
+    en: 'FormPlus saves each form\'s definition (questions, appearance…) in a table of this document, "FormPlus_Formulaires", one row per form. It does not exist yet: create it?',
+  },
+  'form.editor.formulairesTableConfirm': { fr: 'Créer la table', en: 'Create the table' },
+  'form.editor.formulairesTableDeclined': { fr: 'Table « FormPlus_Formulaires » refusée : rien n\'a été enregistré.', en: '"FormPlus_Formulaires" table declined: nothing was saved.' },
+  'form.editor.defaultFormulaireName': { fr: 'Formulaire sans titre', en: 'Untitled form' },
 
   // ───────────────────────── respond.js : écran du répondant ─────────────────────────
   'form.respond.yes': { fr: 'Oui', en: 'Yes' },

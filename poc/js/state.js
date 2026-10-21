@@ -3,6 +3,7 @@
 // l'écrivent, et un objet partagé évite d'avoir à ré-exporter un setter par champ.
 export const state = {
   options: null,
+  formRowId: null, // id de la ligne FormPlus_Formulaires déjà trouvée/créée pour cette instance (resolveMyDefinition/saveFormDefinition, consigne 007), en cache pour éviter de rescanner la table à chaque sauvegarde
   connected: false,
   canEdit: true,
   stayOnConfig: false, // après une génération, rester sur l'écran de configuration pour copier l'adresse

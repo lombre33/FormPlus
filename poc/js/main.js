@@ -1,5 +1,5 @@
 // Point d'entrée du widget : icônes des boutons statiques, thème initial, puis démarrage
-// (détection du mode #test/#repair/standalone/config/fill). Importer ce module suffit à
+// (détection du mode #test/standalone/config/fill). Importer ce module suffit à
 // charger — et à câbler leurs propres écouteurs — tous les autres modules du widget.
 import { $, show } from './dom.js';
 import { ICONS } from './icons.js';
@@ -8,7 +8,7 @@ import { I18n } from '../../kit/js/i18n.js';
 import { applyBranding, updateThemeToggleIcon } from './theme.js';
 import { STRINGS } from './strings.js';
 import { diag, hashParams, fragmentFormLink } from './diag.js';
-import { runRepair } from './grist-meta.js';
+import { resolveMyDefinition } from './grist-meta.js';
 import { state } from './state.js';
 import { showConfig } from './config-editor.js';
 import { renderFill } from './respond.js';
@@ -47,8 +47,8 @@ $('themeToggle').addEventListener('click', () => { Theme.set(Theme.isDark() ? 'l
     // iframe/sans connexion Grist, puisque c'est exactement le cas où ce texte s'affiche. Avant
     // ce correctif (écart relevé par l'audit du 21 sept 2026), le code sortait toujours avant de
     // lire ce fragment : le secours promis ne fonctionnait en fait jamais. renderFill() ne
-    // dépend pas de `grist` pour lire le formulaire (fetch direct de l'API REST publique) ;
-    // state.options reste vide, donc sans les questions supplémentaires (comme public-form.html).
+    // dépend pas de `grist` pour lire le formulaire (fetch direct de l'API REST publique) ; les
+    // questions supplémentaires s'y ajoutent aussi, via FormPlus_Formulaires (consigne 007).
     if (fragmentFormLink) { await renderFill(); return; }
     show('standalone');
     return;
@@ -57,9 +57,12 @@ $('themeToggle').addEventListener('click', () => { Theme.set(Theme.isDark() ? 'l
   const timeout = setTimeout(() => { if (!state.connected) { diag({ event: 'timeout' }); show('standalone'); } }, 4000);
   grist.onOptions(async (opts, settings) => {
     state.connected = true; clearTimeout(timeout);
-    state.options = opts || {};
+    // Depuis la consigne 007, plus de lecture de `opts` (grist.onOptions ne garde ici que son
+    // rôle de signal "connecté", le courtier de GFS le rend de toute façon inerte) : la
+    // Definition de cette instance vient de FormPlus_Formulaires (ou, repli, des réglages de vue
+    // d'un formulaire pas encore migré) — voir resolveMyDefinition.
+    state.options = await resolveMyDefinition();
     diag({ event: 'onOptions', optionKeys: Object.keys(state.options), hasFormLink: !!state.options.formLink, settings });
-    if (hashParams.has('repair')) { if (!state.stayOnConfig) { state.stayOnConfig = true; runRepair(); } return; }
     // #form=<lien> dans l'URL du widget est le mode répondant explicite (secours quand l'adresse
     // publique habituelle ne fonctionne pas, voir l'écran standalone) : on y répond directement.
     // Sans cette URL spéciale, ouvrir ce widget (accès complet requis) affiche toujours la

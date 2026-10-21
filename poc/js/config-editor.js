@@ -7,13 +7,13 @@ import {
   KINDS, LAYOUT_KINDS, SINGLE_CHOICE_KINDS, NON_COMPARABLE_KINDS, FREE_ENTRY_KINDS,
   TABLE_SOURCED_KINDS, FIXED_LIST_KINDS, mapFeatureEnabled,
 } from './kinds.js';
-import { parseFormLink, buildPublicUrl, migrateLegacy, hostOrgFromReferrer, normalizeCondition } from './links.js';
+import { parseFormLink, buildPublicUrl, migrateLegacy, normalizeCondition } from './links.js';
 import { diag } from './diag.js';
 import {
   fetchMeta, getTableRef, tableIdOfRef, columnOptions,
-  findExistingShareKey, ensureTableGate, ensureChoiceField, ensureRefListField, ensureFreeColumn,
-  findViewRefForSection, findMyWidgetPage, persistOptions, duplicateFormSection,
-  clearAutoFields, createFormSection,
+  ensureTableGate, ensureChoiceField, ensureRefListField, ensureFreeColumn,
+  findViewRefForSection, findMyWidgetPage, ensureFormulairesTable, saveFormDefinition, fetchManagedVsIds,
+  duplicateFormSection, clearAutoFields, createFormSection,
 } from './grist-meta.js';
 import { state } from './state.js';
 import { renderFill, layoutOrder, renderNativeField } from './respond.js';
@@ -81,8 +81,16 @@ export async function saveConfig(publicUrl, widgetPage) {
   const run = async () => {
     const { self } = await findViewRefForSection(saved.vsId);
     let persisted = false;
-    if (self) { try { await persistOptions(self, saved); persisted = true; } catch (e) { console.warn('[FormPlus] écriture directe refusée', e); } }
-    if (!persisted) { try { await grist.setOptions(saved); } catch (e) { /* ignore */ } }
+    // ensureFormulairesTable est déjà appelée par generate() (avant toute duplication, pour ne
+    // jamais en créer une inutilement si la personne refuse) : ici, l'appel est idempotent et
+    // silencieux dès que la table existe (un getTableRef de plus, rien d'autre), ce qui couvre
+    // aussi le cas d'un formulaire fait AVANT la 007 — jamais passé par generate() depuis, donc
+    // jamais vu cette fenêtre — et que la consigne 007 demande de migrer "au premier
+    // enregistrement" : sa toute première sauvegarde après la 007 l'ouvre une fois, ici.
+    if (self) {
+      try { await ensureFormulairesTable(saved.viewRef); await saveFormDefinition(self, saved); persisted = true; }
+      catch (e) { console.warn('[FormPlus] enregistrement refusé', e); }
+    }
     state.options = saved;
     return persisted;
   };
@@ -108,6 +116,13 @@ export async function generate() {
     try { ({ formPage, widgetPage, self, samePage, onFormPage, ambiguous } = await findViewRefForSection(pastedLink.vsId)); }
     catch (e) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.metaReadError', { message: esc(e.message) })}</span>`; return; }
     if (!formPage) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.sectionMissing')}</span>`; return; }
+
+    // saveConfig (plus bas, via le dernier appel de cette fonction) s'en assure aussi, mais ICI,
+    // AVANT toute duplication : la fenêtre de consentement du kit (si la table n'existe pas
+    // encore) doit s'afficher avant de dupliquer, pour ne jamais créer une copie inutile si la
+    // personne refuse.
+    try { await ensureFormulairesTable(widgetPage); }
+    catch (e) { msg.innerHTML = `<span class="err">${esc(e.message)}</span>`; return; }
 
     // FormPlus ne travaille jamais directement sur un formulaire natif qu'il n'a pas lui-même
     // créé. Même lien déjà collé auparavant (sourceVsId inchangé) : on garde la copie déjà faite,
@@ -1269,10 +1284,9 @@ export async function showConfig() {
 
 // ───────────────────────── Choisir un formulaire natif déjà présent dans le document ─────────────────────────
 // Repli toujours disponible : le champ de collage manuel du lien reste affiché sous la liste,
-// jamais retiré. Un formulaire publié voit sa clé retrouvée automatiquement (findExistingShareKey)
-// et l'adresse générée sans copier-coller ; un formulaire non publié affiche une consigne précise
-// plutôt qu'une tentative de publication automatique (aucune méthode de l'API plugin ne génère la
-// clé secrète que « Publier » crée, voir findExistingShareKey et docs/01-etude-comparative.md).
+// jamais retiré. Depuis la consigne 007, plus de lecture de _grist_Shares (refusée par GFS) :
+// choisir un formulaire dans la liste ne construit plus son adresse automatiquement, la personne
+// colle toujours elle-même le lien (« Copier le lien » sur le formulaire publié) ci-dessous.
 export async function populateFormPicker() {
   const sel = $('formPicker');
   sel.innerHTML = `<option value="">${I18n.t('form.loadingGeneric')}</option>`;
@@ -1281,15 +1295,17 @@ export async function populateFormPicker() {
     const tables = await fetchMeta('_grist_Tables');
     const tableIdByRef = {};
     tables.id.forEach((id, i) => { tableIdByRef[id] = tables.tableId[i]; });
+    // Jamais nos propres copies (duplicateFormSection) : ce sont des formulaires GÉRÉS par
+    // FormPlus, jamais une source à dupliquer à nouveau. Avant la 007, un marqueur
+    // (formplusDuplicate, _grist_Views_section.options) les signalait ; depuis, c'est une
+    // comparaison aux Definition.vsId déjà enregistrés dans FormPlus_Formulaires.
+    const managedVsIds = await fetchManagedVsIds();
     const items = [];
     for (let i = 0; i < sections.id.length; i++) {
       if (sections.parentKey[i] !== 'form') continue;
+      if (managedVsIds.has(sections.id[i])) continue;
       const tableId = tableIdByRef[sections.tableRef[i]];
       if (!tableId || tableId.startsWith('_grist_')) continue;
-      // Jamais nos propres copies (duplicateFormSection) : ce sont des formulaires GÉRÉS par
-      // FormPlus, jamais une source à dupliquer à nouveau.
-      let secOpt = {}; try { secOpt = JSON.parse(sections.options[i] || '{}') || {}; } catch (e) { /* ignore */ }
-      if (secOpt.formplusDuplicate) continue;
       let opt = {}; try { opt = JSON.parse(sections.shareOptions[i] || '{}') || {}; } catch (e) { /* ignore */ }
       items.push({ vsId: sections.id[i], viewRef: sections.parentId[i], tableId, published: !!(opt.publish && opt.form) });
     }
@@ -1312,16 +1328,6 @@ $('formPicker').addEventListener('change', async () => {
     msg.innerHTML = `<span class="err">${I18n.t('form.editor.formNotPublishedYet')}</span>`;
     return;
   }
-  msg.textContent = I18n.t('form.editor.lookingUpPublishedUrl');
-  const key = await findExistingShareKey(item.viewRef);
-  const origin = hostOrgFromReferrer();
-  if (!key || !origin) {
-    msg.innerHTML = `<span class="err">${I18n.t('form.editor.publishedUrlNotFound')}</span>`;
-    return;
-  }
-  const base = origin.org ? `${origin.host}/o/${origin.org}` : origin.host;
-  $('link').value = `${base}/forms/${key}/${item.vsId}`;
-  msg.innerHTML = `<span class="ok">${I18n.t('form.editor.urlFoundAuto')}</span>`;
-  await generate();
+  msg.innerHTML = `<span class="ok">${I18n.t('form.editor.pickedPasteLink')}</span>`;
 });
 
