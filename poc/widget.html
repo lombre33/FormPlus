@@ -6,10 +6,17 @@
 <!-- CSP en <meta> : repli acceptable pour un widget statique sans serveur applicatif (pas de
      frame-ancestors ici, ignoré par les navigateurs dans un <meta> — Grist encadre déjà le
      widget dans son iframe, voir le README). unpkg.com : uniquement Leaflet (carte GPS),
-     chargé à la demande, jamais au démarrage (js/kinds.js, js/respond.js). img-src et
-     connect-src restent ouverts à tout https : logo et lien de formulaire sont saisis par qui
-     configure le widget, vers un hôte Grist qu'il choisit, jamais fixé par cette page. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https:; connect-src 'self' https:; object-src 'none'; base-uri 'none'">
+     chargé à la demande, jamais au démarrage (js/kinds.js, js/respond.js). docs.getgrist.com :
+     grist-plugin-api.js (plugin-loader.js) — repli systématique dès que l'origine qui héberge ce
+     widget n'est pas dans sa propre liste blanche (TRUSTED_ORIGINS, qui ne contient que
+     docs.getgrist.com aujourd'hui), donc TOUTE instance Grist auto-hébergée (y compris DINUM) en
+     dépend à chaque chargement, pas seulement docs.getgrist.com elle-même. Régression trouvée le
+     21 oct lors d'un test en conditions réelles contre un Grist auto-hébergé (tests/grist-env/) :
+     sans cette entrée, le widget ne peut jamais quitter l'écran "standalone" une fois intégré hors
+     du SaaS Grist. img-src et connect-src restent ouverts à tout https : logo et lien de
+     formulaire sont saisis par qui configure le widget, vers un hôte Grist qu'il choisit, jamais
+     fixé par cette page. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://unpkg.com https://docs.getgrist.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https:; connect-src 'self' https:; object-src 'none'; base-uri 'none'">
 <title>FormPlus</title>
 <link rel="stylesheet" href="../kit/css/tokens.css">
 <link rel="stylesheet" href="../kit/css/windows.css">

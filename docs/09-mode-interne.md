@@ -43,16 +43,31 @@ accès au document.
 4. Sur chaque question à réserver, dans l'éditeur, le bouton **Réserver à certaines personnes**
    donne accès à une liste d'adresses (une par ligne).
 
-## Non vérifié en direct sur un document Grist réel
+## Vérifié en conditions réelles (21 octobre 2026)
 
-Cet environnement n'a pas d'accès réseau à un vrai document Grist (voir
-`formplus-sandbox-network-limits`, mémoire projet). Le mécanisme de la colonne « formule
-déclencheur » (`isFormula: false` + `formula` + `recalcWhen: 0`, convention documentée par la
-communauté pour « Appliquer aux nouveaux enregistrements ») est couvert par les tests automatisés
-hors ligne (`widget.html#test`, API Grist simulée), mais **pas encore confirmé sur l'instance DINUM
-d'Antoine**. À tester en premier : activer le mode interne sur un formulaire de test, ouvrir le
-widget en tant que personne B (pas le concepteur), vérifier qu'une question réservée à l'adresse de
-A reste bien masquée pour B, et inversement.
+Le mécanisme de la colonne « formule déclencheur » (`isFormula: false` + `formula` + `recalcWhen: 0`,
+convention documentée par la communauté pour « Appliquer aux nouveaux enregistrements ») était
+couvert par les tests automatisés hors ligne (`widget.html#test`, API Grist simulée) mais pas encore
+confirmé contre un vrai serveur Grist. Antoine a explicitement demandé ce test en conditions
+réelles : fait contre un Grist auto-hébergé (`tests/grist-env/`, même moteur Grist que l'instance
+DINUM), avec deux vraies identités connectées (pas deux onglets de la même session) :
+
+- Chaque identité, en posant une ligne jetable dans la table technique, obtient bien SA PROPRE
+  adresse réelle en retour — jamais mélangées, jamais `anon@getgrist.com`.
+- Une question réservée à l'identité B, configurée par l'identité A dans l'éditeur réel : A ne la
+  voit pas en se mettant à la place du répondant, B la voit. Dans les deux sens, aucune fuite ni
+  blocage à tort.
+
+Détail de la méthode (deux sessions `/test/login`, contournement du chargement de
+`grist-plugin-api.js` en environnement sans accès à `docs.getgrist.com`, écart clé réelle/`linkId`) :
+[`tests/grist-env/README.md`](../tests/grist-env/README.md), sections « Vérifié » et « Tester avec
+Playwright ». Cette même investigation a mis au jour une régression de CSP sans rapport avec le mode
+interne lui-même (corrigée le même jour) : voir le commit qui suit l'audit GWaudit du 21 oct dans
+`poc/widget.html`.
+
+Reste non vérifié : le comportement précis sur l'instance DINUM elle-même (version de Grist,
+éventuelles règles d'accès ou en-têtes spécifiques à cette instance) — le test ci-dessus couvre le
+même moteur Grist mais pas cette instance précise.
 
 ## Où c'est implémenté
 
