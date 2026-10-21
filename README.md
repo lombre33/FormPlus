@@ -19,6 +19,7 @@ Objectif : dépasser les limites du formulaire natif de Grist avec une interface
 | `docs/02-poc-transport1-resultats.md` | Résultats de la preuve de concept du lien public |
 | `docs/03-roadmap-priorites.md` | Principes d'interface, backlog V1 / V2 / V3 |
 | `docs/04-architecture.md` | Architecture réelle du code : modules, où vit la configuration, suite de tests |
+| `docs/08-tutoriel-cas-usage.md` | Tutoriel pas à pas sur un cas d'usage réel (inscription à un atelier), captures à l'appui |
 | `poc/widget.html` + `poc/js/` + `poc/css/` | Le widget : point d'entrée HTML, modules JavaScript (un rôle par fichier), feuille de style |
 | `poc/poc_transport1.py`, `poc/public-form.html`, `poc/README-poc.md` | Script de test en ligne de commande, page de secours hors-Grist, mode d'emploi |
 | `index.html` | Page d'accueil GitHub Pages avec accès à la page de test |
@@ -44,7 +45,9 @@ Le lien est placé après `#` : cette partie de l'adresse reste dans le navigate
 
 ### Adresse sur le domaine Grist, générée par le widget
 
-Sur la page qui porte le formulaire natif publié, ajouter un widget Personnalisé avec l'URL `https://lombre33.github.io/FormPlus/poc/widget.html` et l'accès complet. Coller dans le widget le lien obtenu par « Copier le lien » du formulaire natif : il génère l'adresse à diffuser, `https://<instance>/o/<org>/s/<clé>/p/<page>?style=singlePage`. Elle ouvre le document en session « partage » anonyme : le widget s'affiche, la création est possible, aucune réponse n'est lisible, sans règle d'accès et dans le même document. Détails dans `docs/01-etude-comparative.md`, transport 1 bis.
+Sur la page qui porte le formulaire natif publié, ajouter un widget Personnalisé avec l'URL `https://lombre33.github.io/FormPlus/poc/widget.html` et l'accès complet. Coller dans le widget le lien obtenu par « Copier le lien » du formulaire natif : il génère l'adresse à diffuser, `https://<instance>/o/<org>/s/<clé>/p/<page>?style=singlePage`. Elle ouvre le document en session « partage » anonyme, sans règle d'accès et dans le même document. Détails dans `docs/01-etude-comparative.md`, transport 1 bis.
+
+**À vérifier avant de diffuser cette adresse (constat du 21 oct 2026, voir `docs/08-tutoriel-cas-usage.md`) :** testée depuis un navigateur sans aucune session, cette adresse affiche actuellement l'écran de configuration du widget plutôt que le formulaire à remplir. Ne pas la diffuser telle quelle tant que ce point n'est pas corrigé.
 
 ## Où passent les données
 
