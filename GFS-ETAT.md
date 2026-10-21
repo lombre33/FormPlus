@@ -1,6 +1,6 @@
 # GFS-ETAT : Form+
 
-Mis à jour le 2026-10-21, au commit `39e0740` (dernier commit de code que cette page décrit).
+Mis à jour le 2026-10-21, au commit `038dd1b` (dernier commit de code que cette page décrit).
 
 ## Consignes
 - 001 · faite · `8a0bf20` · écarts à la 1.1 dès maintenant : règle 2 (config dans les réglages de
@@ -27,7 +27,7 @@ Mis à jour le 2026-10-21, au commit `39e0740` (dernier commit de code que cette
   reste le commit `54c48f3`, rien à bouger chez nous) — question retirée ci-dessous. Les deux
   dernières couleurs en dur de `widget.css` (`.toggle-thumb`, `.pv-q`) remplacées par
   `--shadow-card`/`--shadow-float` du kit, commit `39e0740`.
-- 007 · faite · `PENDING_COMMIT` · la définition de chaque formulaire vit maintenant dans une table
+- 007 · faite · `038dd1b` · la définition de chaque formulaire vit maintenant dans une table
   du document, **`FormPlus_Formulaires`**, une ligne par formulaire, colonnes :
   - `Nom` (Text) — le titre du formulaire.
   - `TypeFormulaire` (Text) — toujours `formulaire` (le manifeste).
@@ -101,7 +101,7 @@ Mis à jour le 2026-10-21, au commit `39e0740` (dernier commit de code que cette
   (`ensureRefListField`, `FormPlus_srcL_<table>_<colonne>`) et y écrit
   `_grist_Tables_column.visibleCol`, comme pour un choix simple : sans cela la session de partage
   anonyme affiche l'identifiant numérique au lieu du libellé choisi.
-- 2026-10-21 · `PENDING_COMMIT` (consigne 007) · plus aucune écriture dans
+- 2026-10-21 · `038dd1b` (consigne 007) · plus aucune écriture dans
   `_grist_Views_section.options` ni lecture de `_grist_Shares` : la définition de chaque
   formulaire vit dans la table du document `FormPlus_Formulaires` (une ligne par formulaire,
   colonnes et détail dans « Consignes » ci-dessus), créée avec l'accord de la personne (fenêtre du

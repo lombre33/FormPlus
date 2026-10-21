@@ -38,7 +38,7 @@ $('themeToggle').addEventListener('click', () => { Theme.set(Theme.isDark() ? 'l
 
 (async () => {
   // Suite de non-régression, hors ligne, indépendante de Grist : mêmes conditions qu'un vrai
-  // document (grist.docApi simulé) sans jamais y toucher. Même convention que #repair.
+  // document (grist.docApi simulé) sans jamais y toucher.
   if (hashParams.has('test')) { await runTests(); return; }
   const inIframe = window.self !== window.top;
   const ok = inIframe && await loadPluginApi();
