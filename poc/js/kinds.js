@@ -14,6 +14,7 @@ export const KINDS = [
   { id: 'bool', icon: ICONS.toggleOn },
   { id: 'select', icon: ICONS.list },
   { id: 'multiselect', icon: ICONS.checkSquare },
+  { id: 'timeslot', icon: ICONS.clock },
   { id: 'choice', icon: ICONS.table },
   { id: 'reflist', icon: ICONS.layers },
   { id: 'scale', icon: ICONS.slider },
@@ -43,8 +44,11 @@ export const FREE_ENTRY_KINDS = new Set(['number', 'text', 'longtext', 'scale', 
 // ensureChoiceField / ensureRefListField) plutôt qu'une colonne choisie à la main.
 export const TABLE_SOURCED_KINDS = new Set(['choice', 'reflist']);
 // Types dont la liste d'options fixes se règle comme pour 'select'/'multiselect' (une option par
-// ligne) : 'ranking' classe les mêmes options plutôt que d'en choisir une ou plusieurs.
-export const FIXED_LIST_KINDS = new Set(['select', 'multiselect', 'ranking']);
+// ligne) : 'ranking' classe les mêmes options plutôt que d'en choisir une ou plusieurs ; 'timeslot'
+// choisit un seul créneau prédéfini parmi la liste, affiché en pastilles plutôt qu'en menu (voir
+// son cas dédié dans renderExtraQuestion, respond.js — jamais de bascule menu/radio comme pour
+// 'select', toujours en pastilles : c'est tout le point du type, un choix "d'un peu visuel").
+export const FIXED_LIST_KINDS = new Set(['select', 'multiselect', 'ranking', 'timeslot']);
 
 // La carte interactive ('map') est la seule fonctionnalité du widget à charger une dépendance
 // d'exécution externe (Leaflet, depuis un CDN) — tout le reste du widget reste zéro-dépendance

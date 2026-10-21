@@ -215,6 +215,7 @@ export async function runTests() {
     assertEqual('section -> sa description', questionSummary({ kind: 'section', description: 'intro' }), 'intro');
     assertEqual("info -> 'Repliable'", questionSummary({ kind: 'info' }), 'Repliable');
     assertEqual('select -> nombre d’options', questionSummary({ kind: 'select', choices: ['a', 'b'] }), '2 option(s)');
+    assertEqual('créneau horaire -> nombre d’options, comme select/multiselect', questionSummary({ kind: 'timeslot', choices: ['9h-10h', '10h-11h', '11h-12h'] }), '3 option(s)');
     assertEqual('choice en radio', questionSummary({ kind: 'choice', sourceTable: 'T', displayMode: 'radio' }), 'Depuis « T » · en radio');
     assertEqual('écrit ailleurs + condition', questionSummary({ kind: 'text', writeTable: 'Autre', condition: { questionId: 'zzz', value: 'X' } }), 'écrit dans « Autre » · si « ? » = « X »');
     assertEqual('condition à plusieurs règles combinées en OU',
@@ -386,6 +387,12 @@ export async function runTests() {
 
     host.innerHTML = renderExtraQuestion({ id: 'q7', kind: 'multiselect', label: 'M', choices: ['A', 'B', 'C'] });
     assert('choix multiples : 3 cases', host.querySelectorAll('#eq-q7 input[type=checkbox]').length === 3);
+
+    host.innerHTML = renderExtraQuestion({ id: 'q7b', kind: 'timeslot', label: 'Créneau', choices: ['9h-10h', '10h-11h'], required: true });
+    assertEqual('créneau horaire : toujours en pastilles, jamais un menu déroulant', host.querySelectorAll('#eq-q7b .pv-pill input[type=radio]').length, 2);
+    assert('créneau horaire : même groupe de boutons radio (un seul choix possible)', [...host.querySelectorAll('#eq-q7b input[type=radio]')].every(r => r.name === 'eq-q7b'));
+    assert('créneau horaire : une icône horloge sur chaque pastille', host.querySelectorAll('#eq-q7b .pv-timeslot-icon svg').length === 2);
+    assert('créneau horaire obligatoire : attribut required repris', host.querySelectorAll('#eq-q7b input[required]').length === 2);
 
     host.innerHTML = renderExtraQuestion({ id: 'q8', kind: 'choice', label: 'C' });
     assert('choix depuis une table : conteneur en attente, pas encore de select', host.querySelector('#eq-q8') != null && host.querySelector('#eq-q8 select') == null);
@@ -594,7 +601,7 @@ export async function runTests() {
   });
 
   await group('saveQuestionFromCard : réponses simples, colonne par défaut', async () => {
-    for (const k of ['text', 'longtext', 'number', 'date', 'datetime', 'bool', 'select', 'multiselect', 'ranking', 'attachments', 'scale', 'signature', 'map']) {
+    for (const k of ['text', 'longtext', 'number', 'date', 'datetime', 'bool', 'select', 'multiselect', 'ranking', 'attachments', 'scale', 'signature', 'map', 'timeslot']) {
       state.cfgQuestions = [];
       state.mainTableIdCache = 'Main';
       state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
@@ -735,6 +742,7 @@ export async function runTests() {
     const EXPECTED_TYPE = {
       text: 'Text', longtext: 'Text', number: 'Numeric', date: 'Date', datetime: 'DateTime', bool: 'Bool',
       select: 'Choice', multiselect: 'ChoiceList', ranking: 'Text', attachments: 'Attachments', scale: 'Numeric', signature: 'Attachments', map: 'Text',
+      timeslot: 'Choice',
     };
     for (const k of Object.keys(EXPECTED_TYPE)) {
       state.cfgQuestions = [];
@@ -897,6 +905,7 @@ export async function runTests() {
       { id: 'srcBool', kind: 'bool', label: 'Urgent' },
       { id: 'srcNum', kind: 'number', label: 'Montant' },
       { id: 'srcTxt', kind: 'text', label: 'Note' },
+      { id: 'srcTimeslot', kind: 'timeslot', label: 'Créneau', choices: ['9h-10h', '10h-11h'] },
     ];
     state.mainTableIdCache = 'Main';
     state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
@@ -910,6 +919,11 @@ export async function runTests() {
 
     await pickSource('srcSelect');
     assert('source à choix fixes -> combo de recherche', !!cell().querySelector('.combo-input'));
+
+    await pickSource('srcTimeslot');
+    assert('source créneau horaire -> combo de recherche, comme select/multiselect', !!cell().querySelector('.combo-input'));
+    cell().querySelector('.combo-input').dispatchEvent(new Event('focus'));
+    assertEqual('valeurs proposées : les créneaux configurés', [...cell().querySelectorAll('.combo-opt')].map(o => o.textContent), ['9h-10h', '10h-11h']);
 
     await pickSource('srcBool');
     assert('source Oui/non -> combo (Oui/Non), pas une saisie libre', !!cell().querySelector('.combo-input'));
@@ -1819,6 +1833,7 @@ export async function runTests() {
       { id: 'q15', kind: 'scale', label: 'Note', scaleMin: 0, scaleMax: 10, writeTable: 'Reponses', writeCol: 'NoteCol' },
       { id: 'q16', kind: 'ranking', label: 'Classement', choices: ['A', 'B', 'C'], writeTable: 'Reponses', writeCol: 'Classement' },
       { id: 'q17', kind: 'reflist', label: 'Refs', writeTable: 'Reponses', writeCol: 'RefsCol' },
+      { id: 'q18', kind: 'timeslot', label: 'Créneau', choices: ['9h-10h', '10h-11h'], writeTable: 'Reponses', writeCol: 'Creneau' },
     ];
     const formEl = mount(document.createElement('form'));
     formEl.innerHTML = `<input type="text" name="_website" value="" style="display:none">${extraQuestions.map(renderExtraQuestion).join('')}<span id="fill-status"></span><button type="submit"></button>`;
@@ -1829,6 +1844,7 @@ export async function runTests() {
     formEl.querySelector('#eq-q5').value = 'Lyon';
     formEl.querySelectorAll('#eq-q6 input[type=radio]')[0].checked = true; // Paris
     formEl.querySelectorAll('#eq-q7 input[type=checkbox]')[1].checked = true; // En
+    formEl.querySelectorAll('#eq-q18 input[type=radio]')[1].checked = true; // 10h-11h
     formEl.querySelector('#eq-q11').value = 'Bonjour';
     formEl.querySelector('#eq-q8').innerHTML = '<label class="opt"><input type="radio" name="eq-q8" value="5" data-label="Rhône"></label>';
     formEl.querySelector('#eq-q8 input').checked = true;
@@ -1874,6 +1890,7 @@ export async function runTests() {
     assertEqual('échelle : convertie en nombre', fields.NoteCol, 7);
     assertEqual('classement : ordre du DOM, joint en texte', fields.Classement, 'B, C, A');
     assertEqual('liste de références : toutes les cases cochées, en RefList', fields.RefsCol, ['L', 1, 2]);
+    assertEqual('créneau horaire : toujours en pastilles, même lecture qu’un choix en radio', fields.Creneau, '10h-11h');
     assert('titre de section absent des champs envoyés', !('Section' in fields));
     assert('bloc d’info absent des champs envoyés', !('Info' in fields));
     assert('pièces jointes absentes des champs de la table principale (envoyées à part)', !('Justificatif' in fields) && !('PJ' in fields));

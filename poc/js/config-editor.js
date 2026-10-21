@@ -464,7 +464,7 @@ export function questionSummary(q) {
   if (q.kind === 'section') return q.description || '';
   if (q.kind === 'info') return 'Repliable';
   if (q.kind === 'choice') parts.push(`Depuis « ${q.sourceTable} »`);
-  if (q.kind === 'select' || q.kind === 'multiselect') parts.push(`${(q.choices || []).length} option(s)`);
+  if (q.kind === 'select' || q.kind === 'multiselect' || q.kind === 'timeslot') parts.push(`${(q.choices || []).length} option(s)`);
   if (SINGLE_CHOICE_KINDS.has(q.kind) && q.displayMode === 'radio') parts.push('en radio');
   if (q.writeTable && q.writeTable !== state.mainTableIdCache) parts.push(`écrit dans « ${q.writeTable} »`);
   const cond = normalizeCondition(q.condition);
@@ -760,7 +760,7 @@ async function wireConditionEditor(body, q, condCandidates) {
     const combo = mountCombo(cell);
     combo.onChange((v) => { condRules[i].value = v; });
     if (!srcId) { combo.setOptions([]); return; }
-    if (src?.kind === 'select' || src?.kind === 'multiselect') {
+    if (src?.kind === 'select' || src?.kind === 'multiselect' || src?.kind === 'timeslot') {
       combo.setOptions((src.choices || []).map(v => ({ value: v, label: v })), condRules[i].value);
     } else if (src?.kind === 'choice') {
       const data = await fetchMeta(src.sourceTable);

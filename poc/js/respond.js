@@ -194,7 +194,7 @@ export function renderExtraQuestion(q) {
   // multiselect ci-dessus. "map" ne l'est QUE si la carte interactive est active
   // (mapFeatureEnabled()) : sinon c'est un <input type=text> normal, directement labelable
   // (repli décrit dans renderExtraQuestion, cas 'map').
-  const isGroupContainer = ['multiselect', 'choice', 'reflist', 'ranking', 'signature'].includes(q.kind)
+  const isGroupContainer = ['multiselect', 'choice', 'reflist', 'ranking', 'signature', 'timeslot'].includes(q.kind)
     || (q.kind === 'select' && q.displayMode === 'radio')
     || (q.kind === 'map' && mapFeatureEnabled());
   const titleFor = isGroupContainer ? '' : ` for="eq-${q.id}"`;
@@ -221,6 +221,12 @@ export function renderExtraQuestion(q) {
       if (q.allowOther) input += otherInputHtml(q.id);
       break;
     }
+    case 'timeslot':
+      // Toujours en pastilles (jamais la bascule menu/radio de 'select', voir FIXED_LIST_KINDS,
+      // kinds.js) : le but même du type, un choix "d'un peu visuel" (demandé par Antoine le 21
+      // oct) — une icône horloge sur chaque créneau, en plus du texte choisi par le concepteur.
+      input = `<div id="eq-${q.id}" class="pv-pill-group" role="group" aria-labelledby="${labelId}">${(q.choices || []).map(c => `<label class="pv-pill pv-timeslot-pill"><input type="radio" name="eq-${q.id}" value="${esc(c)}" data-label="${esc(c)}"${reqAttr}${describedBy}><span><span class="pv-timeslot-icon" aria-hidden="true">${ICONS.clock}</span>${esc(c)}</span></label>`).join('')}</div>`;
+      break;
     case 'multiselect': {
       const otherPill = q.allowOther ? `<label class="pv-pill"><input type="checkbox" name="eqm-${q.id}" value="${OTHER_SENTINEL}"><span>${I18n.t('form.respond.otherOptionText')}</span></label>` : '';
       // Même nuance que ChoiceList/RefList natifs ci-dessus (« au moins une », pas « toutes » :
@@ -862,8 +868,10 @@ export async function onSubmit(ev, form, link, extraQuestions) {
       value = $(`eq-${q.id}`).checked;
       empty = false;
       missingRequired = q.required && visible && value !== true;
-    } else if (SINGLE_CHOICE_KINDS.has(q.kind)) {
-      // Menu déroulant ou radios selon q.displayMode : même lecture des deux (singleValueOf).
+    } else if (SINGLE_CHOICE_KINDS.has(q.kind) || q.kind === 'timeslot') {
+      // Menu déroulant ou radios selon q.displayMode (select/choice), ou pastilles toujours
+      // (timeslot, jamais de q.allowOther pour ce type) : même lecture dans les deux cas
+      // (singleValueOf).
       let raw = singleValueOf($(`eq-${q.id}`)).value;
       if (q.allowOther && raw === OTHER_SENTINEL) raw = ($(`eq-${q.id}-other`)?.value || '').trim();
       empty = raw === '' || raw == null;

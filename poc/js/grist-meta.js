@@ -178,6 +178,7 @@ export const KIND_TO_GRIST_TYPE = {
   text: 'Text', longtext: 'Text', number: 'Numeric', scale: 'Numeric', date: 'Date',
   datetime: 'DateTime', bool: 'Bool', select: 'Choice', multiselect: 'ChoiceList',
   ranking: 'Text', map: 'Text', attachments: 'Attachments', signature: 'Attachments',
+  timeslot: 'Choice', // une seule valeur prise dans une liste fixe, comme 'select'
 };
 
 // Type Grist réel d'une colonne déjà existante (sans le ":Table" d'un Ref/RefList), ou null si

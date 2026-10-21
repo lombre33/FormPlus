@@ -237,6 +237,7 @@ export const STRINGS = {
   'form.editor.kind.bool': { fr: 'Oui / non', en: 'Yes / No' },
   'form.editor.kind.select': { fr: 'Choix (liste fixe)', en: 'Choice (fixed list)' },
   'form.editor.kind.multiselect': { fr: 'Choix multiples (liste fixe)', en: 'Multiple choice (fixed list)' },
+  'form.editor.kind.timeslot': { fr: 'Créneau horaire', en: 'Time slot' },
   'form.editor.kind.choice': { fr: 'Choix depuis une table', en: 'Choice from a table' },
   'form.editor.kind.reflist': { fr: 'Liste de références', en: 'Reference list' },
   'form.editor.kind.scale': { fr: 'Échelle', en: 'Scale' },
