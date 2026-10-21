@@ -11,7 +11,7 @@ import { parseFormLink, buildPublicUrl, migrateLegacy, hostOrgFromReferrer, norm
 import { diag } from './diag.js';
 import {
   fetchMeta, getTableRef, tableIdOfRef, columnOptions,
-  findExistingShareKey, ensureTableGate, ensureChoiceField, ensureRefListField,
+  findExistingShareKey, ensureTableGate, ensureChoiceField, ensureRefListField, ensureFreeColumn,
   findViewRefForSection, findMyWidgetPage, persistOptions, duplicateFormSection,
   clearAutoFields, createFormSection,
 } from './grist-meta.js';
@@ -526,6 +526,10 @@ export function mountCombo(host, placeholder) {
       }
     },
     get value() { return value; },
+    // Texte tapé sans correspondance choisie dans la liste (value reste vide dans ce cas, voir
+    // mousedown ci-dessus) : utilisé par la colonne de destination pour nommer une colonne à
+    // créer automatiquement plutôt que de bloquer l'enregistrement (ensureFreeColumn).
+    get rawText() { return input.value.trim(); },
     onChange(cb) { onChangeCb = cb; },
   };
 }
@@ -568,7 +572,7 @@ function wireKindSelector(body, kind, displayMode) {
   // Sélecteur de type compact : une pastille (icône + libellé du type actuel) ouvre un petit
   // popover d'icônes au clic, plutôt que la grille complète toujours affichée — c'est ce qui
   // rendait chaque carte immense. Le popover reste dans le DOM (juste masqué en CSS) : les tests
-  // hors-ligne cliquent directement sur [data-kind], qu'il soit visible ou non (comme .qf-save).
+  // hors-ligne cliquent directement sur [data-kind], qu'il soit visible ou non.
   const typePillWrap = body.querySelector('.qtype-pill-wrap');
   const typePopover = body.querySelector('.qtype-popover');
   body.querySelector('.qtype-pill').addEventListener('click', () => typePopover.classList.toggle('hidden'));
@@ -699,14 +703,13 @@ async function wireConditionEditor(body, q, condCandidates) {
   };
 }
 
-// Pied de carte : annuler/enregistrer, auto-enregistrement au blur, supprimer, dupliquer. `q` est
-// possédé entièrement par cette fonction à partir d'ici (plus jamais lu par renderCardBody
-// ensuite) : autoSave peut librement le réaffecter une fois la question créée/modifiée, pour que
-// le SECOND blur d'une frappe rapide (avant que le premier round-trip réseau ne soit terminé)
-// mette bien à jour l'entrée déjà créée au lieu d'en recréer une autre avec un id différent.
+// Pied de carte : annuler, auto-enregistrement au blur, supprimer, dupliquer. `q` est possédé
+// entièrement par cette fonction à partir d'ici (plus jamais lu par renderCardBody ensuite) :
+// autoSave peut librement le réaffecter une fois la question créée/modifiée, pour que le SECOND
+// blur d'une frappe rapide (avant que le premier round-trip réseau ne soit terminé) mette bien à
+// jour l'entrée déjà créée au lieu d'en recréer une autre avec un id différent.
 function wireCardFooter(id, body, q, combos, isNew) {
   body.querySelector('.qf-cancel').addEventListener('click', () => { state.expandedId = null; renderQuestionList(); });
-  body.querySelector('.qf-save').addEventListener('click', () => saveQuestionFromCard(id, body, q, combos));
 
   // Édition directe : quitter le titre, la description ou les options, ou cocher "Obligatoire",
   // enregistre tout seul (pas de bouton). rerender=isNew : une question qui existe déjà n'a pas
@@ -875,12 +878,14 @@ export async function renderCardBody(id, body) {
       </div>
       <div class="qcard-footer-right ${isNew ? '' : 'hidden'}">
         <button type="button" class="qf-cancel">${I18n.t('kit.cancel')}</button>
-        <button type="button" class="qf-save primary hidden">${I18n.t('form.editor.saveBtn')}</button>
       </div>
     </div>`;
 
   const combos = {};
-  body.querySelectorAll('[data-combo]').forEach(host => { combos[host.dataset.combo] = mountCombo(host); });
+  body.querySelectorAll('[data-combo]').forEach(host => {
+    const placeholder = host.dataset.combo === 'writeCol' ? I18n.t('form.editor.destColumnPlaceholder') : undefined;
+    combos[host.dataset.combo] = mountCombo(host, placeholder);
+  });
 
   wireKindSelector(body, kind, displayMode);
 
@@ -892,6 +897,10 @@ export async function renderCardBody(id, body) {
   await wireSourceAndWriteCombos(body, q, tableItems, combos);
   await wireConditionEditor(body, q, condCandidates);
   wireCardFooter(id, body, q, combos, isNew);
+  // `combos` n'est lisible nulle part ailleurs (fermeture propre à ce rendu) : renvoyé pour que
+  // la suite de tests (#test) puisse appeler saveQuestionFromCard directement avec les bonnes
+  // comboboxes, sans bouton Enregistrer à cliquer (voir saveQuestionFromCard ci-dessous).
+  return { combos };
 }
 
 // Remplace l'entrée existante EN PLACE (même position dans la liste) plutôt que de la retirer
@@ -908,9 +917,10 @@ function upsertQuestion(q) {
 // Édition directe : chaque champ s'enregistre tout seul (voir les écouteurs "blur"/"change" dans
 // renderCardBody), sans bouton Enregistrer. rerender=false (le cas courant, une question déjà
 // existante) évite de reconstruire toute la liste à chaque frappe — la carte affiche déjà ce que
-// l'utilisateur vient de taper, inutile de la redessiner. rerender=true (question tout juste créée,
-// ou passage par le bouton .qf-save resté câblé pour compatibilité) reconstruit la liste, pour
-// faire apparaître la nouvelle carte et réinitialiser l'emplacement "nouvelle question".
+// l'utilisateur vient de taper, inutile de la redessiner. rerender=true (question tout juste créée)
+// reconstruit la liste, pour faire apparaître la nouvelle carte et réinitialiser l'emplacement
+// "nouvelle question". Exportée aussi pour la suite de tests (#test), qui l'appelle directement
+// plutôt que de cliquer un bouton Enregistrer que le répondant ne voit jamais (voir renderCardBody).
 export async function saveQuestionFromCard(id, body, existing, combos, { rerender = true } = {}) {
   const msg = body.querySelector('.qf-msg');
   const kind = body.querySelector('.qtype-opt.active')?.dataset.kind || 'text';
@@ -979,9 +989,14 @@ export async function saveQuestionFromCard(id, body, existing, combos, { rerende
         q.choices = body.querySelector('.qf-choices').value.split('\n').map(s => s.trim()).filter(Boolean);
         if (!q.choices.length) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.addAtLeastOneOption')}</span>`; return; }
       }
-      q.writeTable = combos.writeTable.value;
-      q.writeCol = combos.writeCol.value;
-      if (!q.writeTable || !q.writeCol) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.pickDestColumn')}</span>`; return; }
+      q.writeTable = combos.writeTable.value || mainTableId;
+      if (!q.writeTable) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.pickDestColumn')}</span>`; return; }
+      // Colonne existante choisie dans la liste : réutilisée telle quelle. Sinon (champ laissé
+      // vide, ou nom tapé sans correspondance dans la liste), la colonne est déduite du nom tapé
+      // ou, à défaut, du libellé de la question, et créée automatiquement avec le type Grist qui
+      // convient (ensureFreeColumn, grist-meta.js) — c'est le principe n°5 de la feuille de route
+      // (docs/03-roadmap-priorites.md), étendu ici à tous les types au lieu du seul "Choix".
+      q.writeCol = combos.writeCol.value || await ensureFreeColumn(q.writeTable, combos.writeCol.rawText || label, kind);
       if (q.writeTable !== mainTableId) await ensureTableGate(q.writeTable, state.currentFormSection.viewRef);
     }
     upsertQuestion(q);

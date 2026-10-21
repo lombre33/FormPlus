@@ -30,11 +30,27 @@ export function softenColor(hex) {
   const mix = (v) => Math.round(v * 0.18 + bg * 0.82);
   return `rgb(${mix(c.r)}, ${mix(c.g)}, ${mix(c.b)})`;
 }
+// Luminance relative WCAG (pas l'approximation de luma NTSC utilisée avant le 21 oct, qui pouvait
+// désigner un texte perdant sous le seuil AA de 4,5:1 pour certaines couleurs d'accent choisies
+// par le concepteur — audit accessibilité axe-core du 21 oct, voir aussi strings.js). sRGB ->
+// linéaire puis pondération 0,2126/0,7152/0,0722 (formule WCAG 2.x), reprise telle quelle.
+function relLuminance(c) {
+  const lin = (v) => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
+  return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
+}
+function contrastRatio(l1, l2) {
+  const [hi, lo] = l1 > l2 ? [l1, l2] : [l2, l1];
+  return (hi + 0.05) / (lo + 0.05);
+}
+const DARK_TEXT = '#1c1d21';
+const DARK_TEXT_LUM = relLuminance({ r: 0x1c, g: 0x1d, b: 0x21 });
 export function contrastText(hex) {
   const c = hexToRgb(hex);
   if (!c) return null;
-  const lum = (0.299 * c.r + 0.587 * c.g + 0.114 * c.b) / 255;
-  return lum > 0.6 ? '#1c1d21' : '#fff';
+  const bgLum = relLuminance(c);
+  // Toujours le MEILLEUR des deux textes possibles face à cette couleur de fond précise, jamais
+  // un seuil de luminosité fixe sur la couleur seule : les deux ratios sont comparés directement.
+  return contrastRatio(1, bgLum) >= contrastRatio(DARK_TEXT_LUM, bgLum) ? '#fff' : DARK_TEXT;
 }
 
 // Applique la couleur d'accent choisie par le concepteur (options.accentColor) sur le rendu

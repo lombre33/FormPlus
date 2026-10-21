@@ -511,6 +511,18 @@ async function wireMaps(card, extraQuestions) {
   }
 }
 
+// Titre affiché au répondant : titre FormPlus (options.formTitle) s'il est renseigné, sinon le
+// titre natif du formulaire Grist (form.formTitle, API /forms) — SAUF quand ce dernier n'est que
+// le nom brut de la table (form.formTableId porte ce même nom : égalité des deux -> jamais
+// personnalisé côté Grist), auquel cas un libellé générique traduit est utilisé à la place. Zéro
+// jargon Grist pour le répondant (principe n°4 de la feuille de route, docs/03-roadmap-priorites),
+// plutôt que l'identifiant technique de la table (ex. « Table1 », audit UI/UX du 21 oct). Fonction
+// pure, extraite de renderFill pour être testable sans tout le DOM de la page de réponse.
+export function resolveFormTitle(options, form) {
+  const nativeTitle = form?.formTitle && form.formTitle !== form?.formTableId ? form.formTitle : '';
+  return options?.formTitle || nativeTitle || I18n.t('form.respond.untitledForm');
+}
+
 export async function renderFill() {
   show('fill');
   const card = $('fill-card');
@@ -551,7 +563,7 @@ export async function renderFill() {
   const extraRows = paginated
     ? pages.map((p, i) => `<div class="pv-page" data-page-index="${i}" ${i === 0 ? '' : 'hidden'}>${p.items.map(renderExtraQuestion).join('')}</div>`).join('')
     : (pages[0]?.items || []).map(renderExtraQuestion).join('');
-  const title = state.options?.formTitle || form.formTitle;
+  const title = resolveFormTitle(state.options, form);
   const description = state.options?.formDescription || '';
   const submitLabel = state.options?.submitLabel || I18n.t('form.appearance.submitPlaceholder');
   const headerEmoji = state.options?.headerEmoji || '';

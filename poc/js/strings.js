@@ -273,6 +273,10 @@ export const STRINGS = {
   'form.editor.scaleLowPlaceholder': { fr: 'Ex. Pas du tout', en: 'E.g. Not at all' },
   'form.editor.scaleHighPlaceholder': { fr: 'Ex. Tout à fait', en: 'E.g. Totally' },
   'form.editor.destColumnLabel': { fr: 'Colonne de destination', en: 'Destination column' },
+  'form.editor.destColumnPlaceholder': {
+    fr: 'Colonne existante, ou nom pour en créer une',
+    en: 'Existing column, or type a name to create one',
+  },
   'form.editor.writeToOtherTable': { fr: 'Écrire dans une autre table', en: 'Write to another table' },
   'form.editor.destTableLabel': { fr: 'Table de destination', en: 'Destination table' },
   'form.editor.choiceTableHint': {
@@ -302,7 +306,6 @@ export const STRINGS = {
   'form.editor.addCondition': { fr: 'Ajouter une condition', en: 'Add a condition' },
   'form.editor.duplicateTitle': { fr: 'Dupliquer', en: 'Duplicate' },
   'form.editor.deleteTitle': { fr: 'Supprimer', en: 'Delete' },
-  'form.editor.saveBtn': { fr: 'Enregistrer', en: 'Save' },
 
   // Enregistrement d'une question (saveQuestionFromCard)
   'form.editor.defaultLabelChoice': { fr: 'Votre choix', en: 'Your choice' },
@@ -369,6 +372,7 @@ export const STRINGS = {
   'form.respond.prevBtn': { fr: 'Précédent', en: 'Previous' },
   'form.respond.nextBtn': { fr: 'Suivant', en: 'Next' },
   'form.respond.formUnavailable': { fr: 'Formulaire indisponible', en: 'Form unavailable' },
+  'form.respond.untitledForm': { fr: 'Formulaire sans titre', en: 'Untitled form' },
   'form.respond.linkUnreadable': { fr: 'Lien de formulaire illisible.', en: 'Unreadable form link.' },
   'form.respond.requiredFieldsNote': { fr: 'Les champs marqués * sont obligatoires.', en: 'Fields marked * are required.' },
   'form.respond.honeypotLabel': { fr: 'Ne pas remplir', en: 'Leave this blank' },

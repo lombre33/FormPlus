@@ -4,12 +4,12 @@ import { hexToRgb, softenColor, contrastText, applyBranding } from './theme.js';
 import { I18n, KIT_STRINGS } from '../../kit/js/i18n.js';
 import { STRINGS } from './strings.js';
 import { KINDS, LAYOUT_KINDS, TABLE_SOURCED_KINDS, FIXED_LIST_KINDS, mapFeatureEnabled } from './kinds.js';
-import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet, splitIntoPages, wirePages } from './respond.js';
+import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet, splitIntoPages, wirePages, resolveFormTitle } from './respond.js';
 import {
-  questionSummary, conditionSourceCandidates, renderCardBody,
+  questionSummary, conditionSourceCandidates, renderCardBody, saveQuestionFromCard,
   importNativeFields, resetQuestions, createEmptyForm, populateFormPicker, generate, saveConfig,
 } from './config-editor.js';
-import { findExistingShareKey, ensureTableGate } from './grist-meta.js';
+import { findExistingShareKey, ensureTableGate, ensureFreeColumn } from './grist-meta.js';
 import { loadPluginApi } from './plugin-loader.js';
 import { state } from './state.js';
 
@@ -176,6 +176,27 @@ export async function runTests() {
     assert('softenColor en clair se rapproche du blanc', !!m && Number(m[1]) > 180 && Number(m[2]) > 180);
   });
 
+  await group('contrastText : vrai ratio WCAG (luminance relative), jamais un seuil de luma fixe pouvant tomber sous AA (audit accessibilité du 21 oct)', () => {
+    // Même formule que theme.js, dupliquée ici volontairement : vérifie le RÉSULTAT (le ratio
+    // obtenu respecte AA), pas l'implémentation — une régression vers l'ancienne approximation de
+    // luma NTSC (seuil 0,6 sur 0,299R+0,587G+0,114B) doit faire échouer ce test.
+    const linOf = (v) => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
+    const lumOf = (hex) => {
+      const c = hexToRgb(hex);
+      return 0.2126 * linOf(c.r) + 0.7152 * linOf(c.g) + 0.0722 * linOf(c.b);
+    };
+    const ratio = (l1, l2) => { const [hi, lo] = l1 > l2 ? [l1, l2] : [l2, l1]; return (hi + 0.05) / (lo + 0.05); };
+    // Bleu poussiéreux #6699CC : luma NTSC ≈ 0,563 (< seuil 0,6 de l'ancienne formule -> aurait
+    // choisi du blanc), mais le blanc n'y obtient qu'un ratio WCAG ≈ 3,05:1 (sous le seuil AA de
+    // 4,5:1) alors que le texte sombre y obtient ≈ 5,2:1 : exactement le cas relevé par l'audit.
+    const chosen = contrastText('#6699CC');
+    const chosenLum = chosen === '#fff' ? 1 : lumOf(chosen);
+    const bgLum = lumOf('#6699CC');
+    assertEqual('couleur d’accent intermédiaire -> texte sombre (meilleur ratio réel)', chosen, '#1c1d21');
+    assert('le texte choisi atteint bien le seuil AA (4,5:1) pour cette couleur', ratio(chosenLum, bgLum) >= 4.5, `ratio obtenu : ${ratio(chosenLum, bgLum).toFixed(2)}`);
+    assert('le blanc, lui, n’aurait pas atteint ce seuil (c’était le bug)', ratio(1, bgLum) < 4.5, `ratio du blanc : ${ratio(1, bgLum).toFixed(2)}`);
+  });
+
   await group('conditionSourceCandidates : tous les types comparables, jamais les blocs de mise en page ni les types sans valeur comparable', () => {
     state.cfgQuestions = [
       { id: 'a', kind: 'choice' }, { id: 'b', kind: 'select' }, { id: 'c', kind: 'text' },
@@ -198,6 +219,17 @@ export async function runTests() {
     assertEqual('condition à plusieurs règles combinées en OU',
       questionSummary({ kind: 'text', condition: { mode: 'any', rules: [{ questionId: 'a', value: 'X' }, { questionId: 'b', value: 'Y' }] } }),
       'si « ? » = « X » ou « ? » = « Y »');
+  });
+
+  await group('resolveFormTitle : jamais le nom brut de la table Grist en repli (audit UI/UX du 21 oct)', () => {
+    // Comparé à I18n.t(clé), jamais à du français écrit en dur (voir .github/scripts/run-widget-tests.js :
+    // la suite tourne aussi en anglais en CI, un texte en dur y échouerait).
+    const untitled = I18n.t('form.respond.untitledForm');
+    assertEqual('titre FormPlus renseigné -> toujours prioritaire', resolveFormTitle({ formTitle: 'Inscription à l’atelier' }, { formTitle: 'Table1', formTableId: 'Table1' }), 'Inscription à l’atelier');
+    assertEqual('pas de titre FormPlus, titre natif ≠ nom de table -> titre natif utilisé', resolveFormTitle({}, { formTitle: 'Contactez-nous', formTableId: 'Table1' }), 'Contactez-nous');
+    assertEqual('pas de titre FormPlus, titre natif = nom brut de la table -> repli générique, jamais "Table1"', resolveFormTitle({}, { formTitle: 'Table1', formTableId: 'Table1' }), untitled);
+    assertEqual('aucun titre nulle part -> repli générique', resolveFormTitle({}, { formTableId: 'Reponses' }), untitled);
+    assertEqual('options absentes (undefined) -> ne lève pas, repli générique', resolveFormTitle(undefined, { formTableId: 'Reponses' }), untitled);
   });
 
   await group('singleValueOf', () => {
@@ -571,13 +603,12 @@ export async function runTests() {
       }).grist;
       state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
       const body = mount(document.createElement('div'));
-      await renderCardBody('__new__', body);
+      const { combos } = await renderCardBody('__new__', body);
       body.querySelector(`[data-kind="${k}"]`).click();
       body.querySelector('.qf-label').value = `Question ${k}`;
       if (FIXED_LIST_KINDS.has(k)) body.querySelector('.qf-choices').value = 'Un\nDeux';
       selectCombo(body.querySelector('[data-combo="writeCol"]'), 'colA');
-      body.querySelector('.qf-save').click();
-      await tick();
+      await saveQuestionFromCard('__new__', body, null, combos);
       assertEqual(`${k} : une question créée`, state.cfgQuestions.length, 1, JSON.stringify(state.cfgQuestions));
       assertEqual(`${k} : bon type conservé`, state.cfgQuestions[0]?.kind, k);
       assertEqual(`${k} : colonne de destination`, state.cfgQuestions[0]?.writeCol, 'colA');
@@ -587,6 +618,87 @@ export async function runTests() {
         assertEqual(`${k} : max par défaut`, state.cfgQuestions[0]?.scaleMax, 5);
       }
     }
+  });
+
+  await group('ensureFreeColumn : déduit le nom du libellé et le type Grist selon le type de question (principe n°5 de la feuille de route)', async () => {
+    const addColumnCalls = [];
+    window.grist = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [1], tableId: ['Main'] } : t === '_grist_Tables_column' ? { id: [], colId: [], parentId: [], type: [] } : {}),
+      onAction: (a) => { if (a[0] === 'AddColumn') addColumnCalls.push(a); },
+    }).grist;
+    assertEqual('espaces remplacés par "_" dans le nom déduit', await ensureFreeColumn('Main', 'Date de naissance', 'date'), 'Date_de_naissance');
+    assertEqual('type Grist "date" -> Date', addColumnCalls[0]?.[3]?.type, 'Date');
+    await ensureFreeColumn('Main', 'Langues', 'multiselect');
+    assertEqual('type Grist "multiselect" -> ChoiceList', addColumnCalls[1]?.[3]?.type, 'ChoiceList');
+    assertEqual('libellé sans aucun caractère valide -> repli "Champ"', await ensureFreeColumn('Main', '!!!', 'text'), 'Champ');
+  });
+
+  await group('ensureFreeColumn : réutilise une colonne existante de même type, en crée une autre en cas de collision avec un type différent', async () => {
+    const addColumnCalls = [];
+    const colTable = { id: [100], colId: ['Note'], parentId: [1], type: ['Numeric'] };
+    window.grist = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [1], tableId: ['Main'] } : t === '_grist_Tables_column' ? colTable : {}),
+      onAction: (a) => { if (a[0] === 'AddColumn') addColumnCalls.push(a); },
+    }).grist;
+    assertEqual('même nom, même type (Numeric) -> colonne existante réutilisée', await ensureFreeColumn('Main', 'Note', 'number'), 'Note');
+    assertEqual('aucune colonne créée dans ce cas', addColumnCalls.length, 0);
+    assertEqual('même nom, type différent attendu (Texte) -> suffixe plutôt qu’écrire dans la colonne Numeric existante', await ensureFreeColumn('Main', 'Note', 'text'), 'Note_2');
+    assertEqual('la colonne suffixée est bien créée avec le bon type', addColumnCalls[0]?.[3], { type: 'Text' });
+  });
+
+  await group('saveQuestionFromCard : colonne de destination laissée vide -> créée automatiquement (écart relevé par l’audit UI/UX du 21 oct, corrigé ici pour tous les types libres)', async () => {
+    const EXPECTED_TYPE = {
+      text: 'Text', longtext: 'Text', number: 'Numeric', date: 'Date', datetime: 'DateTime', bool: 'Bool',
+      select: 'Choice', multiselect: 'ChoiceList', ranking: 'Text', attachments: 'Attachments', scale: 'Numeric', signature: 'Attachments', map: 'Text',
+    };
+    for (const k of Object.keys(EXPECTED_TYPE)) {
+      state.cfgQuestions = [];
+      state.mainTableIdCache = 'Main';
+      state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+      const addColumnCalls = [];
+      window.grist = makeGristStub({
+        listTables: ['Main'],
+        fetchTable: (t) => (t === '_grist_Tables' ? { id: [1], tableId: ['Main'] } : t === '_grist_Tables_column' ? { id: [], colId: [], parentId: [], type: [] } : {}),
+        onAction: (a) => { if (a[0] === 'AddColumn') addColumnCalls.push(a); },
+      }).grist;
+      state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
+      const body = mount(document.createElement('div'));
+      const { combos } = await renderCardBody('__new__', body);
+      body.querySelector(`[data-kind="${k}"]`).click();
+      body.querySelector('.qf-label').value = `Ma question ${k}`;
+      if (FIXED_LIST_KINDS.has(k)) body.querySelector('.qf-choices').value = 'Un\nDeux';
+      // Combo "colonne de destination" jamais touchée (aucun selectCombo) : exactement le cas
+      // bloquant relevé par l'audit — doit maintenant créer la colonne plutôt que refuser.
+      await saveQuestionFromCard('__new__', body, null, combos);
+      assertEqual(`${k} : une question créée malgré une colonne de destination vide`, state.cfgQuestions.length, 1, JSON.stringify(state.cfgQuestions));
+      assertEqual(`${k} : colonne déduite du libellé`, state.cfgQuestions[0]?.writeCol, `Ma_question_${k}`);
+      assertEqual(`${k} : une colonne créée (AddColumn)`, addColumnCalls.length, 1);
+      assertEqual(`${k} : type Grist correct pour la colonne créée`, addColumnCalls[0]?.[3]?.type, EXPECTED_TYPE[k]);
+    }
+
+    // Texte tapé dans la combo sans correspondance choisie dans la liste (le concepteur tape un
+    // nom qu'il a en tête, qui n'existe pas encore) : ce texte prime sur le libellé pour nommer
+    // la colonne créée — pas seulement le cas "champ jamais touché" testé ci-dessus.
+    state.cfgQuestions = [];
+    state.mainTableIdCache = 'Main';
+    state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+    const addColumnCalls2 = [];
+    window.grist = makeGristStub({
+      listTables: ['Main'],
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [1], tableId: ['Main'] } : t === '_grist_Tables_column' ? { id: [], colId: [], parentId: [], type: [] } : {}),
+      onAction: (a) => { if (a[0] === 'AddColumn') addColumnCalls2.push(a); },
+    }).grist;
+    state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
+    const body2 = mount(document.createElement('div'));
+    const { combos: combos2 } = await renderCardBody('__new__', body2);
+    body2.querySelector('[data-kind="text"]').click();
+    body2.querySelector('.qf-label').value = 'Libellé affiché';
+    const writeColInput = body2.querySelector('[data-combo="writeCol"] .combo-input');
+    writeColInput.focus();
+    writeColInput.value = 'Nom voulu';
+    writeColInput.dispatchEvent(new Event('input'));
+    await saveQuestionFromCard('__new__', body2, null, combos2);
+    assertEqual('texte tapé sans correspondance -> prime sur le libellé pour le nom de colonne créée', state.cfgQuestions[0]?.writeCol, 'Nom_voulu');
   });
 
   await group('saveQuestionFromCard : liste de références (reflist), même mécanisme que "choix depuis une table"', async () => {
@@ -606,14 +718,13 @@ export async function runTests() {
     }).grist;
     state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
     const body = mount(document.createElement('div'));
-    await renderCardBody('__new__', body);
+    const { combos } = await renderCardBody('__new__', body);
     body.querySelector('[data-kind="reflist"]').click();
     body.querySelector('.qf-label').value = 'Compétences';
     selectCombo(body.querySelector('[data-combo="srcTable"]'), 'Autre');
     await tick();
     selectCombo(body.querySelector('[data-combo="srcCol"]'), 'nom');
-    body.querySelector('.qf-save').click();
-    await tick();
+    await saveQuestionFromCard('__new__', body, null, combos);
     assertEqual('une question créée', state.cfgQuestions.length, 1, JSON.stringify(state.cfgQuestions));
     assertEqual('sourceTable', state.cfgQuestions[0]?.sourceTable, 'Autre');
     assertEqual('sourceCol', state.cfgQuestions[0]?.sourceCol, 'nom');
@@ -630,25 +741,23 @@ export async function runTests() {
     }).grist;
     state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
     const body = mount(document.createElement('div'));
-    await renderCardBody('__new__', body);
+    const { combos } = await renderCardBody('__new__', body);
     body.querySelector('[data-kind="select"]').click();
     body.querySelector('.qf-label').value = 'Q';
     body.querySelector('.qf-choices').value = 'Un\nDeux';
     body.querySelector('.qf-allow-other').click();
     selectCombo(body.querySelector('[data-combo="writeCol"]'), 'colA');
-    body.querySelector('.qf-save').click();
-    await tick();
+    await saveQuestionFromCard('__new__', body, null, combos);
     assertEqual('allowOther enregistré (select)', state.cfgQuestions[0]?.allowOther, true);
 
     state.cfgQuestions = [];
     const body2 = mount(document.createElement('div'));
-    await renderCardBody('__new__', body2);
+    const { combos: combos2 } = await renderCardBody('__new__', body2);
     body2.querySelector('[data-kind="attachments"]').click();
     body2.querySelector('.qf-label').value = 'Photo';
     body2.querySelector('.qf-allow-capture').click();
     selectCombo(body2.querySelector('[data-combo="writeCol"]'), 'colA');
-    body2.querySelector('.qf-save').click();
-    await tick();
+    await saveQuestionFromCard('__new__', body2, null, combos2);
     assertEqual('allowCapture enregistré (attachments)', state.cfgQuestions[0]?.allowCapture, true);
   });
 
@@ -662,14 +771,13 @@ export async function runTests() {
     }).grist;
     state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
     const body = mount(document.createElement('div'));
-    await renderCardBody('__new__', body);
+    const { combos } = await renderCardBody('__new__', body);
     body.querySelector('[data-kind="select"]').click();
     body.querySelector('.qf-label').value = 'Q';
     body.querySelector('.qf-choices').value = 'Un\nDeux';
     body.querySelector('[data-display="radio"]').click();
     selectCombo(body.querySelector('[data-combo="writeCol"]'), 'colA');
-    body.querySelector('.qf-save').click();
-    await tick();
+    await saveQuestionFromCard('__new__', body, null, combos);
     assertEqual('displayMode=radio enregistré', state.cfgQuestions[0]?.displayMode, 'radio');
   });
 
@@ -710,7 +818,7 @@ export async function runTests() {
     state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
     window.grist = { docApi: { listTables: async () => ['Main'], fetchTable: async (t) => t === '_grist_Tables' ? { id: [1], tableId: ['Main'] } : { id: [10], colA: ['x'] } } };
     const body = mount(document.createElement('div'));
-    await renderCardBody('__new__', body);
+    const { combos } = await renderCardBody('__new__', body);
     body.querySelector('[data-reveal="condition"]').click();
     const cell = () => body.querySelector('.qf-cond-value[data-idx="0"]');
     const pickSource = async (id) => { body.querySelector('.qf-condQ').value = id; body.querySelector('.qf-condQ').dispatchEvent(new Event('change')); await tick(); };
@@ -732,8 +840,7 @@ export async function runTests() {
     cell().querySelector('input').dispatchEvent(new Event('input'));
     body.querySelector('.qf-label').value = 'Dépendante';
     selectCombo(body.querySelector('[data-combo="writeCol"]'), 'colA');
-    body.querySelector('.qf-save').click();
-    await tick();
+    await saveQuestionFromCard('__new__', body, null, combos);
     assertEqual('la valeur saisie librement est bien reprise à l’enregistrement', state.cfgQuestions.find(q => q.label === 'Dépendante')?.condition,
       { mode: 'all', rules: [{ questionId: 'srcTxt', op: 'equals', value: 'valeur libre' }] });
   });
@@ -755,13 +862,12 @@ export async function runTests() {
     }).grist;
     state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
     const body = mount(document.createElement('div'));
-    await renderCardBody('q1', body);
+    const { combos } = await renderCardBody('q1', body);
     assertEqual('2 lignes de condition affichées au chargement', body.querySelectorAll('.qf-cond-rule').length, 2);
     assert('bascule ET/OU visible', !body.querySelector('.qf-cond-mode').classList.contains('hidden'));
     assert('ET actif au chargement (mode enregistré)', body.querySelector('.qf-cond-mode-btn[data-mode="all"]').classList.contains('active'));
     body.querySelector('.qf-cond-mode-btn[data-mode="any"]').click();
-    body.querySelector('.qf-save').click();
-    await tick();
+    await saveQuestionFromCard('q1', body, state.cfgQuestions.find(x => x.id === 'q1'), combos);
     assertEqual('condition ré-enregistrée en OU, mêmes règles', state.cfgQuestions.find(q => q.id === 'q1')?.condition,
       { mode: 'any', rules: [{ questionId: 'src1', op: 'equals', value: 'Ouvert' }, { questionId: 'src2', op: 'equals', value: 'Haute' }] });
   });
@@ -783,14 +889,13 @@ export async function runTests() {
     }).grist;
     state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
     const body = mount(document.createElement('div'));
-    await renderCardBody('__new__', body);
+    const { combos } = await renderCardBody('__new__', body);
     body.querySelector('[data-kind="choice"]').click();
     body.querySelector('.qf-label').value = 'Departement';
     selectCombo(body.querySelector('[data-combo="srcTable"]'), 'Autre');
     await tick();
     selectCombo(body.querySelector('[data-combo="srcCol"]'), 'nom');
-    body.querySelector('.qf-save').click();
-    await tick();
+    await saveQuestionFromCard('__new__', body, null, combos);
     assertEqual('une question créée', state.cfgQuestions.length, 1, JSON.stringify(state.cfgQuestions));
     assertEqual('sourceTable', state.cfgQuestions[0]?.sourceTable, 'Autre');
     assertEqual('sourceCol', state.cfgQuestions[0]?.sourceCol, 'nom');
@@ -840,7 +945,7 @@ export async function runTests() {
     }).grist;
     state.options = { publicUrl: 'https://x', viewRef: 7, vsId: 1, questions: [] };
     const body = mount(document.createElement('div'));
-    await renderCardBody('__new__', body);
+    const { combos } = await renderCardBody('__new__', body);
     body.querySelector('[data-kind="choice"]').click();
     body.querySelector('.qf-label').value = 'Departement';
     selectCombo(body.querySelector('[data-combo="srcTable"]'), 'Autre');
@@ -848,8 +953,7 @@ export async function runTests() {
     selectCombo(body.querySelector('[data-combo="srcCol"]'), 'nom');
     body.querySelector('[data-reveal="table"]').click();
     selectCombo(body.querySelector('[data-combo="writeTable"]'), 'Secondaire');
-    body.querySelector('.qf-save').click();
-    await tick();
+    await saveQuestionFromCard('__new__', body, null, combos);
     const q = state.cfgQuestions[0];
     assertEqual('une question créée', state.cfgQuestions.length, 1, JSON.stringify(state.cfgQuestions));
     assertEqual('écrit dans la table choisie, pas la table principale', q?.writeTable, 'Secondaire');
@@ -917,12 +1021,11 @@ export async function runTests() {
       window.grist = makeGristStub({ listTables: ['Main'] }).grist;
       state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
       const body = mount(document.createElement('div'));
-      await renderCardBody('__new__', body);
+      const { combos } = await renderCardBody('__new__', body);
       body.querySelector(`[data-kind="${k}"]`).click();
       body.querySelector('.qf-label').value = `Titre ${k}`;
       (k === 'info' ? body.querySelector('.qf-desc-long') : body.querySelector('.qf-desc')).value = 'un contenu';
-      body.querySelector('.qf-save').click();
-      await tick();
+      await saveQuestionFromCard('__new__', body, null, combos);
       assertEqual(`${k} : une entrée créée sans écriture de colonne`, state.cfgQuestions.length === 1 && !state.cfgQuestions[0].writeTable, true, JSON.stringify(state.cfgQuestions));
       assertEqual(`${k} : description reprise`, state.cfgQuestions[0]?.description, 'un contenu');
     }

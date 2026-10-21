@@ -167,6 +167,50 @@ export async function ensureRefListField(mainTableId, formSectionId, sourceTable
   return hiddenColId;
 }
 
+// Type de colonne Grist à créer pour chaque type de question à destination "libre" (toutes sauf
+// 'choice'/'reflist', qui gèrent leur propre colonne Référence cachée via ensureChoiceField/
+// ensureRefListField ci-dessus) — même correspondance que la lecture inverse utilisée par
+// importNativeFields (config-editor.js, SIMPLE_MAP) pour qu'une colonne créée ici soit reconnue
+// plus tard comme champ natif compatible si elle est un jour importée dans un autre formulaire.
+// 'ranking' et 'map' n'ont pas de type Grist dédié pour ce qu'ils stockent (un ordre, des
+// coordonnées) : Texte simple, comme le fait déjà respond.js en écriture.
+export const KIND_TO_GRIST_TYPE = {
+  text: 'Text', longtext: 'Text', number: 'Numeric', scale: 'Numeric', date: 'Date',
+  datetime: 'DateTime', bool: 'Bool', select: 'Choice', multiselect: 'ChoiceList',
+  ranking: 'Text', map: 'Text', attachments: 'Attachments', signature: 'Attachments',
+};
+
+// Comme ensureChoiceField/ensureRefListField : crée la colonne de destination si elle manque
+// encore, plutôt que de bloquer l'enregistrement en attendant que le concepteur en choisisse une
+// à la main (principe n°5 de la feuille de route, docs/03-roadmap-priorites.md : « les colonnes
+// manquantes sont créées »). Nom déduit du libellé de la question (même sanitisation que pour les
+// colonnes techniques ci-dessus), avec suffixe numérique en cas de collision avec une colonne
+// existante d'un autre type — jamais d'écriture silencieuse dans la colonne de quelqu'un d'autre.
+// Idempotent : si la colonne déduite existe déjà avec le type attendu, elle est réutilisée telle
+// quelle (même résultat que si le concepteur l'avait choisie à la main).
+export async function ensureFreeColumn(tableId, desiredLabel, kind) {
+  const type = KIND_TO_GRIST_TYPE[kind] || 'Text';
+  let base = String(desiredLabel || '').trim().replace(/[^A-Za-z0-9_]/g, '_').replace(/^_+/, '');
+  if (!/^[A-Za-z]/.test(base)) base = (`Champ_${base}`).replace(/_+$/, '') || 'Champ';
+  const cols = await fetchMeta('_grist_Tables_column');
+  const tref = await getTableRef(tableId);
+  const typeOf = (colId) => {
+    for (let i = 0; i < cols.id.length; i++) if (cols.parentId[i] === tref && cols.colId[i] === colId) return (cols.type[i] || '').split(':')[0];
+    return null;
+  };
+  let colId = base;
+  let n = 2;
+  let existingType = typeOf(colId);
+  while (existingType != null && existingType !== type) {
+    colId = `${base}_${n++}`;
+    existingType = typeOf(colId);
+  }
+  if (existingType == null) {
+    await grist.docApi.applyUserActions([['AddColumn', tableId, colId, { type }]]);
+  }
+  return colId;
+}
+
 // Duplique un formulaire natif déjà publié en une nouvelle section, sur la MÊME page : une clé
 // de partage porte sur la PAGE (_grist_Pages.shareRef), jamais sur une section précise (voir
 // docs/01-etude-comparative.md, "toutes les sections d'une même page appartiennent au même
