@@ -5,7 +5,7 @@ import './strings.js'; // enregistre form.* avant tout usage de I18n.t() au char
 import { LAYOUT_KINDS, SINGLE_CHOICE_KINDS, mapFeatureEnabled, LEAFLET_CDN_URL, LEAFLET_CDN_CSS } from './kinds.js';
 import { parseFormLink, migrateLegacy, normalizeCondition } from './links.js';
 import { applyBranding } from './theme.js';
-import { probeCanEdit, probeRespondentIdentity } from './grist-meta.js';
+import { probeCanEdit, probeRespondentIdentity, DEFINITION_FIELD_COL } from './grist-meta.js';
 import { diag, fragmentFormLink } from './diag.js';
 import { state } from './state.js';
 
@@ -592,24 +592,31 @@ export async function renderFill() {
   const link = parseFormLink(formLink);
   if (!link) { card.innerHTML = `<h1>${I18n.t('form.respond.formUnavailable')}</h1><p class="muted">${I18n.t('form.respond.linkUnreadable')}</p>`; return; }
 
+  let form;
+  try {
+    const r = await fetch(`${link.api}/forms/${link.vsId}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    form = await r.json();
+  } catch (e) {
+    card.innerHTML = `<h1>${I18n.t('form.respond.formUnavailable')}</h1><p class="muted">${esc(e.message)}</p>`;
+    return;
+  }
+
   // state.options ne porte pas déjà la Definition de CE formulaire (secours #form= autonome,
-  // ou tout contexte hors iframe où resolveMyDefinition n'a jamais tourné) : la lit dans
-  // FormPlus_Formulaires via l'API REST du partage, table ouverte à la clé par ensureTableGate
-  // (consigne 007) — même mécanisme que les tables secondaires d'une question "choix depuis une
-  // table" (onSubmit, plus bas dans ce fichier). vsId (déjà dans chaque Definition, voir
-  // saveFormDefinition) sert de clé de jointure : c'est l'id du formulaire NATIF, connu ici dans
-  // les deux cas (iframe ou lien direct) via le lien lui-même.
+  // ou tout contexte hors iframe où resolveMyDefinition n'a jamais tourné) : jamais par une
+  // lecture ordinaire de FormPlus_Formulaires - mesuré sur un vrai Grist (consigne GFS 008), une
+  // session de partage anonyme ne peut lire AUCUNE ligne de cette table (restreint à rec.id==0),
+  // quel que soit ce qu'ensureTableGate y publierait. Seul le champ caché que
+  // ensureRespondentDefinitionField pose sur CE formulaire expose sa Definition : une Référence
+  // AFFICHÉE sur la section publiée, même masquée aux yeux du répondant, rend son "refValues"
+  // dans la réponse de /forms/<clé>/<section> déjà lue ci-dessus - même mécanisme que "Choix
+  // depuis une table" (ensureChoiceField, grist-meta.js), pas une lecture de table à part.
   if (state.options?.formLink !== formLink) {
-    try {
-      const r = await fetch(`${link.api}/tables/FormPlus_Formulaires/records`);
-      if (r.ok) {
-        const { records } = await r.json();
-        for (const rec of records || []) {
-          let def = null; try { def = JSON.parse(rec.fields?.Definition || 'null'); } catch (e) { /* ignore */ }
-          if (def && def.vsId === link.vsId) { state.options = def; break; }
-        }
-      }
-    } catch (e) { diag({ event: 'formulaires-table-fetch-failed', message: e.message }); }
+    const field = Object.values(form.formFieldsById || {}).find(f => f.colId === DEFINITION_FIELD_COL);
+    for (const [, value] of field?.refValues || []) {
+      let def = null; try { def = JSON.parse(value || 'null'); } catch (e) { continue; }
+      if (def && def.vsId === link.vsId) { state.options = def; break; }
+    }
   }
 
   applyBranding(state.options);
@@ -625,16 +632,6 @@ export async function renderFill() {
   state.internalIdentity = (state.options?.internalMode && window.grist)
     ? await probeRespondentIdentity() : null;
   diag({ event: 'internalIdentity', internalMode: !!state.options?.internalMode, resolved: !!state.internalIdentity });
-
-  let form;
-  try {
-    const r = await fetch(`${link.api}/forms/${link.vsId}`);
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    form = await r.json();
-  } catch (e) {
-    card.innerHTML = `<h1>${I18n.t('form.respond.formUnavailable')}</h1><p class="muted">${esc(e.message)}</p>`;
-    return;
-  }
 
   const extraQuestions = (state.options?.formLink === formLink) ? migrateLegacy(state.options) : [];
 

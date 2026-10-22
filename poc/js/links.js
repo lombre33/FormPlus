@@ -1,4 +1,5 @@
 import { uid } from './dom.js';
+import { GfsLink } from '../../kit/js/gfs-link.js';
 
 // ───────────────────────── Liens, adresses, format des options ─────────────────────────
 
@@ -92,8 +93,14 @@ export function myPageFromReferrer() {
   try {
     const u = new URL(document.referrer);
     const m = /\/p\/(\d+)(?:[/?]|$)/.exec(u.pathname + u.search);
-    return m ? Number(m[1]) : null;
-  } catch (e) { return null; }
+    if (m) return Number(m[1]);
+  } catch (e) { /* ignore */ }
+  // Dans GFS, le référent est l'adresse de GFS (jamais celle de la page Grist) : repli sur le
+  // contexte du lien (consigne GFS 010, point 6) - au mieux comme le référent seule, null quand
+  // GFS ne connaît pas non plus la page. Seule (GfsLink.context() renvoie toujours null), rien ne
+  // change ici par rapport à avant.
+  const page = GfsLink.context()?.page;
+  return typeof page === 'number' ? page : null;
 }
 
 // Exposé pour un débogage externe (console, script tiers) : jamais utilisé par le widget

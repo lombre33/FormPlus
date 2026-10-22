@@ -3,7 +3,9 @@
 // l'écrivent, et un objet partagé évite d'avoir à ré-exporter un setter par champ.
 export const state = {
   options: null,
-  formRowId: null, // id de la ligne FormPlus_Formulaires déjà trouvée/créée pour cette instance (resolveMyDefinition/saveFormDefinition, consigne 007), en cache pour éviter de rescanner la table à chaque sauvegarde
+  formRowId: null, // id de la ligne FormPlus_Formulaires déjà trouvée/créée pour cette instance (resolveMyDefinition/saveFormDefinition), en cache pour éviter de rescanner la table à chaque sauvegarde
+  formRowVsId: null, // vsId du formulaire auquel formRowId correspond (consigne 008) : le cache n'est repris que pour ce même formulaire, jamais pour un autre partageant la même section hôte (cas GFS)
+  formRowTitle: undefined, // formTitle lu ou écrit en dernier pour formRowVsId (consigne 009) : sert à savoir si la personne a changé le titre, sans jamais remettre un nom que GFS aurait posé
   connected: false,
   canEdit: true,
   stayOnConfig: false, // après une génération, rester sur l'écran de configuration pour copier l'adresse

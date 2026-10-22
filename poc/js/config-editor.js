@@ -12,7 +12,7 @@ import { diag } from './diag.js';
 import {
   fetchMeta, getTableRef, tableIdOfRef, columnOptions,
   ensureTableGate, ensureChoiceField, ensureRefListField, ensureFreeColumn,
-  findViewRefForSection, findMyWidgetPage, ensureFormulairesTable, saveFormDefinition, fetchManagedVsIds,
+  findViewRefForSection, findMyWidgetPage, ensureFormulairesTable, ensureRespondentDefinitionField, saveFormDefinition, fetchManagedVsIds,
   duplicateFormSection, clearAutoFields, createFormSection, getColumnType, KIND_TO_GRIST_TYPE,
   ensureRespondentProbeTable,
 } from './grist-meta.js';
@@ -90,8 +90,17 @@ export async function saveConfig(publicUrl, widgetPage) {
     // jamais vu cette fenêtre — et que la consigne 007 demande de migrer "au premier
     // enregistrement" : sa toute première sauvegarde après la 007 l'ouvre une fois, ici.
     if (self) {
-      try { await ensureFormulairesTable(saved.viewRef); await saveFormDefinition(self, saved); persisted = true; }
-      catch (e) { console.warn('[FormPlus] enregistrement refusé', e); }
+      try {
+        await ensureFormulairesTable();
+        await saveFormDefinition(self, saved);
+        // La Définition posée au répondant par un champ masqué (consigne GFS 008, point 3) : sur
+        // LA table et LA section que FormPlus gère réellement (state.currentFormSection, jamais
+        // saved.viewRef/widgetPage, hors de propos ici).
+        if (state.mainTableIdCache && saved.vsId != null) {
+          await ensureRespondentDefinitionField(state.mainTableIdCache, saved.vsId);
+        }
+        persisted = true;
+      } catch (e) { console.warn('[FormPlus] enregistrement refusé', e); }
     }
     state.options = saved;
     return persisted;
@@ -123,7 +132,7 @@ export async function generate() {
     // AVANT toute duplication : la fenêtre de consentement du kit (si la table n'existe pas
     // encore) doit s'afficher avant de dupliquer, pour ne jamais créer une copie inutile si la
     // personne refuse.
-    try { await ensureFormulairesTable(widgetPage); }
+    try { await ensureFormulairesTable(); }
     catch (e) { msg.innerHTML = `<span class="err">${esc(e.message)}</span>`; return; }
 
     // FormPlus ne travaille jamais directement sur un formulaire natif qu'il n'a pas lui-même

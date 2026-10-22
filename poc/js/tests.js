@@ -12,7 +12,7 @@ import {
 } from './config-editor.js';
 import {
   ensureTableGate, ensureFreeColumn, FORMULAIRES_TABLE,
-  ensureFormulairesTable, saveFormDefinition, resolveMyDefinition, fetchManagedVsIds,
+  ensureFormulairesTable, ensureRespondentDefinitionField, saveFormDefinition, resolveMyDefinition, fetchManagedVsIds,
   ensureRespondentProbeTable, probeRespondentIdentity,
 } from './grist-meta.js';
 import { loadPluginApi } from './plugin-loader.js';
@@ -1988,17 +1988,19 @@ export async function runTests() {
 
   // ───────────────────────── Table FormPlus_Formulaires (consigne 007) ─────────────────────────
 
-  await group('ensureFormulairesTable : table absente, consentement accepté -> table créée, colonnes posées, portillon ouvert', async () => {
+  // Depuis la consigne GFS 008, ensureFormulairesTable ne pose plus de portillon
+  // (ensureTableGate) : mesuré sur un vrai Grist, il n'ouvrait pas la lecture de la table à une
+  // session de partage (restreinte à rec.id==0) et ouvrait seulement l'ajout d'une ligne
+  // quelconque par n'importe quel visiteur du lien - voir ensureRespondentDefinitionField plus
+  // bas pour le mécanisme qui donne réellement la Définition à un répondant.
+  await group('ensureFormulairesTable : table absente, consentement accepté -> table créée, colonnes posées', async () => {
     let tablesState = { id: [], tableId: [] };
     let columnsState = { id: [], parentId: [], colId: [], type: [] };
-    let sectionsState = { id: [], parentId: [], parentKey: [], tableRef: [], shareOptions: [] };
-    let nextTref = 90, nextColRef = 900, nextSectionId = 9000;
+    let nextTref = 90, nextColRef = 900;
     const { grist, calls } = makeGristStub({
       fetchTable: (t) => {
         if (t === '_grist_Tables') return { ...tablesState };
         if (t === '_grist_Tables_column') return { ...columnsState };
-        if (t === '_grist_Views_section') return { ...sectionsState };
-        if (t === '_grist_Views_section_field') return { id: [], parentId: [] };
         return {};
       },
       onAction: (a) => {
@@ -2017,17 +2019,6 @@ export async function runTests() {
             id: [...columnsState.id, nextColRef++], parentId: [...columnsState.parentId, tref],
             colId: [...columnsState.colId, a[2]], type: [...columnsState.type, a[3]?.type],
           };
-        } else if (a[0] === 'CreateViewSection') {
-          const newId = nextSectionId++;
-          sectionsState = {
-            id: [...sectionsState.id, newId], parentId: [...sectionsState.parentId, a[2]],
-            parentKey: [...sectionsState.parentKey, 'form'], tableRef: [...sectionsState.tableRef, a[1]],
-            shareOptions: [...sectionsState.shareOptions, '{}'],
-          };
-          return { sectionRef: newId };
-        } else if (a[0] === 'UpdateRecord' && a[1] === '_grist_Views_section') {
-          const idx = sectionsState.id.indexOf(a[2]);
-          if (idx >= 0 && a[3].shareOptions !== undefined) { const arr = [...sectionsState.shareOptions]; arr[idx] = a[3].shareOptions; sectionsState.shareOptions = arr; }
         }
       },
     });
@@ -2037,14 +2028,69 @@ export async function runTests() {
     // qui l'ouvre directement : laisser passer ce tick avant de chercher le bouton, sinon le clic
     // arrive trop tôt (rien à cliquer, ou le bouton d'une fenêtre précédente déjà refermée) et la
     // vraie fenêtre, ouverte juste après, n'est jamais cliquée.
-    const done = ensureFormulairesTable(7);
+    const done = ensureFormulairesTable();
     await tick(); await tick();
     document.querySelector('#pp-dialog-modal .pp-modal-primary').click();
     await done;
     assert('la table existe désormais', tablesState.tableId.includes(FORMULAIRES_TABLE));
     assertEqual('les 6 colonnes sont posées (4 du manifeste + Definition + IdSectionWidget)', columnsState.colId.length, 6);
     assert('toutes les colonnes attendues sont présentes', ['Nom', 'TypeFormulaire', 'DateModif', 'ModifiePar', 'Definition', 'IdSectionWidget'].every(c => columnsState.colId.includes(c)));
-    assert('un portillon (section de formulaire publiée) est posé sur la page', sectionsState.shareOptions.some(o => { try { return JSON.parse(o).publish && JSON.parse(o).form; } catch (e) { return false; } }));
+  });
+
+  // Mécanisme qui donne réellement la Définition à un répondant (consigne GFS 008, point 3,
+  // mesuré sur un vrai Grist) : une colonne Référence cachée sur la table cible, vers
+  // FormPlus_Formulaires, affichant Definition, posée comme champ masqué sur la section publiée -
+  // jamais ensureTableGate (ci-dessus), qui ne rend aucune ligne existante lisible.
+  await group('ensureRespondentDefinitionField : colonne cachée créée, affichage posé sur Definition, champ masqué ajouté une seule fois', async () => {
+    let columnsState = { id: [], parentId: [], colId: [], type: [], visibleCol: [] };
+    let fieldsState = { id: [], parentId: [], colRef: [] };
+    let nextColRef = 500, nextFieldId = 5000;
+    const { grist, calls } = makeGristStub({
+      fetchTable: (t) => {
+        if (t === '_grist_Tables') return { id: [10, 50], tableId: ['Reponses', FORMULAIRES_TABLE] };
+        if (t === '_grist_Tables_column') return { ...columnsState };
+        if (t === '_grist_Views_section_field') return { ...fieldsState };
+        return {};
+      },
+      onAction: (a) => {
+        if (a[0] === 'AddColumn') {
+          const tref = a[1] === 'Reponses' ? 10 : 50;
+          columnsState = {
+            id: [...columnsState.id, nextColRef], parentId: [...columnsState.parentId, tref],
+            colId: [...columnsState.colId, a[2]], type: [...columnsState.type, a[3]?.type], visibleCol: [...columnsState.visibleCol, 0],
+          };
+          nextColRef++;
+        } else if (a[0] === 'UpdateRecord' && a[1] === '_grist_Tables_column') {
+          const idx = columnsState.id.indexOf(a[2]);
+          if (idx >= 0 && a[3].visibleCol !== undefined) { const arr = [...columnsState.visibleCol]; arr[idx] = a[3].visibleCol; columnsState.visibleCol = arr; }
+        } else if (a[0] === 'AddRecord' && a[1] === '_grist_Views_section_field') {
+          const id = nextFieldId++;
+          fieldsState = { id: [...fieldsState.id, id], parentId: [...fieldsState.parentId, a[3].parentId], colRef: [...fieldsState.colRef, a[3].colRef] };
+          return id;
+        }
+      },
+    });
+    window.grist = grist;
+    // Definition (FormPlus_Formulaires) est déjà posée, colRef 42, pour que visibleCol pointe
+    // quelque part de connu.
+    columnsState = { id: [42], parentId: [50], colId: ['Definition'], type: ['Text'], visibleCol: [0] };
+    const colId = await ensureRespondentDefinitionField('Reponses', 19);
+    assertEqual('nom de colonne rendu', colId, 'FormPlusDef');
+    const ourColIdx = columnsState.id.indexOf(500);
+    assert('colonne Référence créée sur la table cible', columnsState.colId.includes('FormPlusDef'));
+    assertEqual('type Référence vers FormPlus_Formulaires', columnsState.type[ourColIdx], 'Ref:FormPlus_Formulaires');
+    assertEqual('affichage posé sur Definition (colRef 42)', columnsState.visibleCol[ourColIdx], 42);
+    assertEqual('un seul champ ajouté à la section du formulaire', fieldsState.id.length, 1);
+    assert('le champ est bien masqué', calls.flatMap(a => a).some(a => a[0] === 'AddRecord' && a[1] === '_grist_Views_section_field' && JSON.parse(a[3].widgetOptions).formIsHidden === true));
+
+    // Rappelée pour la même table et section : ni colonne ni champ de plus (même mécanisme
+    // qu'ensureChoiceField/ensureRefListField, qui réaffirment aussi l'affichage à chaque appel).
+    const callsBeforeAgain = calls.flatMap(a => a).length;
+    await ensureRespondentDefinitionField('Reponses', 19);
+    const allCallsAfter = calls.flatMap(a => a);
+    assertEqual('aucune colonne de plus', allCallsAfter.filter(a => a[0] === 'AddColumn').length, 1);
+    assertEqual('aucun champ de section de plus', allCallsAfter.filter(a => a[0] === 'AddRecord' && a[1] === '_grist_Views_section_field').length, 1);
+    assert('au moins un appel de plus (l’affichage est réaffirmé)', allCallsAfter.length > callsBeforeAgain);
   });
 
   await group('ensureFormulairesTable : consentement refusé -> rien n’est créé, échec explicite', async () => {
@@ -2095,6 +2141,93 @@ export async function runTests() {
     assertEqual('Definition mise à jour', JSON.parse(rowsState.Definition[0]).formTitle, 'Titre modifié');
     const addCalls = calls.flatMap(a => a).filter(a => a[0] === 'AddRecord' && a[1] === FORMULAIRES_TABLE);
     assertEqual('un seul AddRecord au total (le second appel a fait un UpdateRecord)', addCalls.length, 1);
+  });
+
+  // Dans GFS, toutes les instances de FormPlus partagent la MÊME section hôte (consigne GFS 008) :
+  // self.id seul ne peut donc plus distinguer deux formulaires. La ligne se retrouve par
+  // Definition.vsId, propre à chaque formulaire, dans GFS comme hors GFS.
+  await group('saveFormDefinition (consigne 008) : une section hôte partagée (GFS) donne quand même une ligne par formulaire', async () => {
+    let rowsState = { id: [], Nom: [], TypeFormulaire: [], DateModif: [], ModifiePar: [], Definition: [], IdSectionWidget: [] };
+    let nextRowId = 1;
+    window.grist = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [50], tableId: [FORMULAIRES_TABLE] } : (t === FORMULAIRES_TABLE ? { ...rowsState } : {})),
+      onAction: (a) => {
+        if (a[0] === 'AddRecord' && a[1] === FORMULAIRES_TABLE) {
+          const id = nextRowId++;
+          rowsState = {
+            id: [...rowsState.id, id], Nom: [...rowsState.Nom, a[3].Nom], TypeFormulaire: [...rowsState.TypeFormulaire, a[3].TypeFormulaire],
+            DateModif: [...rowsState.DateModif, a[3].DateModif], ModifiePar: [...rowsState.ModifiePar, a[3].ModifiePar],
+            Definition: [...rowsState.Definition, a[3].Definition], IdSectionWidget: [...rowsState.IdSectionWidget, a[3].IdSectionWidget],
+          };
+          return id;
+        } else if (a[0] === 'UpdateRecord' && a[1] === FORMULAIRES_TABLE) {
+          const idx = rowsState.id.indexOf(a[2]);
+          if (idx >= 0) { const arr = [...rowsState.Definition]; arr[idx] = a[3].Definition; rowsState.Definition = arr; }
+        }
+      },
+    }).grist;
+    // Même self.id (999) pour les deux formulaires : c'est la même section hôte, comme dans GFS.
+    const self = { id: 999 };
+    state.formRowId = null; state.formRowVsId = null; state.formRowTitle = undefined;
+    const rowIdA = await saveFormDefinition(self, { formTitle: 'Premier formulaire', vsId: 101, formLink: 'https://x/forms/K/101' });
+    const rowIdB = await saveFormDefinition(self, { formTitle: 'Second formulaire', vsId: 102, formLink: 'https://x/forms/K/102' });
+    assertEqual('deux lignes distinctes, pas une réécrite sur l’autre', rowsState.id.length, 2);
+    assert('les deux identifiants de ligne diffèrent', rowIdA !== rowIdB);
+    assertEqual('la ligne du premier formulaire garde sa Definition', JSON.parse(rowsState.Definition[rowsState.id.indexOf(rowIdA)]).vsId, 101);
+    assertEqual('la ligne du second formulaire a la sienne', JSON.parse(rowsState.Definition[rowsState.id.indexOf(rowIdB)]).vsId, 102);
+
+    // Revenir au premier formulaire (cache à présent sur le second) : retrouvé par vsId, mis à
+    // jour sur SA ligne, jamais une troisième création ni la ligne du second touchée.
+    await saveFormDefinition(self, { formTitle: 'Premier formulaire modifié', vsId: 101, formLink: 'https://x/forms/K/101' });
+    assertEqual('toujours deux lignes au total', rowsState.id.length, 2);
+    assertEqual('la bonne ligne (celle du premier) est mise à jour', JSON.parse(rowsState.Definition[rowsState.id.indexOf(rowIdA)]).formTitle, 'Premier formulaire modifié');
+    assertEqual('la ligne du second formulaire n’a pas changé', JSON.parse(rowsState.Definition[rowsState.id.indexOf(rowIdB)]).formTitle, 'Second formulaire');
+  });
+
+  // Les fichiers de GFS renomment en écrivant SEULEMENT Nom (consigne GFS 009) : l'enregistrement
+  // suivant de Form+ ne doit jamais le défaire en remettant le formTitle de la Definition.
+  await group('saveFormDefinition (consigne 009) : ne remet jamais un nom que GFS aurait posé', async () => {
+    let rowsState = { id: [], Nom: [], TypeFormulaire: [], DateModif: [], ModifiePar: [], Definition: [], IdSectionWidget: [] };
+    let nextRowId = 1;
+    const { grist, calls } = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [50], tableId: [FORMULAIRES_TABLE] } : (t === FORMULAIRES_TABLE ? { ...rowsState } : {})),
+      onAction: (a) => {
+        if (a[0] === 'AddRecord' && a[1] === FORMULAIRES_TABLE) {
+          const id = nextRowId++;
+          rowsState = {
+            id: [...rowsState.id, id], Nom: [...rowsState.Nom, a[3].Nom], TypeFormulaire: [...rowsState.TypeFormulaire, a[3].TypeFormulaire],
+            DateModif: [...rowsState.DateModif, a[3].DateModif], ModifiePar: [...rowsState.ModifiePar, a[3].ModifiePar],
+            Definition: [...rowsState.Definition, a[3].Definition], IdSectionWidget: [...rowsState.IdSectionWidget, a[3].IdSectionWidget],
+          };
+          return id;
+        } else if (a[0] === 'UpdateRecord' && a[1] === FORMULAIRES_TABLE) {
+          const idx = rowsState.id.indexOf(a[2]);
+          if (idx >= 0) {
+            if (a[3].Nom !== undefined) { const arr = [...rowsState.Nom]; arr[idx] = a[3].Nom; rowsState.Nom = arr; }
+            const arr2 = [...rowsState.Definition]; arr2[idx] = a[3].Definition; rowsState.Definition = arr2;
+          }
+        }
+      },
+    });
+    window.grist = grist;
+    state.formRowId = null; state.formRowVsId = null; state.formRowTitle = undefined;
+    const self = { id: 55 };
+    await saveFormDefinition(self, { formTitle: 'Mon titre', vsId: 201, formLink: 'https://x/forms/K/201' });
+    assertEqual('Nom posé à la création', rowsState.Nom[0], 'Mon titre');
+
+    // GFS renomme le fichier : seule la colonne Nom change, en dehors de Form+.
+    rowsState = { ...rowsState, Nom: ['Renommé par GFS'] };
+    const callsBeforeSameTitle = calls.length;
+    await saveFormDefinition(self, { formTitle: 'Mon titre', vsId: 201, formLink: 'https://x/forms/K/201' });
+    const updateSameTitle = calls.slice(callsBeforeSameTitle).flatMap(a => a).find(a => a[0] === 'UpdateRecord' && a[1] === FORMULAIRES_TABLE);
+    assert('titre inchangé dans Form+ : Nom absent du lot (le renommage GFS n’est pas défait)', updateSameTitle && !('Nom' in updateSameTitle[3]));
+    assertEqual('le nom posé par GFS est toujours là', rowsState.Nom[0], 'Renommé par GFS');
+
+    // La personne change le titre DANS Form+ : Nom doit cette fois entrer dans le lot.
+    const callsBeforeNewTitle = calls.length;
+    await saveFormDefinition(self, { formTitle: 'Nouveau titre', vsId: 201, formLink: 'https://x/forms/K/201' });
+    const updateNewTitle = calls.slice(callsBeforeNewTitle).flatMap(a => a).find(a => a[0] === 'UpdateRecord' && a[1] === FORMULAIRES_TABLE);
+    assertEqual('titre changé dans Form+ : Nom entre dans le lot', updateNewTitle && updateNewTitle[3].Nom, 'Nouveau titre');
   });
 
   await group('resolveMyDefinition : ligne déjà présente (IdSectionWidget) -> lue depuis la table ; sinon repli sur les anciennes options', async () => {

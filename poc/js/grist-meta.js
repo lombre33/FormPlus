@@ -376,7 +376,14 @@ export async function resolveMyDefinition() {
     const idx = (table.IdSectionWidget || []).indexOf(self.id);
     if (idx >= 0) {
       let def = {}; try { def = JSON.parse(table.Definition[idx] || '{}') || {}; } catch (e) { /* ignore */ }
+      // Mis en cache pour que le premier saveFormDefinition() ne réécrive jamais Nom ni ne
+      // rescanne la table (consigne GFS 009 : comparer au formTitle lu ou écrit en dernier).
+      // Hors GFS, self.id identifie bien CE formulaire ; dans GFS, self est la section partagée
+      // de l'hôte, et cette ligne peut être celle d'un AUTRE formulaire ouvert avant lui - une
+      // ambiguïté que seule la porte "ouvrir" de la consigne 010 lèvera.
       state.formRowId = table.id[idx];
+      state.formRowVsId = def.vsId ?? null;
+      state.formRowTitle = def.formTitle;
       return def;
     }
   } catch (e) { diag({ event: 'resolveMyDefinition-table-failed', message: e.message }); }
@@ -385,14 +392,37 @@ export async function resolveMyDefinition() {
   return (cv && typeof cv.widgetOptions === 'object' && cv.widgetOptions) ? cv.widgetOptions : {};
 }
 
+// Résout la Définition d'UNE ligne précise de FormPlus_Formulaires, par son identifiant - jamais
+// par self.id (consigne GFS 010, point 2) : c'est ce que donne la porte "ouvrir" de GFS
+// (GfsLink.opening()/onOpen, fichier.id), et c'est la seule façon fiable d'ouvrir UN formulaire
+// précis dans GFS, où resolveMyDefinition() ci-dessus reste ambiguë (section hôte partagée,
+// consigne 008). Rend null si la ligne n'existe plus (jamais une Définition vide à la place).
+export async function loadDefinitionByRowId(rowId) {
+  const id = Number(rowId);
+  if (!Number.isFinite(id)) return null;
+  const table = await fetchMeta(FORMULAIRES_TABLE);
+  const idx = (table.id || []).indexOf(id);
+  if (idx < 0) return null;
+  let def = null; try { def = JSON.parse(table.Definition?.[idx] || 'null'); } catch (e) { /* ignore */ }
+  if (!def) return null;
+  state.formRowId = table.id[idx];
+  state.formRowVsId = def.vsId ?? null;
+  state.formRowTitle = def.formTitle;
+  return def;
+}
+
 // Crée FormPlus_Formulaires avec l'accord de la personne (une fenêtre du kit, règle 4 du guide
 // GFS) si elle n'existe pas encore ; sinon, s'assure que ses colonnes sont toutes présentes
-// (idempotent, jamais d'écriture dans une colonne absente ailleurs dans ce module) et ouvre sa
-// lecture aux sessions de partage anonymes (ensureTableGate, même mécanisme déjà utilisé pour
-// toute autre table lue par un répondant). Jamais appelée depuis saveFormDefinition lui-même : un
-// seul point d'entrée, generate() (voir config-editor.js), pour qu'une frappe dans les champs
-// d'apparence ne déclenche jamais cette fenêtre de consentement à chaque sauvegarde automatique.
-export async function ensureFormulairesTable(viewRef) {
+// (idempotent, jamais d'écriture dans une colonne absente ailleurs dans ce module). Ne pose plus
+// de portillon (ensureTableGate) depuis la consigne GFS 008 : mesuré sur un vrai Grist, il
+// n'ouvre PAS la lecture de la table à une session de partage (restreinte à rec.id==0, donc à
+// aucune ligne réelle), et laisse en revanche n'importe quel visiteur du lien y AJOUTER une
+// ligne quelconque - un risque sans aucun bénéfice. Voir ensureRespondentDefinitionField plus bas
+// pour comment un répondant reçoit malgré tout la Définition. Jamais appelée depuis
+// saveFormDefinition lui-même : un seul point d'entrée, generate() (voir config-editor.js), pour
+// qu'une frappe dans les champs d'apparence ne déclenche jamais cette fenêtre de consentement à
+// chaque sauvegarde automatique.
+export async function ensureFormulairesTable() {
   let tref = await getTableRef(FORMULAIRES_TABLE);
   if (!tref) {
     const ok = await Dialogs.confirm({
@@ -411,7 +441,37 @@ export async function ensureFormulairesTable(viewRef) {
       await grist.docApi.applyUserActions([['AddColumn', FORMULAIRES_TABLE, colId, { type }]]);
     }
   }
-  if (viewRef != null) await ensureTableGate(FORMULAIRES_TABLE, viewRef);
+}
+
+// Donne à un répondant la Définition de CE formulaire (consigne GFS 008, point 3), par le seul
+// mécanisme qui marche réellement en session de partage anonyme - mesuré sur un vrai Grist, le
+// même déjà utilisé par ensureChoiceField/ensureRefListField ci-dessus pour "Choix depuis une
+// table" : une colonne Référence CACHÉE sur la table cible du formulaire natif, vers
+// FormPlus_Formulaires, affichant sa colonne Definition, posée comme champ masqué sur la section
+// publiée. Le script d'API de Grist expose alors son "refValues" (les lignes de la table visée,
+// avec leur colonne affichée) dans la réponse PUBLIQUE de /forms/<clé>/<section> - jamais une
+// lecture de table ordinaire sur FormPlus_Formulaires, qu'une session de partage ne peut pas
+// faire. Partagée entre tous les formulaires d'une même table cible (une seule colonne) ; chacun
+// n'a qu'à avoir SA PROPRE ligne dans le champ caché de SA section (idempotent par section).
+export const DEFINITION_FIELD_COL = 'FormPlusDef';
+export async function ensureRespondentDefinitionField(mainTableId, formSectionId) {
+  if (!(await colExists(mainTableId, DEFINITION_FIELD_COL))) {
+    await grist.docApi.applyUserActions([['AddColumn', mainTableId, DEFINITION_FIELD_COL, { type: `Ref:${FORMULAIRES_TABLE}` }]]);
+  }
+  const colRef = await getColRef(mainTableId, DEFINITION_FIELD_COL);
+  const defColRef = await getColRef(FORMULAIRES_TABLE, 'Definition');
+  if (defColRef) {
+    await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Tables_column', colRef, { visibleCol: defColRef }]]);
+  }
+  const fields = await fetchMeta('_grist_Views_section_field');
+  let already = false;
+  for (let i = 0; i < fields.id.length; i++) if (fields.parentId[i] === formSectionId && fields.colRef[i] === colRef) already = true;
+  if (!already) {
+    await grist.docApi.applyUserActions([['AddRecord', '_grist_Views_section_field', null, {
+      parentId: formSectionId, colRef, widgetOptions: JSON.stringify({ formIsHidden: true }),
+    }]]);
+  }
+  return DEFINITION_FIELD_COL;
 }
 
 // Écrit la Définition de self (la section de CE widget) dans sa ligne de FormPlus_Formulaires,
@@ -419,37 +479,68 @@ export async function ensureFormulairesTable(viewRef) {
 // appelée une seule fois par generate()) : si elle manque encore (jamais générée, ou fenêtre de
 // consentement refusée), échoue simplement — à l'appelant (saveConfig) de retomber sur "non
 // enregistré", jamais de nouvelle tentative de création ici.
+// Retrouve, dans une table déjà lue par fetchMeta, l'index de la ligne dont la Definition porte
+// ce vsId - jamais par IdSectionWidget (self.id) : dans GFS, toutes les instances de FormPlus
+// partagent la MÊME section hôte (consigne GFS 008), qui ne distingue donc pas un formulaire
+// d'un autre. vsId, lui, est propre à chaque formulaire, dans GFS comme hors GFS.
+function findRowIndexByVsId(table, vsId) {
+  const ids = table.id || [];
+  for (let i = 0; i < ids.length; i++) {
+    let def; try { def = JSON.parse(table.Definition?.[i] || 'null'); } catch (e) { continue; }
+    if (def && def.vsId === vsId) return i;
+  }
+  return -1;
+}
+
 export async function saveFormDefinition(self, saved) {
   const tref = await getTableRef(FORMULAIRES_TABLE);
   if (!tref) throw new Error(`Table « ${FORMULAIRES_TABLE} » introuvable.`);
+  let rowId = null;
+  let knownTitle; // formTitle déjà lu ou écrit pour ce vsId, pour ne jamais remettre un nom que GFS aurait posé (consigne 009)
+  if (state.formRowVsId === saved.vsId) {
+    rowId = state.formRowId;
+    knownTitle = state.formRowTitle;
+  } else {
+    const table = await fetchMeta(FORMULAIRES_TABLE);
+    const idx = findRowIndexByVsId(table, saved.vsId);
+    if (idx >= 0) {
+      rowId = table.id[idx];
+      let def = {}; try { def = JSON.parse(table.Definition[idx] || '{}') || {}; } catch (e) { /* ignore */ }
+      knownTitle = def.formTitle;
+    }
+  }
   const fields = {
-    Nom: saved.formTitle || I18n.t('form.editor.defaultFormulaireName'),
     TypeFormulaire: 'formulaire',
     DateModif: Math.floor(Date.now() / 1000),
     ModifiePar: 'Form+',
     Definition: JSON.stringify(saved),
+    // Diagnostic / repli hors GFS seulement : ne sert plus à retrouver la ligne (voir ci-dessus).
     IdSectionWidget: self.id,
   };
-  let rowId = state.formRowId;
-  if (rowId == null) {
-    const table = await fetchMeta(FORMULAIRES_TABLE);
-    const idx = (table.IdSectionWidget || []).indexOf(self.id);
-    if (idx >= 0) rowId = table.id[idx];
+  // Nom entre dans le lot seulement à la création, ou quand la personne a changé le titre dans
+  // Form+ depuis la dernière lecture/écriture : un nom posé par GFS (son explorateur renomme en
+  // écrivant Nom seul, consigne 009) ne doit jamais être défait par l'enregistrement suivant.
+  if (rowId == null || knownTitle !== saved.formTitle) {
+    fields.Nom = saved.formTitle || I18n.t('form.editor.defaultFormulaireName');
   }
   if (rowId != null) {
     await grist.docApi.applyUserActions([['UpdateRecord', FORMULAIRES_TABLE, rowId, fields]]);
   } else {
+    // À la création, Nom est déjà dans fields (rowId est encore null ci-dessus) : pas besoin de
+    // le rajouter ici.
     const res = await grist.docApi.applyUserActions([['AddRecord', FORMULAIRES_TABLE, null, fields]]);
     rowId = res.retValues?.[0];
     if (rowId == null) {
       // Jamais supposé, comme pour AddTable ci-dessus : relecture explicite si la création n'a
       // pas renvoyé l'id directement.
       const table = await fetchMeta(FORMULAIRES_TABLE);
-      const idx = (table.IdSectionWidget || []).map((v, i) => (v === self.id ? i : -1)).filter(i => i >= 0).pop();
-      rowId = idx != null && idx >= 0 ? table.id[idx] : null;
+      const idx = findRowIndexByVsId(table, saved.vsId);
+      rowId = idx >= 0 ? table.id[idx] : null;
     }
   }
   state.formRowId = rowId;
+  state.formRowVsId = saved.vsId;
+  state.formRowTitle = saved.formTitle;
   return rowId;
 }
 

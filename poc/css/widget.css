@@ -9,7 +9,18 @@
   * { box-sizing: border-box; }
   html, body { height: 100%; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 var(--font-ui); -webkit-font-smoothing: antialiased; }
-  .wrap { max-width: 640px; margin: 0 auto; padding: 20px 16px 60px; }
+  /* --gfs-bar-* (0px hors GFS, ou quand la barre ne couvre pas ce bord) : la zone que la barre de
+     GFS laisse libre à CE bord (GfsLink.onBar, consigne GFS 011), posée sur <html> par main.js.
+     Un seul point d'ajustement pour tous les écrans (concepteur, répondant, départ), puisque
+     .wrap les enveloppe tous (#app) : en haut, pousse tout sous la barre (onglets compris) ; en
+     bas, garde de la marge sous le dernier contrôle en défilant ; à gauche/droite, garde plus que
+     son épaisseur de chaque côté, à toute largeur de cadre (mesuré chez GFS : rien à faire à
+     gauche, son bord par défaut, déjà couvert par les 16px existants face aux 42px mesurés).
+  */
+  .wrap {
+    max-width: 640px; margin: 0 auto;
+    padding: calc(20px + var(--gfs-bar-top, 0px)) calc(16px + var(--gfs-bar-right, 0px)) calc(60px + var(--gfs-bar-bottom, 0px)) calc(16px + var(--gfs-bar-left, 0px));
+  }
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-card); padding: 20px; margin-bottom: 14px; }
   h1 { font-size: 1.25rem; margin: 0 0 4px; font-weight: 700; }
   h2 { font-size: 1rem; margin: 0 0 6px; font-weight: 700; }
