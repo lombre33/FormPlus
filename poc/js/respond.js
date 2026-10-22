@@ -8,6 +8,7 @@ import { applyBranding } from './theme.js';
 import { probeCanEdit, probeRespondentIdentity, DEFINITION_FIELD_COL } from './grist-meta.js';
 import { diag, fragmentFormLink } from './diag.js';
 import { state } from './state.js';
+import { imageBlockHtml } from './image-block.js';
 
 // ───────────────────────── Rendu répondant (formulaire natif + questions supplémentaires) ─────────────────────────
 
@@ -179,12 +180,13 @@ export function renderExtraQuestion(q) {
       <span class="pv-section-icon" aria-hidden="true">${ICONS.heading}</span>
       <h2>${esc(q.label)}</h2><hr>
       ${q.description ? `<p class="muted">${esc(q.description)}</p>` : ''}
+      ${imageBlockHtml(q.image)}
     </div>`;
   }
   if (q.kind === 'info') {
     return `<details class="q q-info pv-info" data-extra="${q.id}" data-kind="info">
       <summary>${esc(q.label)}</summary>
-      <div class="info-body">${esc(q.description)}</div>
+      <div class="info-body">${esc(q.description)}${imageBlockHtml(q.image)}</div>
     </details>`;
   }
   const req = q.required ? 'req' : '';
@@ -338,6 +340,7 @@ export function renderExtraQuestion(q) {
   return `<div class="q pv-q" data-extra="${q.id}" data-kind="${q.kind}" data-required="${q.required ? 1 : 0}">
     <label class="title ${req}" id="${labelId}"${titleFor}>${esc(q.label)}</label>
     ${q.description ? `<p class="desc pv-hint">${esc(q.description)}</p>` : ''}
+    ${imageBlockHtml(q.image)}
     ${input}<div class="err-msg" id="${errId}">${I18n.t('form.respond.fieldRequired')}</div></div>`;
 }
 

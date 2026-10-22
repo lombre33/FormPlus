@@ -14,9 +14,20 @@ import {
   ensureTableGate, ensureFreeColumn, FORMULAIRES_TABLE,
   ensureFormulairesTable, ensureRespondentDefinitionField, saveFormDefinition, resolveMyDefinition, fetchManagedVsIds,
   ensureRespondentProbeTable, probeRespondentIdentity,
+  getAttachmentColumns, parseAttachmentList, fetchAttachmentFileNames, downloadAttachmentAsDataUrl,
 } from './grist-meta.js';
 import { loadPluginApi } from './plugin-loader.js';
 import { state } from './state.js';
+import { imageBlockHtml, blobToResizedDataUrl, IMAGE_MAX_DATA_URL_BYTES } from './image-block.js';
+
+// PNG 1x1 transparent minimal (67 octets), utilisé comme pièce jointe/image collée de test dans
+// plusieurs suites ci-dessous : jamais un vrai fichier à charger, juste assez pour que
+// createImageBitmap/canvas (blobToResizedDataUrl, image-block.js) aient une image réelle à décoder.
+const TINY_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR42mOQm/AfiBggFAArdga1SJjwDwAAAABJRU5ErkJggg==';
+function tinyPngBlob() {
+  const bytes = Uint8Array.from(atob(TINY_PNG_BASE64), c => c.charCodeAt(0));
+  return new Blob([bytes], { type: 'image/png' });
+}
 
 // ───────────────────────── Démarrage ─────────────────────────
 
@@ -467,6 +478,36 @@ export async function runTests() {
     assert('bloc d’info : <details><summary>, pas de champ', host.querySelector('details.q-info summary')?.textContent === 'Aide' && host.querySelector('.err-msg') == null);
   });
 
+  await group('image-block : imageBlockHtml, image attachée à une description (question, section, info)', () => {
+    const validUrl = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
+    assertEqual('aucune image -> rien', imageBlockHtml(null), '');
+    assertEqual('image sans dataUrl -> rien', imageBlockHtml({ width: 50 }), '');
+    assert('image valide -> <img>, largeur en style', imageBlockHtml({ dataUrl: validUrl, width: 25 }).includes('style="width:25%"'));
+    assertEqual('largeur hors des valeurs permises -> repli 50', imageBlockHtml({ dataUrl: validUrl, width: 99 }).match(/width:(\d+)%/)[1], '50');
+    // Seule une vraie data: URL image/base64 est jamais posée en src (défense en profondeur si la
+    // cellule Definition a été modifiée à la main par ailleurs) : toute autre valeur -> rien
+    // rendu, jamais une URL ou un script passés sans contrôle dans un attribut src.
+    assertEqual('URL http -> rien (pas une data: URL)', imageBlockHtml({ dataUrl: 'https://exemple.fr/x.png', width: 50 }), '');
+    assertEqual('javascript: -> rien', imageBlockHtml({ dataUrl: 'javascript:alert(1)', width: 50 }), '');
+    assertEqual('data: non-image -> rien', imageBlockHtml({ dataUrl: 'data:text/html;base64,PHNjcmlwdD4=', width: 50 }), '');
+
+    const host = document.createElement('div');
+    host.innerHTML = renderExtraQuestion({ id: 'q20', kind: 'text', label: 'T', image: { dataUrl: validUrl, width: 100 } });
+    assert('question texte : image rendue sous la description', !!host.querySelector('.qf-image-block img'));
+    host.innerHTML = renderExtraQuestion({ id: 'q21', kind: 'section', label: 'S', image: { dataUrl: validUrl, width: 100 } });
+    assert('section : image rendue', !!host.querySelector('.qf-image-block img'));
+    host.innerHTML = renderExtraQuestion({ id: 'q22', kind: 'info', label: 'I', description: 'contenu', image: { dataUrl: validUrl, width: 100 } });
+    assert('bloc d’info : image rendue dans le corps déplié', !!host.querySelector('.info-body .qf-image-block img'));
+    host.innerHTML = renderExtraQuestion({ id: 'q23', kind: 'text', label: 'T' });
+    assert('sans image -> aucun .qf-image-block', host.querySelector('.qf-image-block') == null);
+  });
+
+  await group('image-block : blobToResizedDataUrl, réduction et réencodage en JPEG', async () => {
+    const dataUrl = await blobToResizedDataUrl(tinyPngBlob());
+    assert('réencodée en JPEG', dataUrl.startsWith('data:image/jpeg;base64,'));
+    assert('reste sous la limite de taille', dataUrl.length < IMAGE_MAX_DATA_URL_BYTES);
+  });
+
   await group('splitIntoPages : découpe sur les marqueurs de type "page"', () => {
     assertEqual('aucun marqueur : une seule page avec tout', splitIntoPages([{ id: 'a', kind: 'text' }, { id: 'b', kind: 'text' }]).map(p => p.items.map(q => q.id)), [['a', 'b']]);
     const withBreak = splitIntoPages([
@@ -684,6 +725,84 @@ export async function runTests() {
     }
   });
 
+  await group('renderCardBody : image de description — coller, redimensionner, retirer', async () => {
+    state.cfgQuestions = [];
+    state.mainTableIdCache = 'Main';
+    state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+    window.grist = makeGristStub({
+      listTables: ['Main'],
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [1], tableId: ['Main'] } : { id: [10], colA: ['x'] }),
+    }).grist;
+    state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
+    const body = mount(document.createElement('div'));
+    const { combos } = await renderCardBody('__new__', body);
+    body.querySelector('[data-kind="text"]').click();
+    body.querySelector('.qf-label').value = 'Avec image';
+    selectCombo(body.querySelector('[data-combo="writeCol"]'), 'colA');
+
+    assert('au départ : pas d’aperçu, les actions (coller/choisir) sont visibles', body.querySelector('.qf-image-preview').classList.contains('hidden') && !body.querySelector('.qf-image-actions').classList.contains('hidden'));
+
+    const savedRead = navigator.clipboard.read;
+    navigator.clipboard.read = async () => [{ types: ['image/png'], getType: async () => tinyPngBlob() }];
+    body.querySelector('.qf-image-paste').click();
+    for (let i = 0; i < 50 && !body.getImage(); i++) await new Promise(r => setTimeout(r, 20));
+    assert('image collée : aperçu affiché, actions masquées', !body.querySelector('.qf-image-preview').classList.contains('hidden') && body.querySelector('.qf-image-actions').classList.contains('hidden'));
+    assert('vignette en JPEG autonome', body.querySelector('.qf-image-thumb').getAttribute('src').startsWith('data:image/jpeg;base64,'));
+    assertEqual('largeur par défaut : Moyenne (50%) active', body.querySelector('.qf-image-size-btn.active')?.dataset.w, '50');
+
+    body.querySelector('.qf-image-size-btn[data-w="100"]').click();
+    assertEqual('changement de taille : bouton "Grande" devient actif', body.querySelector('.qf-image-size-btn.active')?.dataset.w, '100');
+    assertEqual('body.getImage() reflète la nouvelle largeur', body.getImage().width, 100);
+
+    await saveQuestionFromCard('__new__', body, null, combos);
+    assertEqual('enregistrée avec l’image (taille mise à jour)', state.cfgQuestions[0]?.image, { dataUrl: body.getImage().dataUrl, width: 100 });
+
+    body.querySelector('.qf-image-remove').click();
+    assert('retirée : aperçu masqué, actions de nouveau visibles', body.querySelector('.qf-image-preview').classList.contains('hidden') && !body.querySelector('.qf-image-actions').classList.contains('hidden'));
+    assertEqual('body.getImage() redevient null', body.getImage(), null);
+
+    navigator.clipboard.read = async () => { throw new Error('denied'); };
+    body.querySelector('.qf-image-paste').click();
+    await tick(); await tick();
+    assert('lecture refusée : message d’aide affiché, aucune exception', body.querySelector('.qf-image-msg').textContent.length > 0);
+    navigator.clipboard.read = savedRead;
+  });
+
+  await group('renderCardBody : image de description — choisir une pièce jointe déjà présente dans une table', async () => {
+    state.cfgQuestions = [];
+    state.mainTableIdCache = 'Main';
+    state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+    window.grist = makeGristStub({
+      listTables: ['Main', 'Photos'],
+      fetchTable: (t) => {
+        if (t === '_grist_Tables') return { id: [1, 2], tableId: ['Main', 'Photos'] };
+        if (t === '_grist_Tables_column') return { id: [20, 21], parentId: [2, 2], colId: ['Nom', 'PJ'], type: ['Text', 'Attachments'] };
+        if (t === '_grist_Attachments') return { id: [7], fileName: ['chat.jpg'] };
+        if (t === 'Photos') return { id: [5], Nom: ['Mon chat'], PJ: [['L', 7]] };
+        return { id: [10], colA: ['x'] };
+      },
+      extra: { getAccessToken: async () => ({ token: 'tok', baseUrl: 'https://grist.exemple.fr/api/docs/abc' }) },
+    }).grist;
+    state.options = { publicUrl: 'https://x', viewRef: 1, vsId: 1, questions: [] };
+    window.fetch = async () => ({ ok: true, blob: async () => tinyPngBlob() });
+    const body = mount(document.createElement('div'));
+    await renderCardBody('__new__', body);
+    body.querySelector('[data-kind="text"]').click();
+
+    body.querySelector('.qf-image-pick').click();
+    assert('panneau de sélection affiché', !body.querySelector('.qf-image-picker').classList.contains('hidden'));
+    selectCombo(body.querySelector('[data-img-combo="imgTable"]'), 'Photos');
+    await tick(); await tick();
+    selectCombo(body.querySelector('[data-img-combo="imgCol"]'), 'PJ');
+    await tick(); await tick();
+    const fileBtn = body.querySelector('.qf-image-file-btn');
+    assert('la pièce jointe de la ligne apparaît, nommée par ligne + fichier', fileBtn?.textContent.includes('chat.jpg'));
+    fileBtn.click();
+    for (let i = 0; i < 50 && !body.getImage(); i++) await new Promise(r => setTimeout(r, 20));
+    assert('choisie : image installée (téléchargée puis réencodée)', body.getImage()?.dataUrl.startsWith('data:image/jpeg;base64,'));
+    assert('panneau refermé après le choix', body.querySelector('.qf-image-picker').classList.contains('hidden'));
+  });
+
   await group('ensureFreeColumn : déduit le nom du libellé et le type Grist selon le type de question (principe n°5 de la feuille de route)', async () => {
     const addColumnCalls = [];
     window.grist = makeGristStub({
@@ -708,6 +827,38 @@ export async function runTests() {
     assertEqual('aucune colonne créée dans ce cas', addColumnCalls.length, 0);
     assertEqual('même nom, type différent attendu (Texte) -> suffixe plutôt qu’écrire dans la colonne Numeric existante', await ensureFreeColumn('Main', 'Note', 'text'), 'Note_2');
     assertEqual('la colonne suffixée est bien créée avec le bon type', addColumnCalls[0]?.[3], { type: 'Text' });
+  });
+
+  await group('grist-meta : getAttachmentColumns / parseAttachmentList / fetchAttachmentFileNames / downloadAttachmentAsDataUrl (image de description)', async () => {
+    window.grist = makeGristStub({
+      fetchTable: (t) => {
+        if (t === '_grist_Tables') return { id: [1], tableId: ['Reponses'] };
+        if (t === '_grist_Tables_column') {
+          return { id: [10, 11, 12], parentId: [1, 1, 1], colId: ['Nom', 'PJ', 'Autre'], type: ['Text', 'Attachments', 'Ref:Table1'] };
+        }
+        if (t === '_grist_Attachments') return { id: [7, 8], fileName: ['photo.jpg', 'logo.png'] };
+        return { id: [] };
+      },
+      extra: { getAccessToken: async () => ({ token: 'tok', baseUrl: 'https://grist.exemple.fr/api/docs/abc' }) },
+    }).grist;
+    assertEqual('seule la colonne "Pièces jointes" est retenue', await getAttachmentColumns('Reponses'), ['PJ']);
+    assertEqual('cellule balisée [\'L\', ...] -> identifiants seuls', parseAttachmentList(['L', 7, 8]), [7, 8]);
+    assertEqual('cellule vide -> []', parseAttachmentList(null), []);
+    assertEqual('déjà un tableau simple -> inchangé', parseAttachmentList([7]), [7]);
+    assertEqual('noms résolus par identifiant', await fetchAttachmentFileNames([7, 8]), { 7: 'photo.jpg', 8: 'logo.png' });
+    assertEqual('identifiant inconnu -> repli sur l’identifiant lui-même', await fetchAttachmentFileNames([999]), { 999: '999' });
+
+    window.fetch = async (url) => {
+      assert('URL de téléchargement : jeton en paramètre auth, jamais un cookie de session', String(url).includes('auth=tok') && String(url).includes('/attachments/7/download'));
+      return { ok: true, blob: async () => tinyPngBlob() };
+    };
+    const dataUrl = await downloadAttachmentAsDataUrl(7);
+    assert('pièce jointe téléchargée puis réencodée en JPEG autonome', dataUrl.startsWith('data:image/jpeg;base64,'));
+
+    window.fetch = async () => ({ ok: false, status: 404 });
+    let threw = false;
+    try { await downloadAttachmentAsDataUrl(999); } catch (e) { threw = true; }
+    assert('échec HTTP -> exception propagée (jamais une image vide enregistrée silencieusement)', threw);
   });
 
   await group('ensureRespondentProbeTable : crée la table-sonde puis la colonne manquantes, idempotent sinon (mode interne)', async () => {

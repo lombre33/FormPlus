@@ -15,9 +15,11 @@ import {
   findViewRefForSection, findMyWidgetPage, ensureFormulairesTable, ensureRespondentDefinitionField, saveFormDefinition, fetchManagedVsIds,
   duplicateFormSection, clearAutoFields, createFormSection, getColumnType, KIND_TO_GRIST_TYPE,
   ensureRespondentProbeTable,
+  getAttachmentColumns, parseAttachmentList, fetchAttachmentFileNames, downloadAttachmentAsDataUrl,
 } from './grist-meta.js';
 import { state } from './state.js';
 import { renderFill, layoutOrder, renderNativeField } from './respond.js';
+import { blobToResizedDataUrl, imageBlockHtml, IMAGE_WIDTH_PRESETS, IMAGE_DEFAULT_WIDTH } from './image-block.js';
 
 // ───────────────────────── Configuration (concepteur) ─────────────────────────
 // Exactement 2 façons de commencer, jamais plus :
@@ -686,6 +688,133 @@ export function mountCombo(host, placeholder) {
   };
 }
 
+// Image attachée à la description d'une question (ou d'un bloc section/info) : un bloc à part,
+// jamais incrustée dans le texte (voir image-block.js). Deux sources, l'édition directe
+// (collage/presse-papiers) et une pièce jointe déjà présente dans une table du document — jamais
+// les deux formes à la fois, l'une masque l'autre selon qu'une image est déjà choisie ou non.
+function imageEditorHtml(image) {
+  const hasImage = !!image?.dataUrl;
+  return `
+    <div class="qf-image-editor">
+      <div class="qf-image-preview ${hasImage ? '' : 'hidden'}">
+        <img class="qf-image-thumb" src="${hasImage ? image.dataUrl : ''}" alt="">
+        <div class="qf-image-size">
+          ${IMAGE_WIDTH_PRESETS.map(w => `<button type="button" class="qf-image-size-btn${(image?.width || IMAGE_DEFAULT_WIDTH) === w ? ' active' : ''}" data-w="${w}">${I18n.t(`form.editor.imageSize.${w}`)}</button>`).join('')}
+        </div>
+        <button type="button" class="icon-btn danger qf-image-remove" title="${esc(I18n.t('form.editor.imageRemoveTitle'))}">${ICONS.trash}</button>
+      </div>
+      <div class="qf-image-actions ${hasImage ? 'hidden' : ''}">
+        <button type="button" class="qf-link qf-image-paste">${ICONS.image}<span>${I18n.t('form.editor.imagePasteBtn')}</span></button>
+        <button type="button" class="qf-link qf-image-pick">${ICONS.paperclip}<span>${I18n.t('form.editor.imagePickBtn')}</span></button>
+      </div>
+      <p class="qf-image-msg muted"></p>
+      <div class="qf-image-picker hidden">
+        <div class="qf-image-picker-row"><label class="qf-field-label">${I18n.t('form.editor.imagePickTableLabel')}</label><div class="combo-host" data-img-combo="imgTable"></div></div>
+        <div class="qf-image-picker-row"><label class="qf-field-label">${I18n.t('form.editor.imagePickColLabel')}</label><div class="combo-host" data-img-combo="imgCol"></div></div>
+        <div class="qf-image-picker-files"></div>
+        <button type="button" class="qf-cancel qf-image-picker-cancel">${I18n.t('kit.cancel')}</button>
+      </div>
+    </div>`;
+}
+
+// Câblée après wireCardFooter (body._autoSave y est posé) : une image ajoutée/retirée/redimen-
+// sionnée s'enregistre tout de suite, comme les autres actions explicites de la carte (bascule de
+// type, obligatoire) — jamais au focusout, qui n'a aucun sens pour des boutons.
+function wireImageEditor(body, q, tableItems) {
+  let image = q?.image || null;
+  body.getImage = () => image;
+  const msg = body.querySelector('.qf-image-msg');
+  const preview = body.querySelector('.qf-image-preview');
+  const actions = body.querySelector('.qf-image-actions');
+  const thumb = body.querySelector('.qf-image-thumb');
+  const picker = body.querySelector('.qf-image-picker');
+
+  const setImage = (next) => {
+    image = next;
+    msg.textContent = '';
+    preview.classList.toggle('hidden', !image);
+    actions.classList.toggle('hidden', !!image);
+    if (image) {
+      thumb.src = image.dataUrl;
+      body.querySelectorAll('.qf-image-size-btn').forEach(b => b.classList.toggle('active', Number(b.dataset.w) === image.width));
+    }
+    body._autoSave?.();
+  };
+
+  body.querySelectorAll('.qf-image-size-btn').forEach(b => b.addEventListener('click', () => {
+    if (!image) return;
+    setImage({ ...image, width: Number(b.dataset.w) });
+  }));
+  body.querySelector('.qf-image-remove').addEventListener('click', () => setImage(null));
+
+  const pasteBtn = body.querySelector('.qf-image-paste');
+  async function handleImageBlob(blob) {
+    msg.textContent = I18n.t('form.editor.imageProcessing');
+    try {
+      setImage({ dataUrl: await blobToResizedDataUrl(blob), width: IMAGE_DEFAULT_WIDTH });
+    } catch (e) {
+      msg.innerHTML = `<span class="err">${I18n.t('form.editor.imageTooLarge')}</span>`;
+    }
+  }
+  pasteBtn.addEventListener('click', async () => {
+    try {
+      const items = await navigator.clipboard.read();
+      const item = items.find(it => it.types.some(t => t.startsWith('image/')));
+      if (!item) { msg.textContent = I18n.t('form.editor.imageNoneInClipboard'); return; }
+      await handleImageBlob(await item.getType(item.types.find(t => t.startsWith('image/'))));
+    } catch (e) {
+      msg.textContent = I18n.t('form.editor.imagePasteDenied');
+      pasteBtn.focus();
+    }
+  });
+  pasteBtn.addEventListener('paste', (e) => {
+    const item = [...(e.clipboardData?.items || [])].find(it => it.type.startsWith('image/'));
+    if (item) { e.preventDefault(); handleImageBlob(item.getAsFile()); }
+  });
+
+  // Choisir une pièce jointe déjà présente dans une table du document : table -> colonne (filtrée
+  // aux colonnes "Pièces jointes") -> liste à plat de chaque pièce jointe trouvée (une ligne peut
+  // en contenir plusieurs), plutôt qu'un 3e combo "ligne" puis un choix dans la ligne — un clic de
+  // moins pour le cas courant (une seule pièce jointe par ligne).
+  const pickBtn = body.querySelector('.qf-image-pick');
+  const filesHost = body.querySelector('.qf-image-picker-files');
+  const pickerCombos = {};
+  body.querySelectorAll('.qf-image-picker [data-img-combo]').forEach(host => { pickerCombos[host.dataset.imgCombo] = mountCombo(host); });
+
+  async function refreshImgCols() {
+    filesHost.innerHTML = '';
+    if (!pickerCombos.imgTable.value) { pickerCombos.imgCol.setOptions([]); return; }
+    const cols = await getAttachmentColumns(pickerCombos.imgTable.value);
+    pickerCombos.imgCol.setOptions(cols.map(c => ({ value: c, label: c })));
+  }
+  async function refreshImgFiles() {
+    filesHost.innerHTML = '';
+    if (!pickerCombos.imgTable.value || !pickerCombos.imgCol.value) return;
+    const data = await fetchMeta(pickerCombos.imgTable.value);
+    const col = pickerCombos.imgCol.value;
+    const pairs = [];
+    (data.id || []).forEach((rowId, i) => parseAttachmentList(data[col]?.[i]).forEach(attId => pairs.push({ rowId, attId })));
+    if (!pairs.length) { filesHost.innerHTML = `<p class="muted">${I18n.t('form.editor.imagePickNoFiles')}</p>`; return; }
+    const names = await fetchAttachmentFileNames(pairs.map(p => p.attId));
+    filesHost.innerHTML = pairs.map(p => `<button type="button" class="combo-opt qf-image-file-btn" data-att="${p.attId}">${esc(I18n.t('form.editor.imagePickRowPrefix', { n: p.rowId }))} — ${esc(names[p.attId])}</button>`).join('');
+    filesHost.querySelectorAll('.qf-image-file-btn').forEach(b => b.addEventListener('click', async () => {
+      msg.textContent = I18n.t('form.editor.imageProcessing');
+      picker.classList.add('hidden');
+      try {
+        setImage({ dataUrl: await downloadAttachmentAsDataUrl(Number(b.dataset.att)), width: IMAGE_DEFAULT_WIDTH });
+      } catch (e) {
+        msg.innerHTML = `<span class="err">${esc(I18n.t('form.editor.imageDownloadError', { message: e.message }))}</span>`;
+      }
+    }));
+  }
+  pickerCombos.imgTable.setOptions(tableItems);
+  pickerCombos.imgTable.onChange(async () => { await refreshImgCols(); await refreshImgFiles(); });
+  pickerCombos.imgCol.onChange(refreshImgFiles);
+
+  pickBtn.addEventListener('click', () => picker.classList.toggle('hidden'));
+  body.querySelector('.qf-image-picker-cancel').addEventListener('click', () => picker.classList.add('hidden'));
+}
+
 // Bascule de type (pastille + popover d'icônes) et mode d'affichage radio/dropdown des questions
 // à choix : les deux se recoupent (SINGLE_CHOICE_KINDS) et ne dépendent que du DOM de la carte,
 // jamais de `q` après leur mise en place initiale — aucune valeur à faire remonter à l'appelant.
@@ -881,6 +1010,10 @@ function wireCardFooter(id, body, q, combos, isNew) {
       .then((saved) => { if (saved) q = saved; });
     return autoSaving;
   };
+  // Exposée pour wireImageEditor (câblée après cette fonction) : une image ajoutée/retirée/
+  // redimensionnée s'enregistre tout de suite, comme la bascule de type ou "Obligatoire"
+  // ci-dessous, jamais au focusout (qui n'a aucun sens pour des boutons).
+  body._autoSave = autoSave;
   // focusout (pas blur) + vérif de relatedTarget : tant que le focus reste DANS la même carte
   // (titre -> description, sélecteur de type, combobox…), le concepteur est encore en train de la
   // remplir, pas question de valider/enregistrer déjà — une carte texte toute neuve n'a par
@@ -964,6 +1097,7 @@ export async function renderCardBody(id, body) {
     <input id="qf-desc-${id}" class="qf-desc" type="text" placeholder="${esc(I18n.t('form.editor.descriptionOptionalPlaceholder'))}" value="${esc(q?.description || '')}">
     <label for="qf-desc-long-${id}" class="qf-desc-label-long hidden visually-hidden">${I18n.t('form.editor.blockContentLabel')}</label>
     <textarea id="qf-desc-long-${id}" class="qf-desc-long hidden" rows="4" placeholder="${esc(I18n.t('form.editor.blockContentPlaceholder'))}">${esc(q?.description || '')}</textarea>
+    ${imageEditorHtml(q?.image)}
     <div class="qtype-pill-wrap">
       <button type="button" class="qtype-pill" data-role="type-toggle">
         <span class="qtype-pill-icon">${currentKind.icon}</span>
@@ -1066,6 +1200,7 @@ export async function renderCardBody(id, body) {
   await wireSourceAndWriteCombos(body, q, tableItems, combos);
   await wireConditionEditor(body, q, condCandidates);
   wireCardFooter(id, body, q, combos, isNew);
+  wireImageEditor(body, q, tableItems);
   // `combos` n'est lisible nulle part ailleurs (fermeture propre à ce rendu) : renvoyé pour que
   // la suite de tests (#test) puisse appeler saveQuestionFromCard directement avec les bonnes
   // comboboxes, sans bouton Enregistrer à cliquer (voir saveQuestionFromCard ci-dessous).
@@ -1111,6 +1246,12 @@ export async function saveQuestionFromCard(id, body, existing, combos, { rerende
   try {
     msg.textContent = I18n.t('form.editor.saving');
     const q = { id: existing?.id || uid(), kind, label, description, condition };
+    // Image de description (voir image-block.js, wireImageEditor) : body.getImage() n'existe que
+    // pour une carte réellement rendue par renderCardBody ; les tests qui construisent `body` à la
+    // main pour saveQuestionFromCard (sans passer par le rendu complet) gardent donc l'image déjà
+    // enregistrée plutôt que de la perdre silencieusement.
+    const img = body.getImage ? body.getImage() : (existing?.image || null);
+    if (img) q.image = img;
     if (existing?.importedFrom) q.importedFrom = existing.importedFrom;
     // Réservation par identité (mode interne) : lue seulement si le champ existe réellement dans
     // cette carte (state.options.internalMode au moment du rendu, voir renderCardBody) — sinon le

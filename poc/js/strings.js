@@ -277,6 +277,33 @@ export const STRINGS = {
   'form.editor.descriptionOptionalPlaceholder': { fr: 'Description (facultatif)', en: 'Description (optional)' },
   'form.editor.blockContentLabel': { fr: 'Contenu du bloc', en: 'Block content' },
   'form.editor.blockContentPlaceholder': { fr: 'Texte affiché une fois le bloc déplié', en: 'Text shown once the block is expanded' },
+
+  // Image de description (coller, ou choisir une pièce jointe Grist) — voir image-block.js
+  'form.editor.imagePasteBtn': { fr: 'Coller une image', en: 'Paste an image' },
+  'form.editor.imagePickBtn': { fr: 'Depuis une pièce jointe Grist', en: 'From a Grist attachment' },
+  'form.editor.imageRemoveTitle': { fr: "Retirer l'image", en: 'Remove the image' },
+  'form.editor.imageProcessing': { fr: "Traitement de l'image…", en: 'Processing image…' },
+  'form.editor.imageTooLarge': {
+    fr: 'Image trop lourde même une fois réduite : essayez une image plus simple.',
+    en: 'Image too large even after resizing: try a simpler image.',
+  },
+  'form.editor.imageNoneInClipboard': { fr: 'Aucune image dans le presse-papiers.', en: 'No image in the clipboard.' },
+  'form.editor.imagePasteDenied': {
+    fr: 'Lecture du presse-papiers refusée : cliquez ici puis collez avec Ctrl+V (Cmd+V sur Mac).',
+    en: 'Clipboard read denied: click here, then paste with Ctrl+V (Cmd+V on Mac).',
+  },
+  'form.editor.imageSize.25': { fr: 'Petite', en: 'Small' },
+  'form.editor.imageSize.50': { fr: 'Moyenne', en: 'Medium' },
+  'form.editor.imageSize.100': { fr: 'Grande', en: 'Large' },
+  'form.editor.imagePickTableLabel': { fr: 'Table', en: 'Table' },
+  'form.editor.imagePickColLabel': { fr: 'Colonne de pièces jointes', en: 'Attachment column' },
+  'form.editor.imagePickNoFiles': { fr: 'Aucune pièce jointe dans cette colonne.', en: 'No attachment in this column.' },
+  'form.editor.imagePickRowPrefix': { fr: 'Ligne {n}', en: 'Row {n}' },
+  'form.editor.imageDownloadError': {
+    fr: 'Impossible de récupérer cette pièce jointe : {message}',
+    en: 'Could not fetch this attachment: {message}',
+  },
+
   'form.editor.sourceTableLabel': { fr: 'Table source', en: 'Source table' },
   'form.editor.displayedColumnLabel': { fr: 'Colonne affichée (libellé)', en: 'Displayed column (label)' },
   'form.editor.optionsFieldLabel': { fr: 'Options (une par ligne)', en: 'Options (one per line)' },

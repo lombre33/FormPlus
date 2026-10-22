@@ -148,6 +148,21 @@
   .qf-scale-minmax { display: flex; gap: 8px; align-items: center; }
   .qf-scale-minmax input { width: auto; flex: 1; }
   .qf-signature-hint, .qf-map-hint { margin-top: 6px; }
+
+  /* Image de description (coller ou choisir une pièce jointe Grist, voir image-block.js) */
+  .qf-image-editor { margin: 4px 0 8px; }
+  .qf-image-actions { display: flex; gap: 14px; flex-wrap: wrap; }
+  .qf-image-preview { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .qf-image-thumb { max-height: 54px; max-width: 110px; border-radius: 6px; border: 1px solid var(--border); object-fit: contain; background: var(--bg); }
+  .qf-image-size { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 8px; overflow: hidden; }
+  .qf-image-size-btn { padding: 6px 10px; border: none; border-radius: 0; background: var(--surface); color: var(--text-muted); font-size: .8rem; }
+  .qf-image-size-btn + .qf-image-size-btn { border-left: 1px solid var(--border-strong); }
+  .qf-image-size-btn.active { background: var(--accent-soft); color: var(--accent-ink); }
+  .qf-image-msg:empty { display: none; }
+  .qf-image-picker { margin-top: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+  .qf-image-picker-row + .qf-image-picker-row { margin-top: 6px; }
+  .qf-image-picker-files { display: flex; flex-direction: column; gap: 2px; margin: 8px 0; max-height: 180px; overflow-y: auto; }
+  .qf-image-file-btn { display: block; width: 100%; text-align: left; border: none; background: none; font-weight: 400; }
   .qf-table-override { margin-top: 8px; }
   .qf-field-label { display: block; font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); margin: 8px 0 3px; }
   .qcard .combo-input, .qcard .qf-cond-freevalue { padding: 6px 9px; font-size: .86rem; }
@@ -303,3 +318,7 @@
   /* Lieu sur carte */
   .pv-map-canvas { width: 100%; height: 260px; border-radius: var(--radius-field-pv); border: 1px solid var(--border-strong); background: var(--bg); }
   .pv-map-coords { margin: 6px 0 0; }
+
+  /* Image de description (question, section ou bloc d'info) */
+  .qf-image-block { margin: 6px 0 10px; }
+  .qf-image-block img { display: block; max-width: 100%; border-radius: var(--radius-field-pv); }

@@ -5,6 +5,7 @@ import { I18n } from '../../kit/js/i18n.js';
 import { Dialogs } from '../../kit/js/dialogs.js';
 import './strings.js'; // enregistre form.* avant tout usage de I18n.t() au chargement de ce module (voir strings.js)
 import { state } from './state.js';
+import { blobToResizedDataUrl } from './image-block.js';
 
 export async function fetchMeta(tableId) { return grist.docApi.fetchTable(tableId); }
 export async function getTableRef(tableId) {
@@ -26,6 +27,58 @@ export async function getColRef(tableId, colId) {
 export async function colExists(tableId, colId) { return (await getColRef(tableId, colId)) !== null; }
 export function columnOptions(tableData) {
   return Object.keys(tableData).filter(k => k !== 'id' && !k.startsWith('gristHelper') && k !== 'manualSort');
+}
+
+// Colonnes de type "Pièces jointes" d'une table (image de description, voir image-block.js) :
+// une lecture de _grist_Tables_column, comme getColumnType ci-dessous, mais pour toutes les
+// colonnes de la table à la fois plutôt qu'une seule déjà connue par son nom.
+export async function getAttachmentColumns(tableId) {
+  const tref = await getTableRef(tableId);
+  const cols = await fetchMeta('_grist_Tables_column');
+  const result = [];
+  for (let i = 0; i < (cols.id || []).length; i++) {
+    if (cols.parentId?.[i] === tref && (cols.type?.[i] || '').split(':')[0] === 'Attachments') result.push(cols.colId[i]);
+  }
+  return result;
+}
+
+// La cellule d'une colonne "Pièces jointes" lue via docApi.fetchTable revient balisée comme une
+// Liste Grist (['L', id1, id2, ...], vérifié contre un vrai document — voir docs/05, le même
+// balisage que celui posé à l'écriture par applyUserActions) plutôt qu'un simple tableau
+// d'identifiants : jamais supposé sans ce retrait du marqueur, sous peine de prendre 'L' pour un
+// vrai identifiant de pièce jointe.
+export function parseAttachmentList(cellValue) {
+  if (!Array.isArray(cellValue)) return [];
+  return cellValue[0] === 'L' ? cellValue.slice(1) : cellValue;
+}
+
+// Nom de fichier de chaque pièce jointe d'une liste d'identifiants, pour les proposer au
+// concepteur dans le sélecteur d'image (config-editor.js) — jamais pour les données du
+// répondant, qui n'a pas accès à ce sélecteur.
+export async function fetchAttachmentFileNames(attIds) {
+  const data = await fetchMeta('_grist_Attachments');
+  const names = {};
+  for (const id of attIds) {
+    const i = (data.id || []).indexOf(id);
+    names[id] = i >= 0 ? data.fileName[i] : String(id);
+  }
+  return names;
+}
+
+// Télécharge une pièce jointe déjà présente dans le document (choisie par le concepteur dans le
+// sélecteur d'image) et la renvoie réduite en data: URL autonome, prête à être stockée dans la
+// Definition du formulaire. Jamais une URL vivante vers Grist : le jeton d'accès n'est valable que
+// quelques minutes (ttlMsecs, voir getAccessToken) et le répondant d'un lien public n'a de toute
+// façon aucune session Grist pour en demander un — l'image doit donc être autonome une fois
+// choisie, comme une image collée depuis le presse-papiers. Le jeton passe en paramètre `auth`
+// plutôt qu'en cookie de session : seul chemin qui fonctionne depuis l'origine du widget, jamais
+// la même que celle du document Grist (voir docs/05-etude-synchro-inter-grist.md, § pièces
+// jointes — Grist refuse tout cookie cross-origine, mais sert ce jeton sans condition d'origine).
+export async function downloadAttachmentAsDataUrl(attId) {
+  const { token, baseUrl } = await grist.docApi.getAccessToken({ readOnly: true });
+  const res = await fetch(`${baseUrl}/attachments/${attId}/download?auth=${token}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return blobToResizedDataUrl(await res.blob());
 }
 export function fillSelect(sel, values, labels, selected) {
   sel.innerHTML = values.map((v, i) => `<option value="${esc(v)}" ${selected != null && String(v) === String(selected) ? 'selected' : ''}>${esc(labels ? labels[i] : v)}</option>`).join('');
