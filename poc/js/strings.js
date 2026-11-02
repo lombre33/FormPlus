@@ -168,6 +168,15 @@ export const STRINGS = {
     fr: "Cette section de formulaire n'existe pas dans ce document. Le lien vient-il bien d'ici ?",
     en: "This form section doesn't exist in this document. Does the link really come from here?",
   },
+  // Consigne GFS 012, point 2 : ajouter une section à une page recharge tous ses cadres de
+  // widgets personnalisés (comportement natif de Grist, mesuré avec et sans GFS) - si ce widget
+  // est sur la même page que le formulaire natif collé, dupliquer ce formulaire recharge CE
+  // cadre avant que la configuration n'ait pu être enregistrée : aucune ligne écrite, et chaque
+  // nouvel essai ajoute une copie orpheline de plus.
+  'form.editor.sourceOnWidgetPage': {
+    fr: "Ce widget est posé sur la même page que ce formulaire natif : le dupliquer rechargerait ce cadre avant d'avoir pu enregistrer quoi que ce soit (rien ne serait créé pour de bon, et chaque essai laisserait une copie orpheline). Déplacez d'abord ce widget seul sur une autre page (ou ce formulaire sur la sienne), puis collez à nouveau ce lien.",
+    en: "This widget is on the same page as this native form: duplicating it would reload this frame before anything could be saved (nothing would actually be created, and each attempt would leave one more orphaned copy). Move this widget alone to another page first (or this form to its own), then paste this link again.",
+  },
   'form.editor.pageAlreadyManaged': {
     fr: 'Cette page porte déjà un autre formulaire géré par FormPlus (identifiant {vsId}) : par sécurité, deux formulaires ne doivent jamais partager la même page (donc le même lien public pourrait aussi écrire dans l\'autre). Publiez ce nouveau formulaire sur sa propre page Grist avant de coller son lien ici.',
     en: 'This page already hosts another form managed by FormPlus (id {vsId}): for safety, two forms must never share the same page (their public link could then also write into the other). Publish this new form on its own Grist page before pasting its link here.',
@@ -425,6 +434,15 @@ export const STRINGS = {
   },
   'form.editor.formulairesTableConfirm': { fr: 'Créer la table', en: 'Create the table' },
   'form.editor.formulairesTableDeclined': { fr: 'Table « FormPlus_Formulaires » refusée : rien n\'a été enregistré.', en: '"FormPlus_Formulaires" table declined: nothing was saved.' },
+  // Consigne GFS 012, point 6 : même fenêtre d'accord que pour FormPlus_Formulaires, cette table
+  // ne doit pas non plus naître sans que la personne le sache.
+  'form.editor.repondantsTableTitle': { fr: 'Table « FormPlus_Repondants »', en: '"FormPlus_Repondants" table' },
+  'form.editor.repondantsTableMsg': {
+    fr: "Le mode interne a besoin d'une table technique partagée, « FormPlus_Repondants », pour retrouver l'adresse de qui répond (jamais pour le lien public). Elle n'existe pas encore : la créer ?",
+    en: 'Internal mode needs a shared technical table, "FormPlus_Repondants", to find out who is answering (never for the public link). It does not exist yet: create it?',
+  },
+  'form.editor.repondantsTableConfirm': { fr: 'Créer la table', en: 'Create the table' },
+  'form.editor.repondantsTableDeclined': { fr: 'Table « FormPlus_Repondants » refusée : mode interne non activé.', en: '"FormPlus_Repondants" table declined: internal mode not enabled.' },
   'form.editor.defaultFormulaireName': { fr: 'Formulaire sans titre', en: 'Untitled form' },
 
   // ───────────────────────── respond.js : écran du répondant ─────────────────────────

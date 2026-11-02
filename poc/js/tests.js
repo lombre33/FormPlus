@@ -13,6 +13,7 @@ import {
 import {
   ensureTableGate, ensureFreeColumn, FORMULAIRES_TABLE,
   ensureFormulairesTable, ensureRespondentDefinitionField, saveFormDefinition, resolveMyDefinition, fetchManagedVsIds,
+  otherManagedFormOnPage,
   ensureRespondentProbeTable, probeRespondentIdentity,
   getAttachmentColumns, parseAttachmentList, fetchAttachmentFileNames, downloadAttachmentAsDataUrl,
 } from './grist-meta.js';
@@ -868,7 +869,12 @@ export async function runTests() {
       onAction: (a) => { addCalls.push(a); },
     }).grist;
     addCalls = [];
-    await ensureRespondentProbeTable();
+    // Consigne GFS 012, point 6 : table absente -> fenêtre d'accord (comme FormPlus_Formulaires),
+    // posée après le premier aller-retour asynchrone (getTableRef) - on attend qu'elle s'affiche.
+    const probeDone = ensureRespondentProbeTable();
+    for (let i = 0; i < 20 && document.querySelector('#pp-dialog-modal')?.style.display !== 'flex'; i++) await tick();
+    document.querySelector('#pp-dialog-modal .pp-modal-primary').click();
+    await probeDone;
     assertEqual('table absente -> une seule action AddTable', addCalls.map(c => c[0]), ['AddTable']);
     assertEqual('nom de table et colonne email dans la même action', [addCalls[0][1], addCalls[0][2][0].id], ['FormPlus_Repondants', 'Email']);
     assertEqual('formule déclencheur posée sur la colonne', [addCalls[0][2][0].isFormula, addCalls[0][2][0].formula], [false, 'user.Email']);
@@ -888,6 +894,18 @@ export async function runTests() {
     addCalls = [];
     await ensureRespondentProbeTable();
     assertEqual('table et colonne déjà là -> rien à faire (idempotent)', addCalls.length, 0);
+  });
+
+  await group('ensureRespondentProbeTable : consentement refusé -> rien n’est créé, échec explicite', async () => {
+    const { grist, calls } = makeGristStub({ fetchTable: (t) => (t === '_grist_Tables' ? { id: [], tableId: [] } : {}) });
+    window.grist = grist;
+    let caught = null;
+    const done = ensureRespondentProbeTable().catch(e => { caught = e; });
+    for (let i = 0; i < 20 && document.querySelector('#pp-dialog-modal')?.style.display !== 'flex'; i++) await tick();
+    document.querySelector('#pp-dialog-modal .pp-modal-actions button:not(.pp-modal-primary)').click();
+    await done;
+    assertEqual('rejet avec un message explicite', caught && caught.message, I18n.t('form.editor.repondantsTableDeclined'));
+    assertEqual('aucune action tentée (ni AddTable, ni autre)', calls.length, 0);
   });
 
   await group('probeRespondentIdentity : résout l\'identité réelle via la table-sonde, puis la nettoie (mode interne)', async () => {
@@ -1762,6 +1780,50 @@ export async function runTests() {
     show('test'); // showConfig() a basculé l'écran visible sur #config : on revient à #test pour la suite.
   });
 
+  // Consigne GFS 012, point 4 : « Nouveau » (ton app déjà ouverte) montrait bien l'écran de départ,
+  // mais laissait l'éditeur du formulaire PRÉCÉDENT affiché dessous (showConfig() ne cachait
+  // #editor que via le bouton du point 3, jamais ici) - mesuré dans GFS.
+  await group('showConfig : « Nouveau » referme l’éditeur du formulaire précédent, pas seulement l’écran de départ', async () => {
+    state.editorTab = 'questions';
+    state.editorTabPicked = false;
+    state.options = {
+      formLink: 'https://grist.example/o/team/forms/KEY/42',
+      vsId: 42, sourceVsId: 42, viewRef: 7, publicUrl: 'https://x', questions: [],
+    };
+    window.grist = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Views_section' ? { id: [42], parentId: [7], tableRef: [1] } : { id: [] }),
+    }).grist;
+    window.fetch = async () => ({ ok: true, json: async () => ({ formFieldsById: {} }) });
+    await showConfig();
+    assertEqual('éditeur affiché pour ce premier formulaire', $('editor').classList.contains('hidden'), false);
+
+    // « Nouveau » : plus aucun formulaire lié (comme resetToNewForm, main.js), on rouvre showConfig().
+    state.options = {};
+    state.currentLink = null;
+    state.currentFormSection = null;
+    await showConfig();
+    assert('écran de départ affiché', !$('step1').classList.contains('hidden'));
+    assert('éditeur du formulaire précédent bien refermé', $('editor').classList.contains('hidden'));
+    show('test');
+  });
+
+  // Consigne GFS 012, point 3 : le bouton vivait DANS le <p data-i18n="form.settings.urlDesc">
+  // de widget.html - translateDom (kit) remplace tout le contenu d'un élément data-i18n par du
+  // texte, donc le bouton disparaissait une seconde après l'ouverture (mesuré dans GFS). translateDom
+  // a déjà tourné une fois à l'amorçage de cette page (avant même ce test) : sur l'ancien balisage,
+  // #change-source-btn serait donc déjà absent du DOM ici, pas seulement après un futur appel.
+  await group('« Changer de formulaire source » : survit à translateDom (plus dans le paragraphe traduit)', async () => {
+    const btn = document.getElementById('change-source-btn');
+    assert('le bouton existe toujours dans le DOM après translateDom', btn != null);
+    assertEqual('le bouton n’est plus un enfant du paragraphe traduit (urlDesc)', btn?.closest('[data-i18n="form.settings.urlDesc"]'), null);
+    state.editorTab = 'settings';
+    $('step1').classList.add('hidden');
+    $('editor').classList.remove('hidden');
+    btn.click();
+    assert('le clic ramène bien l’écran de départ (step1)', !$('step1').classList.contains('hidden'));
+    assert('…et cache l’éditeur du formulaire précédent', $('editor').classList.contains('hidden'));
+  });
+
   // CreateViewSection peuple automatiquement la nouvelle section d'un champ par colonne de la
   // table (comportement natif de Grist, voir grist-meta.js/clearAutoFields) : un mock réaliste de
   // _grist_Views_section_field doit donc en simuler au moins un pour que ce nettoyage soit
@@ -1896,6 +1958,25 @@ export async function runTests() {
     assertEqual('seul le vrai formulaire (1) reste proposé, pas sa copie (2)', state.formPickerItems.map(it => it.vsId), [1]);
   });
 
+  // Consigne GFS 013, point 2 : une clé de partage ouvre l'écriture dans toutes les tables visées
+  // par une section de formulaire publiée sur SA page - jamais deux formulaires gérés par FormPlus
+  // sur la même page, quel que soit le lien précis utilisé pour y entrer.
+  await group('otherManagedFormOnPage : détecte un AUTRE formulaire déjà géré sur la même page, jamais lui-même', async () => {
+    // Deux formulaires gérés par FormPlus (sections 30 et 31, une ligne FormPlus_Formulaires
+    // chacun) partagent la page 7 ; une troisième section (99) n'est géré par personne, sur une
+    // page différente (9) - un décor pour vérifier qu'une section non gérée ne compte jamais.
+    window.grist = makeGristStub({
+      fetchTable: (t) => {
+        if (t === FORMULAIRES_TABLE) return { id: [1, 2], Definition: ['{"vsId":30}', '{"vsId":31}'] };
+        if (t === '_grist_Views_section') return { id: [30, 31, 99], parentId: [7, 7, 9] };
+        return {};
+      },
+    }).grist;
+    assertEqual('un AUTRE formulaire géré (31) détecté sur la même page (7)', await otherManagedFormOnPage(7, 30), 31);
+    assertEqual('symétrique : 30 détecté en excluant 31', await otherManagedFormOnPage(7, 31), 30);
+    assertEqual('page différente (9) : aucun des deux formulaires gérés n’y est, rien détecté', await otherManagedFormOnPage(9, 30), null);
+  });
+
   await group('sélection dans formPicker : formulaire non publié -> consigne, pas de génération', async () => {
     state.formPickerItems = [{ vsId: 1, viewRef: 5, tableId: 'Brouillon', published: false }];
     $('formPicker').innerHTML = '<option value="1">Brouillon (non publié)</option>';
@@ -1921,6 +2002,62 @@ export async function runTests() {
     await tick();
     assertEqual('le champ lien manuel reste vide (aucune tentative)', $('link').value, '');
     assertEqual('consigne de copier le lien affichée', $('formPicker-msg').innerHTML, `<span class="ok">${I18n.t('form.editor.pickedPasteLink')}</span>`);
+  });
+
+  await group('generate() : refuse de dupliquer sur une page déjà gérée par un AUTRE formulaire FormPlus', async () => {
+    state.options = {};
+    state.cfgQuestions = [];
+    window.grist = makeGristStub({
+      listTables: ['Reponses'],
+      fetchTable: (t) => {
+        // Section 12 (le lien collé, formulaire natif) ET section 40 (déjà géré par FormPlus,
+        // Definition.vsId 40) partagent la page 7 : exactement le risque mesuré (consigne 013,
+        // point 2) - une clé de partage ouvre l'écriture dans toutes les tables publiées sur sa
+        // page, pas seulement celle visée par le lien précis utilisé pour y entrer.
+        if (t === '_grist_Views_section') return { id: [12, 40], parentId: [7, 7], parentKey: ['form', 'form'], tableRef: [10, 50] };
+        if (t === '_grist_Tables') return { id: [10, 50], tableId: ['Reponses', 'FormPlus_Formulaires'] };
+        if (t === '_grist_Tables_column') return {
+          id: [1, 2, 3, 4, 5, 6], parentId: [50, 50, 50, 50, 50, 50],
+          colId: ['Nom', 'TypeFormulaire', 'DateModif', 'ModifiePar', 'Definition', 'IdSectionWidget'],
+          type: ['Text', 'Text', 'DateTime', 'Text', 'Text', 'Numeric'], visibleCol: [0, 0, 0, 0, 0, 0],
+        };
+        if (t === FORMULAIRES_TABLE) return { id: [1], Definition: ['{"vsId":40}'] };
+        return {};
+      },
+    }).grist;
+    // Référent sur une page distincte (99) : ne déclenche jamais le refus "même page que le
+    // widget" (point 2 de la 012, autre test plus bas) - seul le refus de collision de page entre
+    // formulaires FormPlus est testé ici.
+    Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/99', configurable: true });
+    $('link').value = 'https://grist.example.com/o/team/forms/SECRETKEY/12';
+    await generate();
+    assertEqual('aucune action Grist déclenchée (refus avant toute duplication)', $('cfg-msg').innerHTML, `<span class="err">${I18n.t('form.editor.pageAlreadyManaged', { vsId: 40 })}</span>`);
+    assertEqual('aucune fenêtre de consentement n’est même arrivée à s’afficher', document.querySelector('#pp-dialog-modal')?.style.display, 'none');
+  });
+
+  await group('generate() : refuse de dupliquer un formulaire posé sur la page de CE widget (rechargement perdrait la sauvegarde)', async () => {
+    state.options = {};
+    state.cfgQuestions = [];
+    window.grist = makeGristStub({
+      listTables: ['Reponses'],
+      fetchTable: (t) => {
+        if (t === '_grist_Views_section') return { id: [12], parentId: [7], parentKey: ['form'], tableRef: [10] };
+        if (t === '_grist_Tables') return { id: [10, 50], tableId: ['Reponses', 'FormPlus_Formulaires'] };
+        if (t === '_grist_Tables_column') return {
+          id: [1, 2, 3, 4, 5, 6], parentId: [50, 50, 50, 50, 50, 50],
+          colId: ['Nom', 'TypeFormulaire', 'DateModif', 'ModifiePar', 'Definition', 'IdSectionWidget'],
+          type: ['Text', 'Text', 'DateTime', 'Text', 'Text', 'Numeric'], visibleCol: [0, 0, 0, 0, 0, 0],
+        };
+        if (t === FORMULAIRES_TABLE) return { id: [], Definition: [] };
+        return {};
+      },
+    }).grist;
+    // Référent sur la MÊME page (7) que le formulaire natif collé : samePage devient vrai.
+    Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
+    $('link').value = 'https://grist.example.com/o/team/forms/SECRETKEY/12';
+    await generate();
+    assertEqual('refus explicite, avant toute duplication', $('cfg-msg').innerHTML, `<span class="err">${I18n.t('form.editor.sourceOnWidgetPage')}</span>`);
+    assertEqual('aucune fenêtre de consentement n’est même arrivée à s’afficher', document.querySelector('#pp-dialog-modal')?.style.display, 'none');
   });
 
   await group('generate() : formulaire natif existant → duplication automatique, original jamais modifié', async () => {
@@ -2002,7 +2139,7 @@ export async function runTests() {
       },
     });
     window.grist = grist;
-    Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
+    Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/99', configurable: true });
     $('link').value = 'https://grist.example.com/o/team/forms/SECRETKEY/12';
     // Consigne GFS 013, points 3 et 4 : generate() ouvre maintenant la fenêtre de consentement du
     // kit avant de publier la copie (seule la toute première duplication la déclenche : elle est
@@ -2074,7 +2211,7 @@ export async function runTests() {
       },
     });
     window.grist = grist;
-    Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
+    Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/99', configurable: true });
     $('link').value = 'https://grist.example.com/o/team/forms/SECRETKEY/12';
     const genDone = generate();
     for (let i = 0; i < 20 && document.querySelector('#pp-dialog-modal')?.style.display !== 'flex'; i++) await tick();
@@ -2128,7 +2265,7 @@ export async function runTests() {
       },
     });
     window.grist = grist;
-    Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
+    Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/99', configurable: true });
     $('link').value = 'https://grist.example.com/o/team/forms/SECRETKEY/12';
     const p1 = generate();
     const p2 = generate(); // synchrone, juste après : doit être ignoré tant que p1 n'est pas fini

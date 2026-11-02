@@ -36,6 +36,14 @@ async function openRow(rowId) {
   return true;
 }
 
+// « Nouveau » (porte "ouvrir" de GFS, fichier null) : repart de zéro, jamais un ancien formulaire
+// gardé ouvert (consigne GFS 012, point 4).
+function resetToNewForm() {
+  state.options = {}; state.currentLink = null; state.currentFormSection = null; state.cfgQuestions = [];
+  state.formRowId = null; state.formRowVsId = null; state.formRowTitle = undefined;
+  if (GfsLink.hosted) GfsLink.storageSet(GFS_OPEN_ROW_KEY, null);
+}
+
 // Ce que la barre de GFS recouvre, à écarter (consigne GFS 011) : --gfs-bar-* (widget.css, .wrap)
 // porte l'écart pour tous les écrans à la fois (concepteur, répondant, départ), puisqu'ils
 // partagent tous ce même conteneur. Un bord qu'elle ne couvre pas, ou bar === null (explorateur
@@ -125,9 +133,7 @@ $('themeToggle').addEventListener('click', () => {
     GfsLink.onOpen(async ({ fichier }) => {
       if (!fichier) {
         if (state.formRowId == null) return true; // déjà sur l'écran de départ
-        state.options = {}; state.currentLink = null; state.currentFormSection = null; state.cfgQuestions = [];
-        state.formRowId = null; state.formRowVsId = null; state.formRowTitle = undefined;
-        GfsLink.storageSet(GFS_OPEN_ROW_KEY, null);
+        resetToNewForm();
         state.stayOnConfig = true;
         await showConfig();
         return true;
@@ -146,19 +152,25 @@ $('themeToggle').addEventListener('click', () => {
     // (self.id) reste le repli hors GFS, et dans GFS tant qu'aucun des deux n'a encore rien dit.
     let opened = false;
     const wanted = GfsLink.opening();
-    if (wanted?.fichier) opened = await openRow(wanted.fichier.id);
-    if (!opened && GfsLink.hosted) {
+    // « Nouveau » (raison 'nouveau', consigne GFS 012, point 4) décide avant même fichier/storedRow
+    // : sans ce test, fichier null ne faisait qu'échouer le premier `if` ci-dessous, puis le
+    // formulaire gardé ouvert (storedRow) ou resolveMyDefinition() rouvraient silencieusement un
+    // ancien formulaire au tout premier chargement du cadre - jamais l'écran de départ demandé.
+    const isNew = wanted?.raison === 'nouveau';
+    if (isNew) resetToNewForm();
+    else if (wanted?.fichier) opened = await openRow(wanted.fichier.id);
+    if (!isNew && !opened && GfsLink.hosted) {
       const storedRow = GfsLink.storageGet(GFS_OPEN_ROW_KEY);
       if (storedRow) opened = await openRow(storedRow);
     }
-    if (!opened) {
+    if (!isNew && !opened) {
       // Depuis la consigne 007, plus de lecture de `opts` (grist.onOptions ne garde ici que son
       // rôle de signal "connecté", le courtier de GFS le rend de toute façon inerte) : la
       // Definition de cette instance vient de FormPlus_Formulaires (ou, repli, des réglages de vue
       // d'un formulaire pas encore migré) — voir resolveMyDefinition.
       state.options = await resolveMyDefinition();
     }
-    diag({ event: 'onOptions', optionKeys: Object.keys(state.options), hasFormLink: !!state.options.formLink, settings, gfsOpened: opened });
+    diag({ event: 'onOptions', optionKeys: Object.keys(state.options), hasFormLink: !!state.options.formLink, settings, gfsOpened: opened, isNew });
     // #form=<lien> dans l'URL du widget est le mode répondant explicite (secours quand l'adresse
     // publique habituelle ne fonctionne pas, voir l'écran standalone). Sinon, decideStartScreen()
     // (links.js) tranche selon l'accès réellement accordé par Grist pour CE visiteur : un visiteur

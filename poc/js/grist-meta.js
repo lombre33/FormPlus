@@ -744,10 +744,18 @@ const RESPONDENT_EMAIL_COL = 'Email';
 
 // Crée, si elle manque encore, une table technique partagée par TOUS les formulaires du document
 // (pas une par formulaire : la même sonde d'identité sert à tous). Idempotent, rappelable sans
-// risque à chaque activation du mode interne dans l'éditeur.
+// risque à chaque activation du mode interne dans l'éditeur. Consigne GFS 012, point 6 : la table
+// naissait jusqu'ici sans fenêtre d'accord (contrairement à FormPlus_Formulaires) - guide 1.1,
+// point 4, une table ne se crée qu'avec l'accord de la personne.
 export async function ensureRespondentProbeTable() {
   const colInfo = { type: 'Text', isFormula: false, formula: 'user.Email', recalcWhen: 0 };
   if (!(await getTableRef(RESPONDENT_PROBE_TABLE))) {
+    const ok = await Dialogs.confirm({
+      title: I18n.t('form.editor.repondantsTableTitle'),
+      message: I18n.t('form.editor.repondantsTableMsg'),
+      confirmLabel: I18n.t('form.editor.repondantsTableConfirm'),
+    });
+    if (!ok) throw new Error(I18n.t('form.editor.repondantsTableDeclined'));
     await grist.docApi.applyUserActions([['AddTable', RESPONDENT_PROBE_TABLE, [{ id: RESPONDENT_EMAIL_COL, ...colInfo }]]]);
     return RESPONDENT_PROBE_TABLE;
   }

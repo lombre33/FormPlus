@@ -163,6 +163,17 @@ export async function generate() {
         msg.innerHTML = `<span class="err">${I18n.t('form.editor.pageAlreadyManaged', { vsId: collidingVsId })}</span>`;
         return;
       }
+      // Consigne GFS 012, point 2 : poser la copie sur la page du formulaire source QUAND cette
+      // page est aussi celle de CE widget fait recharger le cadre du widget (comportement natif de
+      // Grist : ajouter une section à une page reconstruit tous ses cadres personnalisés), avant
+      // que saveConfig (plus bas) n'ait écrit la ligne - mesuré avec et sans GFS : la fenêtre
+      // d'accord et FormPlus_Formulaires passent, puis plus rien n'est enregistré, et chaque
+      // nouvel essai ajoute une copie orpheline de plus. On refuse ICI, avant toute duplication,
+      // plutôt que de laisser cet échec silencieux se reproduire.
+      if (samePage) {
+        msg.innerHTML = `<span class="err">${I18n.t('form.editor.sourceOnWidgetPage')}</span>`;
+        return;
+      }
       // Consigne GFS 013, points 3 et 4 : c'est ICI, et seulement ici dans toute cette fonction,
       // que FormPlus rend quelque chose de nouveau public (duplicateFormSection publie la copie
       // tout de suite, sous la clé déjà en place) - avant de le faire, dire ce que ça ouvre et
@@ -1602,6 +1613,11 @@ export async function showConfig() {
   state.editorTabPicked = false;
   const configured = !!state.options?.formLink;
   $('step1').classList.toggle('hidden', configured);
+  // Consigne GFS 012, point 4 : repart caché à chaque appel - sans ça, « Nouveau » (configured
+  // devenu faux) laissait l'éditeur du formulaire précédent affiché SOUS l'écran de départ qu'on
+  // vient pourtant de montrer ci-dessus (mesuré dans GFS). Montré plus bas seulement si la section
+  // réellement liée à ce lien existe encore dans le document.
+  $('editor').classList.add('hidden');
   if (configured) {
     $('link').value = state.options.formLink;
     // state.options.vsId est la section que FormPlus gère réellement (sa copie, voir generate()
