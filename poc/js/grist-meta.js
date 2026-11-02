@@ -103,6 +103,23 @@ export async function createFormSection(tref, viewRef, tableId) {
   return sectionId;
 }
 
+// Même action, viewRef=0 : Grist crée alors une page TOUTE NEUVE pour cette section, plutôt que
+// de poser la section sur une page déjà existante (consigne GFS 013, point 2 - "jamais deux
+// formulaires sur le même partage", et consigne GFS 012, point 2, même cause : une section posée
+// sur la page du WIDGET lui-même fait recharger ce cadre). Mesuré sur un vrai Grist
+// (tests/grist-env/) : CreateViewSection(tref, 0, 'form', null, tableId) renvoie bien un viewRef
+// tout nouveau (le compte de _grist_Views augmente de un), jamais une page déjà utilisée par autre
+// chose. Cette page neuve n'a encore AUCUN partage : il reste à la personne de cliquer "Publier"
+// dessus elle-même (aucune méthode de l'API plugin n'expose la clé que ce bouton génère, voir
+// createEmptyForm) avant de coller son lien dans Form+.
+export async function createFormSectionOnNewPage(tref, tableId) {
+  const res = await grist.docApi.applyUserActions([['CreateViewSection', tref, 0, 'form', null, tableId]]);
+  const sectionId = res.retValues?.[0]?.sectionRef;
+  const viewRef = res.retValues?.[0]?.viewRef;
+  if (sectionId == null || viewRef == null) throw new Error('CreateViewSection : identifiant de section ou de page absent de la réponse.');
+  return { sectionId, viewRef };
+}
+
 // CreateViewSection peuple automatiquement la nouvelle section avec un champ par colonne de la
 // table (comportement natif de Grist, vérifié sur un vrai document, voir duplicateFormSection
 // plus bas) : retire ces champs auto-créés pour qu'une section censée rester vide (portillon
@@ -496,35 +513,106 @@ export async function ensureFormulairesTable() {
   }
 }
 
-// Donne à un répondant la Définition de CE formulaire (consigne GFS 008, point 3), par le seul
-// mécanisme qui marche réellement en session de partage anonyme - mesuré sur un vrai Grist, le
-// même déjà utilisé par ensureChoiceField/ensureRefListField ci-dessus pour "Choix depuis une
-// table" : une colonne Référence CACHÉE sur la table cible du formulaire natif, vers
-// FormPlus_Formulaires, affichant sa colonne Definition, posée comme champ masqué sur la section
-// publiée. Le script d'API de Grist expose alors son "refValues" (les lignes de la table visée,
-// avec leur colonne affichée) dans la réponse PUBLIQUE de /forms/<clé>/<section> - jamais une
-// lecture de table ordinaire sur FormPlus_Formulaires, qu'une session de partage ne peut pas
-// faire. Partagée entre tous les formulaires d'une même table cible (une seule colonne) ; chacun
-// n'a qu'à avoir SA PROPRE ligne dans le champ caché de SA section (idempotent par section).
-export const DEFINITION_FIELD_COL = 'FormPlusDef';
-export async function ensureRespondentDefinitionField(mainTableId, formSectionId) {
-  if (!(await colExists(mainTableId, DEFINITION_FIELD_COL))) {
-    await grist.docApi.applyUserActions([['AddColumn', mainTableId, DEFINITION_FIELD_COL, { type: `Ref:${FORMULAIRES_TABLE}` }]]);
+// Donne à un répondant la Définition de CE formulaire (consigne GFS 008, point 3 ; revu par la
+// consigne GFS 013, point 1), par le seul mécanisme qui marche réellement en session de partage
+// anonyme - mesuré sur un vrai Grist (tests/grist-env/), le même déjà utilisé par
+// ensureChoiceField/ensureRefListField ci-dessus pour "Choix depuis une table" : une colonne
+// Référence CACHÉE sur la table cible du formulaire natif, affichant la colonne "Definition" de
+// la table visée, posée comme champ masqué sur la section publiée. Le script d'API de Grist
+// expose alors son "refValues" (les lignes de la table visée, avec leur colonne affichée) dans la
+// réponse PUBLIQUE de /forms/<clé>/<section>.
+//
+// Avant la 013, cette colonne visait FormPlus_Formulaires (une table PARTAGÉE par tous les
+// formulaires du document) : refValues rendait alors TOUTES ses lignes, pas seulement celle de ce
+// formulaire - mesuré sur un vrai Grist (tests/grist-env/) : le lien d'un formulaire A rendait la
+// Definition de TOUS les autres formulaires B, C... du document, clé de partage et adresse
+// publique comprises (celles que la personne garde privées). Corrigé : chaque formulaire publié a
+// maintenant sa PROPRE table d'une seule ligne (FormPlus_Pub_<vsId>, ci-dessous) et sa PROPRE
+// colonne cachée (FormPlusDef_<vsId>) - refValues ne peut alors plus rendre qu'UNE ligne, celle de
+// CE formulaire. Testé sur un vrai Grist : refValues ne contient plus que la Definition du
+// formulaire demandé, jamais celle d'un autre (voir GFS-ETAT.md, consigne 013).
+export function publicationTableId(vsId) { return `FormPlus_Pub_${vsId}`; }
+export function definitionFieldColId(vsId) { return `FormPlusDef_${vsId}`; }
+
+// Crée (si besoin) la petite table d'UN SEUL formulaire et y maintient SA SEULE ligne - jamais une
+// deuxième : idempotent, rappelable à chaque enregistrement (saveConfig). Couverte par le même
+// accord que FormPlus_Formulaires (une table technique par formulaire publié, voir le message de
+// consentement d'ensureFormulairesTable) : pas de nouvelle fenêtre à chaque formulaire.
+async function ensurePublicationRow(vsId, definitionJson) {
+  const tableId = publicationTableId(vsId);
+  let tref = await getTableRef(tableId);
+  if (!tref) {
+    await grist.docApi.applyUserActions([['AddTable', tableId, [{ id: 'Definition', type: 'Text' }]]]);
+    tref = await getTableRef(tableId);
+    if (!tref) throw new Error(`Table « ${tableId} » introuvable après sa création.`);
   }
-  const colRef = await getColRef(mainTableId, DEFINITION_FIELD_COL);
-  const defColRef = await getColRef(FORMULAIRES_TABLE, 'Definition');
+  const table = await fetchMeta(tableId);
+  const ids = table.id || [];
+  if (ids.length === 0) {
+    await grist.docApi.applyUserActions([['AddRecord', tableId, null, { Definition: definitionJson }]]);
+  } else {
+    await grist.docApi.applyUserActions([['UpdateRecord', tableId, ids[0], { Definition: definitionJson }]]);
+    // Ne devrait jamais arriver (une seule ligne y est jamais écrite ci-dessus) : retrait des
+    // lignes en trop plutôt que de laisser une ancienne Definition lisible en même temps.
+    for (let i = 1; i < ids.length; i++) {
+      await grist.docApi.applyUserActions([['RemoveRecord', tableId, ids[i]]]);
+    }
+  }
+  return tableId;
+}
+
+export async function ensureRespondentDefinitionField(mainTableId, formSectionId, definitionJson) {
+  const vsId = formSectionId;
+  const pubTableId = await ensurePublicationRow(vsId, definitionJson);
+  const hiddenColId = definitionFieldColId(vsId);
+  if (!(await colExists(mainTableId, hiddenColId))) {
+    await grist.docApi.applyUserActions([['AddColumn', mainTableId, hiddenColId, { type: `Ref:${pubTableId}` }]]);
+  }
+  const colRef = await getColRef(mainTableId, hiddenColId);
+  const defColRef = await getColRef(pubTableId, 'Definition');
   if (defColRef) {
     await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Tables_column', colRef, { visibleCol: defColRef }]]);
   }
   const fields = await fetchMeta('_grist_Views_section_field');
-  let already = false;
-  for (let i = 0; i < fields.id.length; i++) if (fields.parentId[i] === formSectionId && fields.colRef[i] === colRef) already = true;
-  if (!already) {
+  const cols = await fetchMeta('_grist_Tables_column');
+  const colIdByRef = {};
+  for (let i = 0; i < (cols.id || []).length; i++) colIdByRef[cols.id[i]] = cols.colId[i];
+  const otherDefCol = /^FormPlusDef(_\d+)?$/;
+  const removals = [];
+  let myFieldId = null;
+  let alreadyHidden = false;
+  for (let i = 0; i < fields.id.length; i++) {
+    if (fields.parentId[i] !== formSectionId) continue;
+    if (fields.colRef[i] === colRef) {
+      myFieldId = fields.id[i];
+      let opt = {}; try { opt = JSON.parse(fields.widgetOptions[i] || '{}') || {}; } catch (e) { /* ignore */ }
+      alreadyHidden = opt.formIsHidden === true;
+      continue;
+    }
+    // Retire tout AUTRE champ-définition de Form+ présent sur CETTE section : un formulaire
+    // natif posé APRÈS la colonne cachée d'un AUTRE formulaire en hérite automatiquement un champ
+    // à sa création (CreateViewSection peuple un champ par colonne déjà existante, voir
+    // duplicateFormSection) - mesuré (consigne GFS 012, point 5, et 013, point 1) : sans ce
+    // retrait, le lien de CE formulaire rendrait aussi, via refValues, la Definition du formulaire
+    // auquel appartient cette colonne. "FormPlusDef" (sans suffixe) est l'ancien nom, partagé
+    // avant la 013 : également retiré ici, pour les documents déjà touchés par une version
+    // antérieure (consigne GFS 012, point 7, et 013, "documents déjà publiés").
+    const colId = colIdByRef[fields.colRef[i]];
+    if (colId && otherDefCol.test(colId) && colId !== hiddenColId) removals.push(fields.id[i]);
+  }
+  if (removals.length) {
+    await grist.docApi.applyUserActions(removals.map(id => ['RemoveRecord', '_grist_Views_section_field', id]));
+  }
+  if (myFieldId == null) {
     await grist.docApi.applyUserActions([['AddRecord', '_grist_Views_section_field', null, {
       parentId: formSectionId, colRef, widgetOptions: JSON.stringify({ formIsHidden: true }),
     }]]);
+  } else if (!alreadyHidden) {
+    await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section_field', myFieldId, {
+      widgetOptions: JSON.stringify({ formIsHidden: true }),
+    }]]);
   }
-  return DEFINITION_FIELD_COL;
+  return hiddenColId;
 }
 
 // Écrit la Définition de self (la section de CE widget) dans sa ligne de FormPlus_Formulaires,
@@ -612,6 +700,26 @@ export async function fetchManagedVsIds() {
   } catch (e) {
     return new Set();
   }
+}
+
+// Consigne GFS 013, point 2 : "un formulaire a sa page et ne remplit que les tables qu'il remplit
+// vraiment : jamais deux formulaires sur le même partage" - mesuré sur un vrai Grist
+// (tests/grist-env/) qu'une clé de partage ouvre l'écriture dans TOUTES les tables visées par une
+// section de formulaire publiée sur SA page, quel que soit le lien précis utilisé pour y entrer :
+// le lien d'un formulaire A donne donc aussi, de fait, l'écriture dans la table d'un formulaire B
+// géré par FormPlus si A et B partagent leur page. Avant de dupliquer un nouveau lien sur la page
+// d'un formulaire déjà pasté, on vérifie ici qu'AUCUN AUTRE formulaire déjà géré par FormPlus (une
+// ligne de FormPlus_Formulaires, vsId différent de celui qu'on s'apprête à dupliquer) n'a sa
+// propre section sur cette même page - pour refuser plutôt que de créer silencieusement ce risque.
+export async function otherManagedFormOnPage(page, excludeVsId) {
+  const managed = await fetchManagedVsIds();
+  managed.delete(excludeVsId);
+  if (managed.size === 0) return null;
+  const sections = await fetchMeta('_grist_Views_section');
+  for (let i = 0; i < sections.id.length; i++) {
+    if (sections.parentId[i] === page && managed.has(sections.id[i])) return sections.id[i];
+  }
+  return null;
 }
 
 // ───────────────────────── Mode interne : identité réelle du répondant ─────────────────────────

@@ -1628,6 +1628,14 @@ export async function runTests() {
   });
 
   await group('resetQuestions : démasque uniquement les champs importés', async () => {
+    // state.mainTableIdCache fuit du test précédent (module partagé, pas de remise à zéro entre
+    // groupes) : saveConfig (appelé par resetQuestions) en profite donc pour aussi poser la
+    // colonne-définition propre à ce formulaire (consigne GFS 013, point 1) — tables et colonnes
+    // doivent donc rester mutables (AddTable/AddColumn), sinon « introuvable après sa création ».
+    let tablesState = { id: [1, 50], tableId: ['Main', FORMULAIRES_TABLE] };
+    let columnsState = { id: [], parentId: [], colId: [], type: [], visibleCol: [] };
+    const rows = {};
+    let nextTref = 90, nextColRef = 500, nextRowId = 1;
     const { grist, calls } = makeGristStub({
       fetchTable: (t) => t === '_grist_Views_section_field'
         ? { id: [10, 11], parentId: [1, 1], colRef: [100, 101], widgetOptions: ['{"formIsHidden":true}', '{"formIsHidden":true,"formRequired":true}'] }
@@ -1637,8 +1645,32 @@ export async function runTests() {
           // par resetQuestions, qui s'assure maintenant aussi de la table, consigne 007)
           // tenterait de le créer, hors de propos ici.
           ? { id: [1, 2], parentId: [5, 1], parentKey: ['custom', 'form'], tableRef: [1, 50], shareOptions: [undefined, '{"publish":true,"form":true}'], options: ['{}', '{}'] }
-          : (t === '_grist_Tables' ? { id: [1, 50], tableId: ['Main', FORMULAIRES_TABLE] }
-            : (t === '_grist_Tables_column' ? { id: [], parentId: [], colId: [], type: [], visibleCol: [] } : {}))),
+          : (t === '_grist_Tables' ? { ...tablesState }
+            : (t === '_grist_Tables_column' ? { ...columnsState } : (rows[t] ? { ...rows[t] } : {})))),
+      onAction: (a) => {
+        if (a[0] === 'AddTable') {
+          const tref = nextTref++;
+          tablesState = { id: [...tablesState.id, tref], tableId: [...tablesState.tableId, a[1]] };
+          rows[a[1]] = { id: [], Definition: [] };
+        } else if (a[0] === 'AddColumn') {
+          const tref = tablesState.id[tablesState.tableId.indexOf(a[1])];
+          columnsState = {
+            id: [...columnsState.id, nextColRef], parentId: [...columnsState.parentId, tref],
+            colId: [...columnsState.colId, a[2]], type: [...columnsState.type, a[3]?.type], visibleCol: [...columnsState.visibleCol, 0],
+          };
+          nextColRef++;
+        } else if (a[0] === 'UpdateRecord' && a[1] === '_grist_Tables_column') {
+          const idx = columnsState.id.indexOf(a[2]);
+          if (idx >= 0 && a[3].visibleCol !== undefined) { const arr = [...columnsState.visibleCol]; arr[idx] = a[3].visibleCol; columnsState.visibleCol = arr; }
+        } else if (a[0] === 'AddRecord' && rows[a[1]]) {
+          const id = nextRowId++;
+          rows[a[1]] = { id: [...rows[a[1]].id, id], Definition: [...rows[a[1]].Definition, a[3]?.Definition ?? null] };
+          return id;
+        } else if (a[0] === 'UpdateRecord' && rows[a[1]]) {
+          const idx = rows[a[1]].id.indexOf(a[2]);
+          if (idx >= 0 && a[3].Definition !== undefined) { const arr = [...rows[a[1]].Definition]; arr[idx] = a[3].Definition; rows[a[1]].Definition = arr; }
+        }
+      },
     });
     window.grist = grist;
     state.cfgQuestions = [{ id: 'q1', kind: 'text', label: 'Importée', importedFrom: '10' }, { id: 'q2', kind: 'number', label: 'Manuelle' }];
@@ -1737,14 +1769,17 @@ export async function runTests() {
   // disparaissait un jour. La section créée (id 50) est directement renvoyée dans retValues,
   // comme le fait un vrai document Grist (voir createFormSection, grist-meta.js) : plus besoin de
   // la retrouver en re-lisant _grist_Views_section après coup.
-  await group('createEmptyForm : réutilise une table existante, section vidée de ses champs auto-créés', async () => {
+  await group('createEmptyForm : réutilise une table existante, sur une page neuve, section vidée de ses champs auto-créés', async () => {
     const { grist, calls } = makeGristStub({
       fetchTable: (t) => {
         if (t === '_grist_Tables') return { tableId: ['Departements'], id: [1] };
         if (t === '_grist_Views_section_field') return { id: [201], parentId: [50] };
         return {};
       },
-      onAction: (a) => (a[0] === 'CreateViewSection' ? { sectionRef: 50, viewRef: a[2] } : undefined),
+      // Consignes GFS 013 pt.2 / 012 pt.2 : CreateViewSection(tref, 0, ...) crée une page toute
+      // neuve. Le mock renvoie un viewRef réaliste (124), jamais 7 (la page du widget) ni 0 : sur
+      // un vrai Grist, Grist renvoie toujours l'identifiant de la page qu'il vient de créer.
+      onAction: (a) => (a[0] === 'CreateViewSection' ? { sectionRef: 50, viewRef: 124 } : undefined),
     });
     window.grist = grist;
     const el = mount(document.createElement('div'));
@@ -1755,12 +1790,12 @@ export async function runTests() {
     Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
     await createEmptyForm();
     assertEqual('deux actions : CreateViewSection puis retrait du champ auto-créé', calls.map(c => c[0][0]), ['CreateViewSection', 'RemoveRecord']);
-    assertEqual('CreateViewSection sur la bonne table/page', calls[0][0], ['CreateViewSection', 1, 7, 'form', null, 'Departements']);
+    assertEqual('CreateViewSection sur la bonne table, page neuve (0), jamais la page du widget (7)', calls[0][0], ['CreateViewSection', 1, 0, 'form', null, 'Departements']);
     assertEqual('le champ auto-créé (201) est bien retiré', calls[1][0], ['RemoveRecord', '_grist_Views_section_field', 201]);
     assert('message de succès (formulaire réellement vide)', $('scratch-msg').innerHTML.includes('ok'));
   });
 
-  await group('createEmptyForm : crée une nouvelle table', async () => {
+  await group('createEmptyForm : crée une nouvelle table, sur une page neuve', async () => {
     let tablesState = { tableId: ['Departements'], id: [1] };
     const { grist, calls } = makeGristStub({
       fetchTable: (t) => {
@@ -1771,7 +1806,7 @@ export async function runTests() {
       },
       onAction: (a) => {
         if (a[0] === 'AddTable') tablesState = { tableId: [...tablesState.tableId, 'Reponses'], id: [...tablesState.id, 2] };
-        if (a[0] === 'CreateViewSection') return { sectionRef: 99 };
+        if (a[0] === 'CreateViewSection') return { sectionRef: 99, viewRef: 125 };
       },
     });
     window.grist = grist;
@@ -1780,6 +1815,7 @@ export async function runTests() {
     await createEmptyForm();
     assertEqual('deux actions : AddTable puis CreateViewSection (rien à retirer, aucun champ auto simulé ici)', calls.map(c => c[0][0]), ['AddTable', 'CreateViewSection']);
     assertEqual('CreateViewSection cible la table nouvellement créée (ref 2)', calls[1][0][1], 2);
+    assertEqual('CreateViewSection demande une page neuve (viewRef=0), jamais celle du widget', calls[1][0][2], 0);
   });
 
   await group('createEmptyForm : page introuvable -> message clair, aucune action', async () => {
@@ -1807,17 +1843,20 @@ export async function runTests() {
         if (t === '_grist_Views_section_field') return { id: [], parentId: [] };
         return {};
       },
-      onAction: () => ({ sectionRef: 55 }),
+      onAction: () => ({ sectionRef: 55, viewRef: 126 }),
     });
     window.grist = grist;
     $('scratchTable').value = 'Departements';
     // Référent vide (ex. embed=true, ou navigateur qui le bloque) : myPageFromReferrer() échoue,
     // le repli doit retrouver la page (7) via l'unique section personnalisée qui pointe vers ce
-    // widget dans les métadonnées du document, sans jamais afficher le message d'erreur.
+    // widget dans les métadonnées du document - uniquement pour vérifier que createEmptyForm n'est
+    // pas bloqué (findMyWidgetPage réussit), le message d'erreur ne doit jamais s'afficher. La
+    // section du formulaire, elle, va toujours sur une page neuve (0), jamais celle du widget (7) :
+    // consignes GFS 013 pt.2 / 012 pt.2.
     Object.defineProperty(document, 'referrer', { value: '', configurable: true });
     await createEmptyForm();
     assertEqual('CreateViewSection déclenché malgré le référent illisible', calls.length, 1);
-    assertEqual('page retrouvée via les métadonnées (7), pas via le référent', calls[0][0], ['CreateViewSection', 1, 7, 'form', null, 'Departements']);
+    assertEqual('page du widget (7) retrouvée via les métadonnées mais jamais utilisée : page neuve (0) demandée', calls[0][0], ['CreateViewSection', 1, 0, 'form', null, 'Departements']);
     assert('aucun message d’erreur', !$('scratch-msg').innerHTML.includes('err'));
   });
 
@@ -1965,7 +2004,18 @@ export async function runTests() {
     window.grist = grist;
     Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
     $('link').value = 'https://grist.example.com/o/team/forms/SECRETKEY/12';
-    await generate();
+    // Consigne GFS 013, points 3 et 4 : generate() ouvre maintenant la fenêtre de consentement du
+    // kit avant de publier la copie (seule la toute première duplication la déclenche : elle est
+    // async, posée après plusieurs lectures de métadonnées, donc pas encore là au retour direct de
+    // generate() - on attend qu'elle apparaisse, comme pour resetQuestions plus haut).
+    const genDone = generate();
+    // La fenêtre (singleton, voir kit/js/modal-base.js) reste dans le DOM entre deux demandes,
+    // simplement cachée (overlay.style.display = 'none') : tester sa seule présence réussirait
+    // tout de suite sur un résidu d'une fenêtre précédente, avant même que CETTE demande n'ouvre
+    // la sienne. On attend qu'elle soit réellement affichée ('flex').
+    for (let i = 0; i < 20 && document.querySelector('#pp-dialog-modal')?.style.display !== 'flex'; i++) await tick();
+    document.querySelector('#pp-dialog-modal .pp-modal-primary').click();
+    await genDone;
     await tick();
 
     const dupVsId = state.currentFormSection?.id;
@@ -1993,6 +2043,47 @@ export async function runTests() {
     await tick();
     assertEqual('même copie réutilisée au second collage', state.currentFormSection?.id, dupVsId);
     assertEqual('aucune nouvelle section créée', calls.slice(callsBefore).flatMap(a => a).some(a => a[0] === 'CreateViewSection'), false);
+  });
+
+  // Consigne GFS 013, point 4 : « un refus ne laisse rien à moitié fait ». Ici, le refus arrive
+  // avant toute écriture (la fenêtre de consentement du point 3 est posée AVANT duplicateFormSection,
+  // voir generate()) : ce test échouerait sur l'ancien code, qui dupliquait et publiait sans jamais
+  // demander - donc sans jamais pouvoir refuser.
+  await group('generate() : fenêtre de consentement refusée -> rien n’est créé ni publié, formulaire toujours privé', async () => {
+    state.options = {};
+    state.cfgQuestions = [];
+    state.currentFormSection = 'inchangé-avant-le-test'; // marqueur : vérifie plus bas qu'il n'est jamais réécrit
+    const sectionsState = { id: [12], parentId: [7], parentKey: ['form'], tableRef: [10], shareOptions: ['{"publish":true,"form":true}'], options: ['{}'] };
+    const { grist, calls } = makeGristStub({
+      listTables: ['Reponses'],
+      fetchTable: (t) => {
+        if (t === '_grist_Pages') return { id: [1], viewRef: [7], shareRef: [9] };
+        if (t === '_grist_Shares') return { id: [9], linkId: ['SECRETKEY'] };
+        if (t === '_grist_Views_section') return { ...sectionsState };
+        if (t === '_grist_Views_section_field') return { id: [], parentId: [] };
+        if (t === '_grist_Tables') return { id: [10, 50], tableId: ['Reponses', 'FormPlus_Formulaires'] };
+        // Les 6 colonnes de FormPlus_Formulaires déjà toutes présentes (tref 50) : sans ça,
+        // ensureFormulairesTable (appelée avant la fenêtre de consentement, consigne 007) poserait
+        // elle-même des AddColumn, hors de propos ici (seul le refus de publication est testé).
+        if (t === '_grist_Tables_column') return {
+          id: [1, 2, 3, 4, 5, 6], parentId: [50, 50, 50, 50, 50, 50],
+          colId: ['Nom', 'TypeFormulaire', 'DateModif', 'ModifiePar', 'Definition', 'IdSectionWidget'],
+          type: ['Text', 'Text', 'DateTime', 'Text', 'Text', 'Numeric'], visibleCol: [0, 0, 0, 0, 0, 0],
+        };
+        return {};
+      },
+    });
+    window.grist = grist;
+    Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
+    $('link').value = 'https://grist.example.com/o/team/forms/SECRETKEY/12';
+    const genDone = generate();
+    for (let i = 0; i < 20 && document.querySelector('#pp-dialog-modal')?.style.display !== 'flex'; i++) await tick();
+    document.querySelector('#pp-dialog-modal .pp-modal-actions button:not(.pp-modal-primary)').click();
+    await genDone;
+    assertEqual('aucune action Grist déclenchée (ni duplication, ni publication)', calls.length, 0);
+    assertEqual('le formulaire source (12) toujours inchangé', sectionsState.shareOptions[0], '{"publish":true,"form":true}');
+    assertEqual('rien de configuré dans FormPlus pour ce lien (jamais réécrit)', state.currentFormSection, 'inchangé-avant-le-test');
+    assert('message explicite : publication annulée, formulaire privé', $('cfg-msg').innerHTML.includes(I18n.t('form.editor.publishDeclined')));
   });
 
   await group('generate() : verrou de ré-entrance, un double déclenchement (clic + Entrée) ne duplique jamais deux fois', async () => {
@@ -2041,6 +2132,9 @@ export async function runTests() {
     $('link').value = 'https://grist.example.com/o/team/forms/SECRETKEY/12';
     const p1 = generate();
     const p2 = generate(); // synchrone, juste après : doit être ignoré tant que p1 n'est pas fini
+    // p2 revient instantanément (verrou), seul p1 atteint la fenêtre de consentement (013, pt.3/4).
+    for (let i = 0; i < 20 && document.querySelector('#pp-dialog-modal')?.style.display !== 'flex'; i++) await tick();
+    document.querySelector('#pp-dialog-modal .pp-modal-primary').click();
     await Promise.all([p1, p2]);
     await tick();
     const createCalls = calls.flatMap(a => a).filter(a => a[0] === 'CreateViewSection');
@@ -2188,24 +2282,39 @@ export async function runTests() {
     assert('toutes les colonnes attendues sont présentes', ['Nom', 'TypeFormulaire', 'DateModif', 'ModifiePar', 'Definition', 'IdSectionWidget'].every(c => columnsState.colId.includes(c)));
   });
 
-  // Mécanisme qui donne réellement la Définition à un répondant (consigne GFS 008, point 3,
-  // mesuré sur un vrai Grist) : une colonne Référence cachée sur la table cible, vers
-  // FormPlus_Formulaires, affichant Definition, posée comme champ masqué sur la section publiée -
-  // jamais ensureTableGate (ci-dessus), qui ne rend aucune ligne existante lisible.
-  await group('ensureRespondentDefinitionField : colonne cachée créée, affichage posé sur Definition, champ masqué ajouté une seule fois', async () => {
+  // Mécanisme qui donne réellement la Définition à un répondant (consigne GFS 008, point 3 ;
+  // revu par la consigne GFS 013, point 1, mesuré sur un vrai Grist, tests/grist-env/) : une
+  // colonne Référence cachée sur la table cible, vers une table d'UNE SEULE LIGNE PROPRE À CE
+  // FORMULAIRE (FormPlus_Pub_<vsId>, jamais la table partagée FormPlus_Formulaires), affichant
+  // Definition, posée comme champ masqué sur la section publiée - jamais ensureTableGate
+  // (ci-dessus), qui ne rend aucune ligne existante lisible.
+  await group('ensureRespondentDefinitionField : table-par-formulaire créée avec sa ligne, colonne cachée posée, champ masqué ajouté une seule fois', async () => {
+    let tablesState = { id: [10], tableId: ['Reponses'] };
     let columnsState = { id: [], parentId: [], colId: [], type: [], visibleCol: [] };
     let fieldsState = { id: [], parentId: [], colRef: [] };
-    let nextColRef = 500, nextFieldId = 5000;
+    const rows = {}; // tableId -> {id: [...]}
+    let nextTref = 90, nextColRef = 500, nextFieldId = 5000, nextRowId = 1;
     const { grist, calls } = makeGristStub({
       fetchTable: (t) => {
-        if (t === '_grist_Tables') return { id: [10, 50], tableId: ['Reponses', FORMULAIRES_TABLE] };
+        if (t === '_grist_Tables') return { ...tablesState };
         if (t === '_grist_Tables_column') return { ...columnsState };
         if (t === '_grist_Views_section_field') return { ...fieldsState };
-        return {};
+        return rows[t] ? { ...rows[t] } : { id: [] };
       },
       onAction: (a) => {
-        if (a[0] === 'AddColumn') {
-          const tref = a[1] === 'Reponses' ? 10 : 50;
+        if (a[0] === 'AddTable') {
+          const tref = nextTref++;
+          tablesState = { id: [...tablesState.id, tref], tableId: [...tablesState.tableId, a[1]] };
+          for (const col of a[2]) {
+            columnsState = {
+              id: [...columnsState.id, nextColRef], parentId: [...columnsState.parentId, tref],
+              colId: [...columnsState.colId, col.id], type: [...columnsState.type, col.type], visibleCol: [...columnsState.visibleCol, 0],
+            };
+            nextColRef++;
+          }
+          rows[a[1]] = { id: [], Definition: [] };
+        } else if (a[0] === 'AddColumn') {
+          const tref = a[1] === 'Reponses' ? 10 : tablesState.id[tablesState.tableId.indexOf(a[1])];
           columnsState = {
             id: [...columnsState.id, nextColRef], parentId: [...columnsState.parentId, tref],
             colId: [...columnsState.colId, a[2]], type: [...columnsState.type, a[3]?.type], visibleCol: [...columnsState.visibleCol, 0],
@@ -2218,30 +2327,120 @@ export async function runTests() {
           const id = nextFieldId++;
           fieldsState = { id: [...fieldsState.id, id], parentId: [...fieldsState.parentId, a[3].parentId], colRef: [...fieldsState.colRef, a[3].colRef] };
           return id;
+        } else if (a[0] === 'UpdateRecord' && a[1] === '_grist_Views_section_field') {
+          const idx = fieldsState.id.indexOf(a[2]);
+          // widgetOptions n'est pas relu par ce test (seul calls.flatMap plus bas l'inspecte).
+        } else if (a[0] === 'AddRecord' && rows[a[1]]) {
+          const id = nextRowId++;
+          rows[a[1]] = { id: [...rows[a[1]].id, id], Definition: [...rows[a[1]].Definition, a[3]?.Definition ?? null] };
+          return id;
+        } else if (a[0] === 'UpdateRecord' && rows[a[1]]) {
+          const idx = rows[a[1]].id.indexOf(a[2]);
+          if (idx >= 0 && a[3].Definition !== undefined) { const arr = [...rows[a[1]].Definition]; arr[idx] = a[3].Definition; rows[a[1]].Definition = arr; }
+        } else if (a[0] === 'RemoveRecord' && rows[a[1]]) {
+          const idx = rows[a[1]].id.indexOf(a[2]);
+          if (idx >= 0) {
+            rows[a[1]] = { id: rows[a[1]].id.filter((_, i) => i !== idx), Definition: rows[a[1]].Definition.filter((_, i) => i !== idx) };
+          }
         }
       },
     });
     window.grist = grist;
-    // Definition (FormPlus_Formulaires) est déjà posée, colRef 42, pour que visibleCol pointe
-    // quelque part de connu.
-    columnsState = { id: [42], parentId: [50], colId: ['Definition'], type: ['Text'], visibleCol: [0] };
-    const colId = await ensureRespondentDefinitionField('Reponses', 19);
-    assertEqual('nom de colonne rendu', colId, 'FormPlusDef');
-    const ourColIdx = columnsState.id.indexOf(500);
-    assert('colonne Référence créée sur la table cible', columnsState.colId.includes('FormPlusDef'));
-    assertEqual('type Référence vers FormPlus_Formulaires', columnsState.type[ourColIdx], 'Ref:FormPlus_Formulaires');
-    assertEqual('affichage posé sur Definition (colRef 42)', columnsState.visibleCol[ourColIdx], 42);
+    const colId = await ensureRespondentDefinitionField('Reponses', 19, '{"vsId":19,"formTitle":"A"}');
+    assertEqual('nom de colonne rendu', colId, 'FormPlusDef_19');
+    assert('table propre au formulaire créée', tablesState.tableId.includes('FormPlus_Pub_19'));
+    assertEqual('sa ligne porte bien la Definition fournie', rows['FormPlus_Pub_19'].Definition[0], '{"vsId":19,"formTitle":"A"}');
+    const ourColIdx = columnsState.colId.indexOf('FormPlusDef_19');
+    assert('colonne Référence créée sur la table cible', ourColIdx >= 0);
+    assertEqual('type Référence vers la table propre à ce formulaire', columnsState.type[ourColIdx], 'Ref:FormPlus_Pub_19');
     assertEqual('un seul champ ajouté à la section du formulaire', fieldsState.id.length, 1);
     assert('le champ est bien masqué', calls.flatMap(a => a).some(a => a[0] === 'AddRecord' && a[1] === '_grist_Views_section_field' && JSON.parse(a[3].widgetOptions).formIsHidden === true));
 
-    // Rappelée pour la même table et section : ni colonne ni champ de plus (même mécanisme
-    // qu'ensureChoiceField/ensureRefListField, qui réaffirment aussi l'affichage à chaque appel).
+    // Rappelée pour la même table et section (même définition) : ni colonne, ni champ, ni ligne
+    // de plus - toujours UNE SEULE ligne dans FormPlus_Pub_19 (même mécanisme qu'ensureChoiceField/
+    // ensureRefListField, qui réaffirment aussi l'affichage à chaque appel).
     const callsBeforeAgain = calls.flatMap(a => a).length;
-    await ensureRespondentDefinitionField('Reponses', 19);
+    await ensureRespondentDefinitionField('Reponses', 19, '{"vsId":19,"formTitle":"A (modifié)"}');
     const allCallsAfter = calls.flatMap(a => a);
     assertEqual('aucune colonne de plus', allCallsAfter.filter(a => a[0] === 'AddColumn').length, 1);
+    assertEqual('aucune table de plus', allCallsAfter.filter(a => a[0] === 'AddTable').length, 1);
     assertEqual('aucun champ de section de plus', allCallsAfter.filter(a => a[0] === 'AddRecord' && a[1] === '_grist_Views_section_field').length, 1);
-    assert('au moins un appel de plus (l’affichage est réaffirmé)', allCallsAfter.length > callsBeforeAgain);
+    assertEqual('toujours une seule ligne dans la table propre au formulaire', rows['FormPlus_Pub_19'].id.length, 1);
+    assertEqual('la ligne reflète la nouvelle Definition', rows['FormPlus_Pub_19'].Definition[0], '{"vsId":19,"formTitle":"A (modifié)"}');
+    assert('au moins un appel de plus (la ligne et l’affichage sont réaffirmés)', allCallsAfter.length > callsBeforeAgain);
+  });
+
+  // Consigne GFS 012 (point 5) et 013 (point 1) : un formulaire natif posé APRÈS la colonne
+  // cachée d'un AUTRE formulaire en hérite un champ à sa création (CreateViewSection peuple un
+  // champ par colonne déjà existante, voir duplicateFormSection) - mesuré sur un vrai Grist. Sans
+  // retrait, le lien de CE formulaire rendrait aussi, via refValues, la Definition de l'AUTRE
+  // formulaire (celui à qui appartient cette colonne héritée).
+  await group('ensureRespondentDefinitionField : retire tout AUTRE champ-définition de Form+ hérité sur cette section', async () => {
+    let tablesState = { id: [10], tableId: ['Reponses'] };
+    // La colonne du formulaire 7 existe déjà sur Reponses (colRef 77), et l'ancienne colonne
+    // partagée FormPlusDef (sans suffixe, consigne 012 point 7) aussi (colRef 78) : les deux ont
+    // été héritées comme champs sur la section 19 (CreateViewSection), aucun des deux n'est le
+    // champ du formulaire 19 lui-même.
+    let columnsState = { id: [77, 78], parentId: [10, 10], colId: ['FormPlusDef_7', 'FormPlusDef'], type: ['Ref:FormPlus_Pub_7', 'Ref:FormPlus_Formulaires'], visibleCol: [0, 0] };
+    let fieldsState = { id: [701, 702], parentId: [19, 19], colRef: [77, 78] };
+    const rows = {};
+    let nextTref = 90, nextColRef = 500, nextFieldId = 5000, nextRowId = 1;
+    const { grist, calls } = makeGristStub({
+      fetchTable: (t) => {
+        if (t === '_grist_Tables') return { ...tablesState };
+        if (t === '_grist_Tables_column') return { ...columnsState };
+        if (t === '_grist_Views_section_field') return { ...fieldsState };
+        return rows[t] ? { ...rows[t] } : { id: [] };
+      },
+      onAction: (a) => {
+        if (a[0] === 'AddTable') {
+          const tref = nextTref++;
+          tablesState = { id: [...tablesState.id, tref], tableId: [...tablesState.tableId, a[1]] };
+          for (const col of a[2]) {
+            columnsState = {
+              id: [...columnsState.id, nextColRef], parentId: [...columnsState.parentId, tref],
+              colId: [...columnsState.colId, col.id], type: [...columnsState.type, col.type], visibleCol: [...columnsState.visibleCol, 0],
+            };
+            nextColRef++;
+          }
+          rows[a[1]] = { id: [], Definition: [] };
+        } else if (a[0] === 'AddColumn') {
+          const tref = a[1] === 'Reponses' ? 10 : tablesState.id[tablesState.tableId.indexOf(a[1])];
+          columnsState = {
+            id: [...columnsState.id, nextColRef], parentId: [...columnsState.parentId, tref],
+            colId: [...columnsState.colId, a[2]], type: [...columnsState.type, a[3]?.type], visibleCol: [...columnsState.visibleCol, 0],
+          };
+          nextColRef++;
+        } else if (a[0] === 'UpdateRecord' && a[1] === '_grist_Tables_column') {
+          const idx = columnsState.id.indexOf(a[2]);
+          if (idx >= 0 && a[3].visibleCol !== undefined) { const arr = [...columnsState.visibleCol]; arr[idx] = a[3].visibleCol; columnsState.visibleCol = arr; }
+        } else if (a[0] === 'AddRecord' && a[1] === '_grist_Views_section_field') {
+          const id = nextFieldId++;
+          fieldsState = { id: [...fieldsState.id, id], parentId: [...fieldsState.parentId, a[3].parentId], colRef: [...fieldsState.colRef, a[3].colRef] };
+          return id;
+        } else if (a[0] === 'RemoveRecord' && a[1] === '_grist_Views_section_field') {
+          const idx = fieldsState.id.indexOf(a[2]);
+          if (idx >= 0) {
+            fieldsState = {
+              id: fieldsState.id.filter((_, i) => i !== idx), parentId: fieldsState.parentId.filter((_, i) => i !== idx),
+              colRef: fieldsState.colRef.filter((_, i) => i !== idx),
+            };
+          }
+        } else if (a[0] === 'AddRecord' && rows[a[1]]) {
+          const id = nextRowId++;
+          rows[a[1]] = { id: [...rows[a[1]].id, id], Definition: [...rows[a[1]].Definition, a[3]?.Definition ?? null] };
+          return id;
+        } else if (a[0] === 'UpdateRecord' && rows[a[1]]) {
+          const idx = rows[a[1]].id.indexOf(a[2]);
+          if (idx >= 0 && a[3].Definition !== undefined) { const arr = [...rows[a[1]].Definition]; arr[idx] = a[3].Definition; rows[a[1]].Definition = arr; }
+        }
+      },
+    });
+    window.grist = grist;
+    await ensureRespondentDefinitionField('Reponses', 19, '{"vsId":19}');
+    assertEqual('les deux champs hérités (formulaire 7 et l’ancienne colonne partagée) sont retirés', fieldsState.colRef.filter(c => c === 77 || c === 78).length, 0);
+    assertEqual('exactement un champ reste sur la section (le sien)', fieldsState.parentId.filter(p => p === 19).length, 1);
+    assert('au moins un retrait de champ a bien été demandé à Grist', calls.flatMap(a => a).some(a => a[0] === 'RemoveRecord' && a[1] === '_grist_Views_section_field'));
   });
 
   await group('ensureFormulairesTable : consentement refusé -> rien n’est créé, échec explicite', async () => {

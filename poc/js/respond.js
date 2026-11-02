@@ -5,7 +5,7 @@ import './strings.js'; // enregistre form.* avant tout usage de I18n.t() au char
 import { LAYOUT_KINDS, SINGLE_CHOICE_KINDS, mapFeatureEnabled, LEAFLET_CDN_URL, LEAFLET_CDN_CSS } from './kinds.js';
 import { parseFormLink, migrateLegacy, normalizeCondition } from './links.js';
 import { applyBranding } from './theme.js';
-import { probeCanEdit, probeRespondentIdentity, DEFINITION_FIELD_COL } from './grist-meta.js';
+import { probeCanEdit, probeRespondentIdentity, definitionFieldColId } from './grist-meta.js';
 import { diag, fragmentFormLink } from './diag.js';
 import { state } from './state.js';
 import { imageBlockHtml } from './image-block.js';
@@ -614,12 +614,17 @@ export async function renderFill() {
   // AFFICHÉE sur la section publiée, même masquée aux yeux du répondant, rend son "refValues"
   // dans la réponse de /forms/<clé>/<section> déjà lue ci-dessus - même mécanisme que "Choix
   // depuis une table" (ensureChoiceField, grist-meta.js), pas une lecture de table à part.
+  // Depuis la consigne GFS 013 (point 1) : cette colonne vise la table d'UN SEUL formulaire
+  // (FormPlus_Pub_<vsId>, une seule ligne possible) plutôt que la table partagée de tous les
+  // formulaires du document - refValues ne peut donc plus jamais rendre la Definition d'un AUTRE
+  // formulaire, mesuré sur un vrai Grist (tests/grist-env/) : plus besoin de filtrer par vsId
+  // parmi plusieurs lignes, il n'y en a qu'une.
   if (state.options?.formLink !== formLink) {
-    const field = Object.values(form.formFieldsById || {}).find(f => f.colId === DEFINITION_FIELD_COL);
-    for (const [, value] of field?.refValues || []) {
-      let def = null; try { def = JSON.parse(value || 'null'); } catch (e) { continue; }
-      if (def && def.vsId === link.vsId) { state.options = def; break; }
-    }
+    const defCol = definitionFieldColId(link.vsId);
+    const field = Object.values(form.formFieldsById || {}).find(f => f.colId === defCol);
+    const [, value] = (field?.refValues || [])[0] || [];
+    let def = null; try { def = JSON.parse(value || 'null'); } catch (e) { /* ignore */ }
+    if (def) state.options = def;
   }
 
   applyBranding(state.options);

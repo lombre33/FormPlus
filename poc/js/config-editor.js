@@ -13,7 +13,7 @@ import {
   fetchMeta, getTableRef, tableIdOfRef, columnOptions,
   ensureTableGate, ensureChoiceField, ensureRefListField, ensureFreeColumn,
   findViewRefForSection, findMyWidgetPage, ensureFormulairesTable, ensureRespondentDefinitionField, saveFormDefinition, fetchManagedVsIds,
-  duplicateFormSection, clearAutoFields, createFormSection, getColumnType, KIND_TO_GRIST_TYPE,
+  duplicateFormSection, clearAutoFields, createFormSectionOnNewPage, otherManagedFormOnPage, getColumnType, KIND_TO_GRIST_TYPE,
   ensureRespondentProbeTable,
   getAttachmentColumns, parseAttachmentList, fetchAttachmentFileNames, downloadAttachmentAsDataUrl,
 } from './grist-meta.js';
@@ -95,11 +95,12 @@ export async function saveConfig(publicUrl, widgetPage) {
       try {
         await ensureFormulairesTable();
         await saveFormDefinition(self, saved);
-        // La Définition posée au répondant par un champ masqué (consigne GFS 008, point 3) : sur
-        // LA table et LA section que FormPlus gère réellement (state.currentFormSection, jamais
-        // saved.viewRef/widgetPage, hors de propos ici).
+        // La Définition posée au répondant par un champ masqué (consigne GFS 008, point 3 ; table
+        // propre à CE formulaire depuis la consigne GFS 013, point 1) : sur LA table et LA section
+        // que FormPlus gère réellement (state.currentFormSection, jamais saved.viewRef/widgetPage,
+        // hors de propos ici).
         if (state.mainTableIdCache && saved.vsId != null) {
-          await ensureRespondentDefinitionField(state.mainTableIdCache, saved.vsId);
+          await ensureRespondentDefinitionField(state.mainTableIdCache, saved.vsId, JSON.stringify(saved));
         }
         persisted = true;
       } catch (e) { console.warn('[FormPlus] enregistrement refusé', e); }
@@ -150,6 +151,32 @@ export async function generate() {
     if (isSameSource && state.options?.vsId) {
       vsId = state.options.vsId;
     } else {
+      // Consigne GFS 013, point 2 : jamais deux formulaires gérés par FormPlus sur la même page
+      // (donc sous la même clé de partage) - mesuré sur un vrai Grist, une clé ouvre l'écriture
+      // dans TOUTES les tables publiées sur sa page, pas seulement celle visée par le lien utilisé
+      // pour y entrer. On refuse ICI, avant toute duplication, plutôt que de créer silencieusement
+      // ce risque.
+      let collidingVsId = null;
+      try { collidingVsId = await otherManagedFormOnPage(formPage, pastedLink.vsId); }
+      catch (e) { /* une lecture impossible ne doit pas bloquer : au pire le risque reste à vérifier à la main */ }
+      if (collidingVsId != null) {
+        msg.innerHTML = `<span class="err">${I18n.t('form.editor.pageAlreadyManaged', { vsId: collidingVsId })}</span>`;
+        return;
+      }
+      // Consigne GFS 013, points 3 et 4 : c'est ICI, et seulement ici dans toute cette fonction,
+      // que FormPlus rend quelque chose de nouveau public (duplicateFormSection publie la copie
+      // tout de suite, sous la clé déjà en place) - avant de le faire, dire ce que ça ouvre et
+      // attendre un geste explicite. Rien n'est encore créé à ce stade : un refus ne laisse donc
+      // rien à moitié fait, sans qu'aucun retrait ne soit nécessaire.
+      const srcSections = await fetchMeta('_grist_Views_section');
+      const srcIdx = srcSections.id.indexOf(pastedLink.vsId);
+      const srcTableId = srcIdx >= 0 ? await tableIdOfRef(srcSections.tableRef[srcIdx]) : '?';
+      const okToPublish = await Dialogs.confirm({
+        title: I18n.t('form.editor.publishDisclosureTitle'),
+        message: I18n.t('form.editor.publishDisclosureMsg', { table: esc(srcTableId) }),
+        confirmLabel: I18n.t('form.editor.publishDisclosureConfirmBtn'),
+      });
+      if (!okToPublish) { msg.innerHTML = `<span class="ok">${I18n.t('form.editor.publishDeclined')}</span>`; return; }
       msg.textContent = I18n.t('form.editor.duplicating');
       try { vsId = await duplicateFormSection(pastedLink.vsId); }
       catch (e) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.duplicateError', { message: esc(e.message) })}</span>`; return; }
@@ -331,7 +358,10 @@ export async function createEmptyForm() {
     msg.textContent = I18n.t('form.editor.creating');
     try {
       const tref = await getTableRef(tableId);
-      const sectionId = await createFormSection(tref, widgetPage, tableId);
+      // Sur une page TOUTE NEUVE (jamais celle du widget, jamais celle d'un autre formulaire déjà
+      // géré) : consigne GFS 013, point 2, et 012, point 2 (même cause - poser la section sur la
+      // page du widget la rechargeait, voir createFormSectionOnNewPage, grist-meta.js).
+      const { sectionId } = await createFormSectionOnNewPage(tref, tableId);
       // CreateViewSection remplit la nouvelle section d'un champ par colonne de la table : sans
       // ce nettoyage, une table existante déjà pourvue de colonnes donnerait un formulaire natif
       // rempli de tous ses champs, pas « vide » comme annoncé ci-dessous.
@@ -357,7 +387,7 @@ export async function createEmptyForm() {
       if (!tableId) throw new Error(I18n.t('form.editor.tableCreateFailed'));
     }
     const tref = await getTableRef(tableId);
-    const sectionId = await createFormSection(tref, widgetPage, tableId);
+    const { sectionId } = await createFormSectionOnNewPage(tref, tableId);
     await clearAutoFields(sectionId);
     msg.innerHTML = `<span class="ok">${I18n.t('form.editor.emptyFormCreated', { table: esc(tableId) })}</span>`;
     $('scratchTable').value = '';

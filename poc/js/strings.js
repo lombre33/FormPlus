@@ -168,9 +168,25 @@ export const STRINGS = {
     fr: "Cette section de formulaire n'existe pas dans ce document. Le lien vient-il bien d'ici ?",
     en: "This form section doesn't exist in this document. Does the link really come from here?",
   },
+  'form.editor.pageAlreadyManaged': {
+    fr: 'Cette page porte déjà un autre formulaire géré par FormPlus (identifiant {vsId}) : par sécurité, deux formulaires ne doivent jamais partager la même page (donc le même lien public pourrait aussi écrire dans l\'autre). Publiez ce nouveau formulaire sur sa propre page Grist avant de coller son lien ici.',
+    en: 'This page already hosts another form managed by FormPlus (id {vsId}): for safety, two forms must never share the same page (their public link could then also write into the other). Publish this new form on its own Grist page before pasting its link here.',
+  },
   'form.editor.duplicating': { fr: "Duplication du formulaire (le vôtre n'est jamais modifié)…", en: 'Duplicating the form (yours is never modified)…' },
   'form.editor.duplicateError': { fr: 'Impossible de dupliquer ce formulaire ({message}).', en: 'Could not duplicate this form ({message}).' },
   'form.editor.dupNote': { fr: 'Copie du formulaire créée pour FormPlus, le vôtre est inchangé. ', en: 'A copy of the form was created for FormPlus, yours is unchanged. ' },
+  // Consigne GFS 013, points 3 et 4 : avant de rendre quoi que ce soit public, dire en mots
+  // simples ce que le lien va ouvrir, et n'écrire qu'après un geste explicite de la personne.
+  'form.editor.publishDisclosureTitle': { fr: 'Avant de publier cette copie', en: 'Before publishing this copy' },
+  'form.editor.publishDisclosureMsg': {
+    fr: 'FormPlus va créer une copie de ce formulaire natif et la publier tout de suite, sous la clé de partage déjà en place sur cette page (aucune republication manuelle). À partir de ce moment, n\'importe qui avec le nouveau lien pourra ajouter des lignes à la table « {table} » (dans ses colonnes affichées comme dans celles que le formulaire ne montre pas), mais ne pourra ni lire, ni modifier, ni supprimer une ligne déjà là. Le formulaire natif d\'origine, lui, n\'est pas touché.',
+    en: 'FormPlus will create a copy of this native form and publish it right away, under the sharing key already in place on this page (no manual republishing). From then on, anyone with the new link will be able to add rows to the table "{table}" (in its displayed columns as well as the ones the form does not show), but will not be able to read, change, or delete an existing row. The original native form itself is not touched.',
+  },
+  'form.editor.publishDisclosureConfirmBtn': { fr: 'Publier la copie', en: 'Publish the copy' },
+  'form.editor.publishDeclined': {
+    fr: 'Publication annulée : rien n\'a été créé, ce formulaire reste privé.',
+    en: 'Publication cancelled: nothing was created, this form stays private.',
+  },
   'form.editor.configSavedDoc': { fr: 'Configuration enregistrée dans le document.', en: 'Configuration saved in the document.' },
   'form.editor.configSessionOnly': {
     fr: 'Configuration posée dans cette session seulement : cliquez sur <strong>Enregistrer</strong> dans la barre du widget pour la conserver.',
@@ -204,8 +220,8 @@ export const STRINGS = {
   'form.editor.pickTable': { fr: 'Choisissez une table.', en: 'Choose a table.' },
   'form.editor.creating': { fr: 'Création en cours…', en: 'Creating…' },
   'form.editor.emptyFormCreated': {
-    fr: 'Formulaire natif vide créé sur cette page pour la table « {table} ». Cliquez sur <strong>Publier</strong> dans ce nouveau formulaire (repliez-le une fois publié), puis <strong>Copier le lien</strong>, et collez-le ci-dessus.',
-    en: 'Empty native form created on this page for table "{table}". Click <strong>Publish</strong> in this new form (collapse it once published), then <strong>Copy link</strong>, and paste it above.',
+    fr: 'Formulaire natif vide créé sur une NOUVELLE page pour la table « {table} » (jamais la page de ce widget, et jamais celle d\'un autre formulaire : chacun garde sa propre clé de partage). Ouvrez cette nouvelle page, cliquez sur <strong>Publier</strong> dans ce formulaire, puis <strong>Copier le lien</strong>, et collez-le ci-dessus. Dès la publication, n\'importe qui avec ce lien pourra ajouter des lignes à « {table} » (dans toutes les colonnes que vous y ajouterez, y compris celles que le formulaire ne montre pas), mais jamais en lire, modifier ou supprimer une.',
+    en: 'Empty native form created on a NEW page for table "{table}" (never this widget\'s own page, and never another form\'s page: each one keeps its own share key). Open that new page, click <strong>Publish</strong> in this form, then <strong>Copy link</strong>, and paste it above. Once published, anyone with that link will be able to add rows to "{table}" (in any column you add there, including ones the form does not show), but never read, change, or delete one.',
   },
   'form.editor.giveTableName': { fr: 'Indiquez un nom de table.', en: 'Enter a table name.' },
   'form.editor.tableCreateFailed': { fr: "La table n'a pas pu être créée.", en: 'The table could not be created.' },
