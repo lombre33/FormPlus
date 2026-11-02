@@ -1,8 +1,92 @@
 # GFS-ETAT : Form+
 
-Mis à jour le 2026-10-22, au commit `c249c4a` (dernier commit de code que cette page décrit).
+Mis à jour le 2026-11-02, au commit `16cf6b1` (dernier commit de code que cette page décrit).
 
 ## Consignes
+- 013 · faite, avec une limite connue (point 2) · `df2dc1e` · les liens publics : un lien ne montre
+  et n'ouvre que son formulaire.
+  1. **Un lien ne montre que son formulaire.** Mesuré sur un vrai Grist (`tests/grist-env/`, une
+     clé de partage réelle) : le lien d'un formulaire A rendait, via `refValues`, la `Definition`
+     de **tous** les formulaires de `FormPlus_Formulaires` - `shareKey`, `formLink` et `publicUrl`
+     compris, pour qui avait un seul lien. Cause : une colonne cachée `FormPlusDef` unique,
+     partagée par tous les formulaires, vers la table partagée. Corrigé : chaque formulaire publié
+     a maintenant sa propre table d'une seule ligne (`FormPlus_Pub_<vsId>`) et sa propre colonne
+     cachée (`FormPlusDef_<vsId>`), jamais partagées - `refValues` ne peut plus contenir que la
+     ligne de CE formulaire (`ensureRespondentDefinitionField`, `grist-meta.js`). Retire aussi tout
+     autre champ-définition de Form+ hérité sur la section (un formulaire natif posé après coup sur
+     une colonne héritée d'un autre formulaire, voir aussi 012 point 5 ci-dessous).
+  2. **Une porte, sa table de réception.** Mesuré : une clé de partage ouvre l'écriture dans
+     TOUTES les tables visées par une section de formulaire publiée sur SA page, pas seulement
+     celle visée par le lien précis utilisé pour y entrer - jamais deux formulaires sur le même
+     partage. Fait : « Partir de zéro » pose sa section sur une page TOUTE NEUVE
+     (`createFormSectionOnNewPage`, jamais la page du widget ni celle d'un autre formulaire) ;
+     coller un lien vers une page déjà gérée par un AUTRE formulaire FormPlus est refusé avant
+     toute duplication (`otherManagedFormOnPage`). **Limite connue, pas encore corrigée** : coller
+     le lien d'un formulaire natif déjà publié (`duplicateFormSection`) pose la copie sur la MÊME
+     page que ce formulaire natif, en réutilisant sa clé déjà en place - le formulaire natif
+     d'origine reste lui-même publié sur cette page, donc cette même clé ouvre aussi l'écriture
+     dans sa table. Le corriger reviendrait à fermer le lien natif de la personne (son `UpdateRecord`
+     sur `shareOptions` est le seul moyen disponible, `RemoveViewSection` n'étant pas un verbe que
+     GFS laisse passer, voir point 7 de la 012) : question posée à la personne (carte de décision),
+     réponse en attente à la date de cette page. Aucune table ne porte de colonne de gestion que le
+     lien pourrait remplir sans la montrer (vrai par construction, rien à corriger).
+  3. et 4. **Dire ce que le lien ouvre, refus = rien à moitié fait.** `generate()` est le seul
+     endroit de l'app qui rend quelque chose de nouveau public (`duplicateFormSection` publie la
+     copie tout de suite, sous la clé déjà en place) : une fenêtre y dit maintenant, avant de
+     publier, la table qui reçoit des lignes (colonnes montrées et cachées) ; elle est posée AVANT
+     toute duplication, donc un refus ne crée ni ne publie rien (rien à retirer). Pas encore fait
+     pour la question « Choix depuis une table » qui écrit dans une AUTRE table
+     (`ensureTableGate`, déjà appelée en cours d'édition d'un formulaire déjà publié) : cette
+     fenêtre-là n'existe pas encore, seulement un comportement inchangé. Hors GFS (app seule,
+     comme ici), cette fenêtre est la seule confirmation - pas facultative.
+  5. **Une ligne reçue par un lien est un texte non fiable** : déjà le cas partout où une réponse
+     est affichée (`esc()`, `config-editor.js`, testé - voir `formatResponseValue`) ; rien de
+     nouveau à faire ici.
+  6. **Documents déjà publiés** : rien n'est refermé sans la personne. Signalés au prochain
+     enregistrement par le point 7 de la 012 ci-dessous (l'ancien portillon, pas ce point-ci) ;
+     aucun autre mécanisme de signalement propre à la 013 pour l'instant.
+  812 vérifications hors ligne, toujours vertes (FR+EN, aucun avertissement console), chacune
+  échouant sur le code d'avant son correctif.
+- 012 · faite (points 2, 3, 4, 5, 6, 7 ; 1 et 8 informationnels) · `16cf6b1` · ta page du 22/10,
+  `c249c4a` mesuré dans GFS, six points à reprendre :
+  1. Informationnel, rien à faire.
+  2. **Le formulaire natif posé sur la page de TON widget : la ligne n'était jamais écrite**
+     (« Partir de zéro », ou toute personne qui pose son widget à côté de son formulaire) - ajouter
+     une section à une page recharge tous ses cadres de widgets personnalisés (comportement natif
+     de Grist), avant que `saveConfig` n'ait écrit la ligne : chaque essai laissait une copie
+     orpheline de plus, sans jamais rien enregistrer. Corrigé en détectant ce cas (`samePage`, déjà
+     calculé par `findViewRefForSection`) et en refusant clairement AVANT toute duplication, plutôt
+     que de laisser cet échec silencieux se reproduire (le même risque, pour « Partir de zéro »,
+     est déjà fermé par la 013 point 2 : sa section part sur une page neuve, jamais celle du
+     widget).
+  3. **« Changer de formulaire source » disparaissait** : le bouton vivait dans le
+     `<p data-i18n="form.settings.urlDesc">` de `widget.html`, vidé de tout contenu par
+     `translateDom` (kit) une seconde après l'ouverture. Sorti dans son propre paragraphe, à côté.
+  4. **« Nouveau »** : au tout premier chargement du cadre, `onOptions` (`main.js`) ne lisait pas
+     `raison: 'nouveau'` de la porte "ouvrir" de GFS (`GfsLink.opening()`) et retombait sur le
+     formulaire gardé ouvert (`GFS_OPEN_ROW_KEY`) ou `resolveMyDefinition()`, ambiguë dans GFS -
+     corrigé, `raison: 'nouveau'` décide avant les deux. Cadre déjà ouvert : l'écran de départ
+     s'affichait bien, mais l'éditeur du formulaire précédent restait affiché dessous
+     (`showConfig()` ne cachait `#editor` que par le bouton du point 3) - `showConfig()` le cache
+     maintenant lui-même par défaut, montré seulement si la section liée existe réellement.
+  5. **Le champ caché du second formulaire restait visible** : déjà réglé par l'architecture de la
+     013 point 1 (une colonne `FormPlusDef_<vsId>` propre à chaque formulaire ne peut plus être
+     héritée d'un autre formulaire du même type sur la même table) ; la 013 point 1 retire en plus
+     explicitement tout autre champ-définition hérité trouvé sur la section.
+  6. **Le mode interne créait `FormPlus_Repondants` sans fenêtre d'accord**, contrairement à
+     `FormPlus_Formulaires` - même fenêtre du kit ajoutée (`ensureRespondentProbeTable`,
+     `grist-meta.js`).
+  7. **Un document déjà touché par `038dd1b` peut garder le portillon que la 008 a retiré du
+     code.** `ensureFormulairesTable` détecte maintenant une section Formulaire encore publiée
+     visant `FormPlus_Formulaires` et, avec l'accord de la personne, la DÉPUBLIE (jamais ne la
+     supprime : `RemoveViewSection` n'est pas un verbe que le courtier de GFS laisse passer,
+     `contrats.md` 3.3 point 2 - le même `UpdateRecord` sur `shareOptions` qui publie une section
+     ailleurs dans ce module suffit à faire disparaître le même risque). Un refus laisse la porte
+     comme avant, sans bloquer le reste de `generate()`.
+  8. Informationnel, rien à faire.
+  812 vérifications hors ligne (même suite que la 013 ci-dessus), toujours vertes (FR+EN, aucun
+  avertissement console), chacune échouant sur le code d'avant son correctif. Les points 2 à 6 se
+  voyaient aussi dans l'app seule (hors GFS) : testés sans dépendre de GFS.
 - 008 · faite · `c249c4a` · ta page du 21/10 (soir) répondue point par point :
   1. **L'enregistrement qui ne passait pas.** `ensureFormulairesTable`/`ensureTableGate` posait sa
      section de garde pour `FormPlus_Formulaires` sur la page du WIDGET (`widgetPage`), qui recharge
@@ -171,6 +255,17 @@ Mis à jour le 2026-10-22, au commit `c249c4a` (dernier commit de code que cette
     consentement que pour un document qui n'a encore aucun formulaire FormPlus.
 
 ## Changements qui touchent GFS
+- 2026-11-02 · `df2dc1e`…`16cf6b1` (consignes 013 et 012, cette page) · la colonne Référence cachée
+  `FormPlusDef` (apparue à la 008) n'existe plus : chaque formulaire publié a maintenant sa PROPRE
+  table d'une seule ligne (`FormPlus_Pub_<vsId>`, type `Ref:FormPlus_Pub_<vsId>` affichant
+  `Definition`) et sa PROPRE colonne cachée (`FormPlusDef_<vsId>`) sur sa table cible - jamais
+  partagées entre formulaires (013, point 1). « Partir de zéro » pose désormais sa section de
+  formulaire natif sur une page TOUTE NEUVE, plus jamais la page du widget (012, point 2 ; 013,
+  point 2). Une nouvelle fenêtre d'accord apparaît quand `generate()` publie une copie d'un
+  formulaire natif collé (013, points 3/4) et quand le mode interne s'active pour la première fois
+  (`FormPlus_Repondants`, 012, point 6). Un document déjà touché par l'ancien portillon de
+  `FormPlus_Formulaires` (`038dd1b`, retiré par la 008) se voit maintenant proposer de le
+  dépublier, jamais de le supprimer (012, point 7).
 - 2026-10-22 · `c249c4a` (consignes 008-011, cette page) · sous-module `kit/` à `c0c8660` (010) ;
   plus de section de garde (`ensureTableGate`) pour `FormPlus_Formulaires` (008) ; une colonne
   Référence cachée `FormPlusDef` apparaît désormais sur la table cible de CHAQUE formulaire natif
