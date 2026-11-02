@@ -1,8 +1,20 @@
 # GFS-ETAT : Form+
 
-Mis à jour le 2026-11-02, au commit `16cf6b1` (dernier commit de code que cette page décrit).
+Mis à jour le 2026-11-02, au commit `f9dcb81` (dernier commit de code que cette page décrit).
 
 ## Consignes
+- 014 · faite · `f9dcb81` · ton site en ligne reste publié : `.nojekyll` à la racine, vérification
+  à chaque lot. `.nojekyll` ajouté à la racine de `main` (sinon GitHub Pages passe tous les `.md`
+  du dépôt par Jekyll avant publication, et une seule accolade double non fermée dans l'un d'eux
+  ferait échouer la publication en silence). Les deux vérifications demandées ajoutées au
+  protocole de test manuel (`tests/README.md`). Vérifié pour ce lot le 2026-11-02 : le run « pages
+  build and deployment » du commit `f9dcb81` est vert (`run #90`,
+  https://github.com/lombre33/FormPlus/actions/runs/41519501616) ; un détail de ce lot est bien en
+  ligne (la nouvelle section de `tests/README.md` est servie telle quelle à
+  `https://lombre33.github.io/FormPlus/tests/README.md`, et les clés `form.editor.sourceOnWidgetPage`
+  / `form.editor.staleGateTitle` du lot précédent sont dans `poc/js/strings.js` en ligne). Form+
+  n'affiche pas de numéro de version dans l'app ; faute de ce repère, cette vérification se fait en
+  cherchant un détail du lot (texte, clé) directement dans un fichier servi par Pages.
 - 013 · faite, avec une limite connue (point 2) · `df2dc1e` · les liens publics : un lien ne montre
   et n'ouvre que son formulaire.
   1. **Un lien ne montre que son formulaire.** Mesuré sur un vrai Grist (`tests/grist-env/`, une
