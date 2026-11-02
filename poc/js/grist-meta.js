@@ -505,11 +505,40 @@ export async function ensureFormulairesTable() {
     // Jamais supposé : l'identifiant réel de la table nouvellement créée est relu, pas déduit.
     tref = await getTableRef(FORMULAIRES_TABLE);
     if (!tref) throw new Error(I18n.t('form.editor.tableCreateFailed'));
+  } else {
+    // Consigne GFS 012, point 7 : une table déjà là peut dater d'avant la 008, quand
+    // ensureFormulairesTable posait encore un portillon (ensureTableGate) pour elle - jamais sur
+    // une table qu'on vient de créer à l'instant ci-dessus, qui ne peut pas encore en porter un.
+    await removeStaleFormulairesGate(tref);
   }
   for (const [colId, type] of FORMULAIRES_COLUMNS) {
     if (!(await colExists(FORMULAIRES_TABLE, colId))) {
       await grist.docApi.applyUserActions([['AddColumn', FORMULAIRES_TABLE, colId, { type }]]);
     }
+  }
+}
+
+// Repère un portillon publié hérité de l'ancien ensureTableGate (avant la consigne GFS 008,
+// commit 038dd1b) : une section Formulaire visant FormPlus_Formulaires, encore publiée
+// (shareOptions.publish et .form). RemoveViewSection n'est pas un verbe que GFS laisse passer
+// (contrats.md, 3.3 point 2) : on ne retire pas la section elle-même, on la dépublie (même
+// mécanisme d'UpdateRecord que celui qui la publie ailleurs dans ce module) - le risque mesuré
+// (n'importe quel visiteur d'un lien sur cette page y ajoute une ligne) disparaît tout autant.
+// Avec l'accord de la personne (guide 1.1, point 4) ; un refus laisse la porte comme avant, sans
+// bloquer le reste de generate().
+async function removeStaleFormulairesGate(tref) {
+  const sections = await fetchMeta('_grist_Views_section');
+  for (let i = 0; i < sections.id.length; i++) {
+    if (sections.tableRef[i] !== tref || sections.parentKey[i] !== 'form') continue;
+    let opt = {}; try { opt = JSON.parse(sections.shareOptions[i] || '{}') || {}; } catch (e) { /* ignore */ }
+    if (!opt.publish || !opt.form) continue;
+    const ok = await Dialogs.confirm({
+      title: I18n.t('form.editor.staleGateTitle'),
+      message: I18n.t('form.editor.staleGateMsg'),
+      confirmLabel: I18n.t('form.editor.staleGateConfirm'),
+    });
+    if (ok) await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section', sections.id[i], { shareOptions: '{}' }]]);
+    return; // une seule porte possible par construction (ensureTableGate ne publiait qu'une fois)
   }
 }
 

@@ -1658,11 +1658,11 @@ export async function runTests() {
       fetchTable: (t) => t === '_grist_Views_section_field'
         ? { id: [10, 11], parentId: [1, 1], colRef: [100, 101], widgetOptions: ['{"formIsHidden":true}', '{"formIsHidden":true,"formRequired":true}'] }
         : (t === '_grist_Views_section'
-          // Section 1 : le widget lui-même (self). Section 2 : portillon déjà publié pour
-          // FormPlus_Formulaires (tref 50) sur la même page (1) — sans lui, saveConfig (appelé
-          // par resetQuestions, qui s'assure maintenant aussi de la table, consigne 007)
-          // tenterait de le créer, hors de propos ici.
-          ? { id: [1, 2], parentId: [5, 1], parentKey: ['custom', 'form'], tableRef: [1, 50], shareOptions: [undefined, '{"publish":true,"form":true}'], options: ['{}', '{}'] }
+          // Section 1 : le widget lui-même (self). Depuis la consigne GFS 008,
+          // ensureFormulairesTable ne pose (ni ne cherche) plus de portillon pour
+          // FormPlus_Formulaires : plus besoin d'en modéliser un ici pour que saveConfig (appelé
+          // par resetQuestions) reste hors de propos sur ce point.
+          ? { id: [1], parentId: [5], parentKey: ['custom'], tableRef: [1], shareOptions: [undefined], options: ['{}'] }
           : (t === '_grist_Tables' ? { ...tablesState }
             : (t === '_grist_Tables_column' ? { ...columnsState } : (rows[t] ? { ...rows[t] } : {})))),
       onAction: (a) => {
@@ -2227,12 +2227,13 @@ export async function runTests() {
     state.options = {};
     state.cfgQuestions = [];
     state.generating = false;
-    // FormPlus_Formulaires déjà créée ET déjà gérée (section 40, formulaire vide publié sur la
-    // même page 7) : ensureFormulairesTable (generate(), avant toute duplication) ne doit alors
-    // déclencher ni fenêtre de consentement ni CreateViewSection, pour ne pas fausser le compte
-    // ci-dessous (qui ne doit voir QUE la duplication du formulaire natif, jamais deux fois).
+    // FormPlus_Formulaires déjà créée (ensureFormulairesTable, avant toute duplication, ne doit
+    // alors déclencher ni fenêtre de consentement ni CreateViewSection), avec une AUTRE section
+    // (40, table 99, sans rapport avec FormPlus_Formulaires) déjà publiée sur la même page 7 :
+    // un décor pour ne pas fausser le compte ci-dessous (qui ne doit voir QUE la duplication du
+    // formulaire natif, jamais deux fois) - jamais la cible d'un portillon (consigne 012, pt.7).
     const sectionsState = {
-      id: [12, 40], parentId: [7, 7], parentKey: ['form', 'form'], tableRef: [10, 50],
+      id: [12, 40], parentId: [7, 7], parentKey: ['form', 'form'], tableRef: [10, 99],
       shareOptions: ['{"publish":true,"form":true}', '{"publish":true,"form":true}'], options: ['{}', '{}'],
     };
     let nextSectionId = 100;
@@ -2417,6 +2418,64 @@ export async function runTests() {
     assert('la table existe désormais', tablesState.tableId.includes(FORMULAIRES_TABLE));
     assertEqual('les 6 colonnes sont posées (4 du manifeste + Definition + IdSectionWidget)', columnsState.colId.length, 6);
     assert('toutes les colonnes attendues sont présentes', ['Nom', 'TypeFormulaire', 'DateModif', 'ModifiePar', 'Definition', 'IdSectionWidget'].every(c => columnsState.colId.includes(c)));
+  });
+
+  // Consigne GFS 012, point 7 : un document touché par une version de FormPlus d'avant la
+  // consigne 008 peut garder le portillon publié que celle-ci a retiré du code - détecté et
+  // dépublié avec l'accord de la personne (RemoveViewSection n'est pas un verbe que GFS laisse
+  // passer, on dépublie donc plutôt que de retirer la section elle-même).
+  await group('ensureFormulairesTable : ancien portillon détecté, accord donné -> dépublié, pas supprimé', async () => {
+    let sectionsState = { id: [77], parentId: [3], parentKey: ['form'], tableRef: [50], shareOptions: ['{"publish":true,"form":true}'] };
+    const { grist, calls } = makeGristStub({
+      fetchTable: (t) => {
+        if (t === '_grist_Tables') return { id: [50], tableId: [FORMULAIRES_TABLE] };
+        if (t === '_grist_Tables_column') return {
+          id: [1, 2, 3, 4, 5, 6], parentId: [50, 50, 50, 50, 50, 50],
+          colId: ['Nom', 'TypeFormulaire', 'DateModif', 'ModifiePar', 'Definition', 'IdSectionWidget'],
+          type: ['Text', 'Text', 'DateTime', 'Text', 'Text', 'Numeric'],
+        };
+        if (t === '_grist_Views_section') return { ...sectionsState };
+        return {};
+      },
+      onAction: (a) => {
+        if (a[0] === 'UpdateRecord' && a[1] === '_grist_Views_section') {
+          const idx = sectionsState.id.indexOf(a[2]);
+          if (idx >= 0 && a[3].shareOptions !== undefined) { const arr = [...sectionsState.shareOptions]; arr[idx] = a[3].shareOptions; sectionsState.shareOptions = arr; }
+        }
+      },
+    });
+    window.grist = grist;
+    const done = ensureFormulairesTable();
+    for (let i = 0; i < 20 && document.querySelector('#pp-dialog-modal')?.style.display !== 'flex'; i++) await tick();
+    document.querySelector('#pp-dialog-modal .pp-modal-primary').click();
+    await done;
+    assertEqual('la section 77 est dépubliée (shareOptions vidé)', JSON.parse(sectionsState.shareOptions[0]), {});
+    assertEqual('aucune section supprimée (RemoveViewSection n’est pas un verbe permis par GFS)', calls.some(a => a[0][0] === 'RemoveViewSection' || a[0][0] === 'RemoveRecord'), false);
+  });
+
+  await group('ensureFormulairesTable : ancien portillon détecté, accord refusé -> laissé tel quel, pas d’erreur bloquante', async () => {
+    const sectionsState = { id: [77], parentId: [3], parentKey: ['form'], tableRef: [50], shareOptions: ['{"publish":true,"form":true}'] };
+    const { grist, calls } = makeGristStub({
+      fetchTable: (t) => {
+        if (t === '_grist_Tables') return { id: [50], tableId: [FORMULAIRES_TABLE] };
+        if (t === '_grist_Tables_column') return {
+          id: [1, 2, 3, 4, 5, 6], parentId: [50, 50, 50, 50, 50, 50],
+          colId: ['Nom', 'TypeFormulaire', 'DateModif', 'ModifiePar', 'Definition', 'IdSectionWidget'],
+          type: ['Text', 'Text', 'DateTime', 'Text', 'Text', 'Numeric'],
+        };
+        if (t === '_grist_Views_section') return { ...sectionsState };
+        return {};
+      },
+    });
+    window.grist = grist;
+    let caught = null;
+    const done = ensureFormulairesTable().catch(e => { caught = e; });
+    for (let i = 0; i < 20 && document.querySelector('#pp-dialog-modal')?.style.display !== 'flex'; i++) await tick();
+    document.querySelector('#pp-dialog-modal .pp-modal-actions button:not(.pp-modal-primary)').click();
+    await done;
+    assertEqual('aucune erreur : un refus ici ne bloque pas le reste de generate()', caught, null);
+    assertEqual('la section reste comme avant (toujours publiée)', JSON.parse(sectionsState.shareOptions[0]), { publish: true, form: true });
+    assertEqual('aucune action tentée', calls.length, 0);
   });
 
   // Mécanisme qui donne réellement la Définition à un répondant (consigne GFS 008, point 3 ;

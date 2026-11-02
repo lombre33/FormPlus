@@ -434,6 +434,15 @@ export const STRINGS = {
   },
   'form.editor.formulairesTableConfirm': { fr: 'Créer la table', en: 'Create the table' },
   'form.editor.formulairesTableDeclined': { fr: 'Table « FormPlus_Formulaires » refusée : rien n\'a été enregistré.', en: '"FormPlus_Formulaires" table declined: nothing was saved.' },
+  // Consigne GFS 012, point 7 : un document touché par une version de FormPlus d'avant la
+  // consigne 008 peut encore porter le portillon publié que celle-ci a retiré du code (n'importe
+  // quel visiteur d'un lien sur cette page pouvait y ajouter une ligne quelconque).
+  'form.editor.staleGateTitle': { fr: 'Ancienne porte restée ouverte', en: 'Old door left open' },
+  'form.editor.staleGateMsg': {
+    fr: "Ce document garde une ancienne section publiée pour « FormPlus_Formulaires », posée par une version plus ancienne de FormPlus : n'importe qui avec un lien sur sa page peut encore y ajouter une ligne quelconque. Elle ne sert plus à rien (depuis, FormPlus donne autrement sa définition à un répondant). La fermer maintenant (le reste du document n'est pas touché) ?",
+    en: 'This document still has an old published section for "FormPlus_Formulaires", left by an older version of FormPlus: anyone with a link on its page can still add an arbitrary row to it. It no longer serves any purpose (FormPlus now gives its definition to a respondent a different way). Close it now (nothing else in the document is touched)?',
+  },
+  'form.editor.staleGateConfirm': { fr: 'Fermer cette porte', en: 'Close this door' },
   // Consigne GFS 012, point 6 : même fenêtre d'accord que pour FormPlus_Formulaires, cette table
   // ne doit pas non plus naître sans que la personne le sache.
   'form.editor.repondantsTableTitle': { fr: 'Table « FormPlus_Repondants »', en: '"FormPlus_Repondants" table' },
