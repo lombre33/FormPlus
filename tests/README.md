@@ -36,6 +36,20 @@ d'Antoine ni de l'instance DINUM. Démarrage en une commande :
 `tests/grist-env/start-grist-test.sh`. Détails, écarts constatés avec
 l'instance DINUM et nettoyage : [`tests/grist-env/README.md`](grist-env/README.md).
 
+## Vérifier que le site en ligne sert bien le lot qui vient d'être poussé
+
+À chaque lot poussé sur `main`, après les ~10 minutes de cache de GitHub
+Pages : (a) le run « pages build and deployment » de l'onglet Actions du
+dépôt est vert ; (b) un détail visible du lot (une chaîne, un texte d'erreur,
+un comportement nouveau) se retrouve bien sur
+`https://lombre33.github.io/FormPlus/poc/widget.html`, pas seulement dans le
+code poussé. Sans le fichier `.nojekyll` à la racine, une accolade double non
+fermée dans un `.md` du dépôt (GitHub Pages passe tout par Jekyll par défaut)
+fait échouer la publication en silence et le site reste sur une version
+précédente sans rien montrer. Détail et origine de cette consigne :
+`consignes/form/014-ton-site-en-ligne-reste-publie.md` dans
+`lombre33/grist-widget-GFS`.
+
 ## Tests manuels côté transport (POC)
 
 `poc/poc_transport1.py` — script en ligne de commande qui vérifie la lecture
