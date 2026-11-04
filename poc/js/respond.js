@@ -663,8 +663,15 @@ export async function renderFill() {
   // strictement identique à avant (pas de wrapper, pas de barre de navigation).
   const pages = splitIntoPages(extraQuestions);
   const paginated = pages.length > 1;
+  // Les champs natifs n'ont de sens qu'une seule fois : posés dans la page 0 (jamais répétés sur
+  // les pages suivantes, voir nativeRows ci-dessus et son usage au niveau de card.innerHTML plus
+  // bas) — sans cette exclusivité, le répondant les revoyait identiques sur chaque page d'un
+  // formulaire paginé (bug confirmé le 4 nov 2026, audit UI/UX de cette date).
   const extraRows = paginated
-    ? pages.map((p, i) => `<div class="pv-page" data-page-index="${i}" ${i === 0 ? '' : 'hidden'}>${p.items.map(renderExtraQuestion).join('')}</div>`).join('')
+    ? pages.map((p, i) => {
+        const nativePrefix = i === 0 && nativeRows ? `${nativeRows}<hr class="divider">` : '';
+        return `<div class="pv-page" data-page-index="${i}" ${i === 0 ? '' : 'hidden'}>${nativePrefix}${p.items.map(renderExtraQuestion).join('')}</div>`;
+      }).join('')
     : (pages[0]?.items || []).map(renderExtraQuestion).join('');
   const title = resolveFormTitle(state.options, form);
   const description = state.options?.formDescription || '';
@@ -684,8 +691,8 @@ export async function renderFill() {
     <div class="respond-body">
       <p class="muted">${I18n.t('form.respond.requiredFieldsNote')}</p>
       <form id="f" novalidate>
-        ${nativeRows}
-        ${extraRows ? `<hr class="divider">${extraRows}` : ''}
+        ${paginated ? '' : nativeRows}
+        ${extraRows ? (paginated ? extraRows : `<hr class="divider">${extraRows}`) : ''}
         ${paginated ? `<p class="muted pv-page-indicator" id="pv-page-indicator" aria-live="polite"></p>` : ''}
         <label class="hp">${I18n.t('form.respond.honeypotLabel')} <input type="text" name="_website" tabindex="-1" autocomplete="off"></label>
         <div class="actions">
