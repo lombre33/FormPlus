@@ -8,12 +8,12 @@ import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSu
 import {
   questionSummary, conditionSourceCandidates, renderCardBody, saveQuestionFromCard,
   customizeNativeField, resetQuestions, createEmptyForm, populateFormPicker, generate, saveConfig,
-  renderQuestionList, showEditorTab, showConfig, loadResponsesSummary,
+  renderQuestionList, showEditorTab, showConfig, loadResponsesSummary, setScratchMode, showStartView,
 } from './config-editor.js';
 import {
   ensureTableGate, ensureFreeColumn, FORMULAIRES_TABLE,
   ensureFormulairesTable, ensureRespondentDefinitionField, saveFormDefinition, resolveMyDefinition, fetchManagedVsIds,
-  otherManagedFormOnPage,
+  otherManagedFormOnPage, isFormPlusOwnTable,
   ensureRespondentProbeTable, probeRespondentIdentity,
   getAttachmentColumns, parseAttachmentList, fetchAttachmentFileNames, downloadAttachmentAsDataUrl,
 } from './grist-meta.js';
@@ -1975,6 +1975,51 @@ export async function runTests() {
     assertEqual('un AUTRE formulaire géré (31) détecté sur la même page (7)', await otherManagedFormOnPage(7, 30), 31);
     assertEqual('symétrique : 30 détecté en excluant 31', await otherManagedFormOnPage(7, 31), 30);
     assertEqual('page différente (9) : aucun des deux formulaires gérés n’y est, rien détecté', await otherManagedFormOnPage(9, 30), null);
+  });
+
+  // Consigne GFS 015 : depuis le 03/11, un lien public n'est lu que pour les petites tables que
+  // le manifeste de Form+ déclare (FormPlus_Pub_<vsId>) ; toute autre table de l'app, à commencer
+  // par FormPlus_Formulaires, est refusée sans fenêtre à la publication - elle ne sert donc à rien
+  // dans un choix de table de l'éditeur, et GFS la rejetterait de toute façon.
+  await group('isFormPlusOwnTable : reconnaît les tables que Form+ pose pour lui-même', async () => {
+    assert('FormPlus_Formulaires', isFormPlusOwnTable(FORMULAIRES_TABLE));
+    assert('FormPlus_Repondants', isFormPlusOwnTable('FormPlus_Repondants'));
+    assert('FormPlus_Pub_<vsId>', isFormPlusOwnTable('FormPlus_Pub_12'));
+    assert('une table de la personne n’est jamais prise pour une table de Form+', !isFormPlusOwnTable('FormPlusieurs'));
+    assert('une table ordinaire', !isFormPlusOwnTable('Menus'));
+  });
+
+  await group('« Partir de zéro » > une table existante : jamais une table posée par Form+ lui-même (consigne GFS 015)', async () => {
+    window.grist = makeGristStub({ listTables: ['Main', FORMULAIRES_TABLE, 'FormPlus_Repondants', 'FormPlus_Pub_12'] }).grist;
+    show('config'); // #config part "hidden" dans widget.html - seule showConfig() (non appelée ici) l'ouvre normalement
+    showStartView('scratch'); // révèle start-panel-scratch (scratch-existing-fields y est imbriqué)
+    await setScratchMode('existing');
+    const host = $('scratch-existing-fields').querySelector('.combo-host');
+    host.querySelector('.combo-input').focus();
+    const labels = [...host.querySelectorAll('.combo-opt')].map(o => o.textContent);
+    assertEqual('seule "Main" est proposée, aucune table FormPlus_…', labels, ['Main']);
+    await setScratchMode('new'); // remet l'écran dans l'état par défaut pour les tests suivants
+    showStartView('choices');
+    show('test'); // show('config') ci-dessus a cache #test (mutuellement exclusifs, dom.js) : on y revient pour la suite.
+  });
+
+  await group('Choix depuis une table / colonne de destination : jamais une table posée par Form+ lui-même (consigne GFS 015)', async () => {
+    state.mainTableIdCache = 'Main';
+    state.currentFormSection = { id: 1, viewRef: 1, tableRef: 1 };
+    window.grist = makeGristStub({
+      listTables: ['Main', 'Autre', FORMULAIRES_TABLE, 'FormPlus_Repondants'],
+      fetchTable: (t) => (t === '_grist_Tables' ? { id: [1, 2], tableId: ['Main', 'Autre'] } : { id: [10], colA: ['x'] }),
+    }).grist;
+    const body = mount(document.createElement('div'));
+    await renderCardBody('__new__', body);
+    body.querySelector('[data-kind="choice"]').click(); // révèle .qf-choice-fields (srcTable)
+    const srcHost = body.querySelector('[data-combo="srcTable"]');
+    srcHost.querySelector('.combo-input').focus();
+    assertEqual('source ("Choix depuis une table") : jamais FormPlus_…', [...srcHost.querySelectorAll('.combo-opt')].map(o => o.textContent), ['Main', 'Autre']);
+    body.querySelector('[data-reveal="table"]').click(); // révèle .qf-table-override (writeTable)
+    const writeHost = body.querySelector('[data-combo="writeTable"]');
+    writeHost.querySelector('.combo-input').focus();
+    assertEqual('destination : jamais FormPlus_…', [...writeHost.querySelectorAll('.combo-opt')].map(o => o.textContent), ['Main', 'Autre']);
   });
 
   await group('sélection dans formPicker : formulaire non publié -> consigne, pas de génération', async () => {

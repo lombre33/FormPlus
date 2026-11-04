@@ -393,6 +393,13 @@ export async function findViewRefForSection(vsId) {
 // document, FormPlus_Formulaires — une ligne par formulaire, lisible et inscriptible comme
 // n'importe quelle autre table (manifeste GFS : lit/ecrit "*").
 export const FORMULAIRES_TABLE = 'FormPlus_Formulaires';
+
+// Consigne GFS 015 : une table que Form+ pose pour lui-même (FormPlus_Formulaires,
+// FormPlus_Repondants, FormPlus_Pub_<vsId>…) ne sert à rien dans un choix de table de l'éditeur
+// (source, destination, « table existante ») - un lien public la refuse de toute façon depuis le
+// 03/11 (manifeste GFS, permissions.lienPublic), et FormPlus_Formulaires en particulier rendrait
+// la Definition de tous les formulaires, clés de partage comprises.
+export function isFormPlusOwnTable(tableId) { return tableId.startsWith('FormPlus_'); }
 const FORMULAIRES_COLUMNS = [
   ['Nom', 'Text'], ['TypeFormulaire', 'Text'], ['DateModif', 'DateTime'],
   ['ModifiePar', 'Text'], ['Definition', 'Text'],

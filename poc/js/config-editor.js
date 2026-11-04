@@ -14,7 +14,7 @@ import {
   ensureTableGate, ensureChoiceField, ensureRefListField, ensureFreeColumn,
   findViewRefForSection, findMyWidgetPage, ensureFormulairesTable, ensureRespondentDefinitionField, saveFormDefinition, fetchManagedVsIds,
   duplicateFormSection, clearAutoFields, createFormSectionOnNewPage, otherManagedFormOnPage, getColumnType, KIND_TO_GRIST_TYPE,
-  ensureRespondentProbeTable,
+  ensureRespondentProbeTable, isFormPlusOwnTable,
   getAttachmentColumns, parseAttachmentList, fetchAttachmentFileNames, downloadAttachmentAsDataUrl,
 } from './grist-meta.js';
 import { state } from './state.js';
@@ -345,7 +345,9 @@ export async function setScratchMode(mode) {
   $('scratch-existing-fields').classList.toggle('hidden', mode !== 'existing');
   if (mode === 'existing') {
     const tables = await grist.docApi.listTables();
-    scratchExistingCombo.setOptions(tables.map(t => ({ value: t, label: t })));
+    // Consigne GFS 015 : jamais une table posée par Form+ lui-même ici - un lien public la
+    // refuserait de toute façon, et GFS la rejetterait sans fenêtre à la publication.
+    scratchExistingCombo.setOptions(tables.filter(t => !isFormPlusOwnTable(t)).map(t => ({ value: t, label: t })));
   }
 }
 $('step1').addEventListener('click', (e) => {
@@ -1117,7 +1119,9 @@ export async function renderCardBody(id, body) {
   let q = isNew ? null : state.cfgQuestions.find(x => x.id === id);
   let tables = [];
   try { tables = await grist.docApi.listTables(); } catch (e) { tables = []; }
-  const tableItems = tables.map(t => ({ value: t, label: t }));
+  // Consigne GFS 015 : « Choix depuis une table » (srcTable) et la table de réception (writeTable)
+  // n'offrent jamais une table posée par Form+ lui-même - voir scratchExistingCombo plus haut.
+  const tableItems = tables.filter(t => !isFormPlusOwnTable(t)).map(t => ({ value: t, label: t }));
   const condCandidates = conditionSourceCandidates(isNew ? null : id);
   const tableOverrideOpen = !!(q && q.writeTable && q.writeTable !== state.mainTableIdCache);
   const conditionOpen = !!q?.condition;
