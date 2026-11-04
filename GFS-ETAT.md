@@ -1,8 +1,22 @@
 # GFS-ETAT : Form+
 
-Mis à jour le 2026-11-04, au commit `954483a` (dernier commit de code que cette page décrit).
+Mis à jour le 2026-11-04, au commit `6c79b62` (dernier commit de code que cette page décrit).
 
 ## Consignes
+- 017 · faite · lue · `6c79b62` · le rejeu de l'ambiance avec ta vraie app. Rejeu confirmé (015 à
+  `01ddd10`, 016 à `954483a`) : contraste 4,5:1 au moins tenu sur les 56 mesures de chaque passe
+  (FR/EN × clair/sombre), aucune en échec ; aucune autre table/colonne/clé/bibliothèque/permission/
+  adresse CSP de l'app n'a changé pour GFS. L'éclair des couleurs d'origine mesuré (66 à 100 ms
+  avant l'ambiance, dans le labo de GFS) n'était pas une obligation du guide ("à toi d'en faire ce
+  que tu veux") - retenu quand même, repris du mécanisme d'Automation+ : `main.js` pose
+  `[data-gfs-pending]` sur `<html>` SEULEMENT dans GFS (`hostContract(location.search)` non nul,
+  mesuré tout de suite, avant `Ambiance.start()`), `widget.css` cache le corps tant que l'attribut
+  est là, et `main.js` le retire dès que `Ambiance.start().ready` se règle, ou après 2 s si GFS
+  tarde ou que `kit/` manque ; jamais posé hors GFS, où rien n'attend. 836 vérifications hors
+  ligne (FR+EN, aucun avertissement console) : `hostContract` ne déclenche le cache que sur une
+  adresse GFS valide, la règle CSS cache bien le corps puis le relâche. Vérifié aussi en conditions
+  réelles (Playwright, `?gfs=1` hors iframe) : l'attribut est bien posé puis retiré dès que
+  l'ambiance se règle, jamais laissé en place.
 - 016 · faite · `954483a` · suivre l'ambiance de GFS. Sous-module `kit` de `c0c8660` à `8afa569`
   (0.3.0 liens entre apps, 0.4.0 identité, 0.5.0 sélecteur de couleur, 0.6.0 l'ambiance).
   `Ambiance.start()` posé une fois dans `main.js`, à côté de `Theme.init`. Les feuilles de
