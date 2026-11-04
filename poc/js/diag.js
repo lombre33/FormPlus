@@ -15,5 +15,6 @@ export function diag(extra) {
   const text = JSON.stringify(d, null, 2);
   const el = $('diag'); if (el) el.textContent = text;
   const elFill = $('diag-fill'); if (elFill) elFill.textContent = text;
+  const elStandalone = $('diag-standalone'); if (elStandalone) elStandalone.textContent = text;
   return d;
 }

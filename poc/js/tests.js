@@ -20,7 +20,7 @@ import {
   ensureRespondentProbeTable, probeRespondentIdentity,
   getAttachmentColumns, parseAttachmentList, fetchAttachmentFileNames, downloadAttachmentAsDataUrl,
 } from './grist-meta.js';
-import { loadPluginApi } from './plugin-loader.js';
+import { loadPluginApi, isPluginApiReady } from './plugin-loader.js';
 import { state } from './state.js';
 import { imageBlockHtml, blobToResizedDataUrl, IMAGE_MAX_DATA_URL_BYTES } from './image-block.js';
 
@@ -219,6 +219,66 @@ export async function runTests() {
       document.createElement = savedCreateElement;
       document.head.appendChild = savedAppendChild;
     }
+  });
+
+  // Consigne GFS 018 : l'évènement "load" d'un <script> se déclenche même quand son contenu a
+  // planté à l'exécution (eval() bloqué par la CSP, panne vue par le porteur le 04/11 - CSP sans
+  // 'unsafe-eval'). Avant ce correctif, loadPluginApi() résolvait quand même `true` et
+  // grist.ready() (main.js) plantait plus loin sans rien dire.
+  await group('isPluginApiReady : window.grist sans .ready (eval() parti en silence) -> jamais prêt (consigne GFS 018)', () => {
+    const saved = window.grist;
+    try {
+      delete window.grist;
+      assert('aucun window.grist -> pas prêt', !isPluginApiReady());
+      window.grist = {};
+      assert('window.grist vide (script planté avant de le remplir) -> pas prêt', !isPluginApiReady());
+      window.grist = { ready: () => {} };
+      assert('window.grist.ready() présent -> prêt', isPluginApiReady());
+    } finally {
+      if (saved === undefined) delete window.grist; else window.grist = saved;
+    }
+  });
+
+  await group('loadPluginApi : chargé mais planté à l’exécution -> résout null, jamais true (consigne GFS 018)', async () => {
+    // Même interception que l'essai précédent (jamais de vrai <script>, jamais de requête
+    // réseau) : on déclenche nous-même "onload" pour vérifier ce que loadPluginApi() résout
+    // selon l'état de window.grist à cet instant précis.
+    const savedCreateElement = document.createElement.bind(document);
+    const savedAppendChild = document.head.appendChild.bind(document.head);
+    const savedGrist = window.grist;
+    try {
+      Object.defineProperty(document, 'referrer', { value: 'https://docs.getgrist.com', configurable: true });
+      let fakeScript;
+      document.createElement = (tag) => (tag === 'script' ? (fakeScript = { set src(v) {}, onload: null, onerror: null }) : savedCreateElement(tag));
+      document.head.appendChild = (el) => el;
+
+      delete window.grist;
+      let resolved;
+      loadPluginApi().then((v) => { resolved = v; });
+      await tick();
+      fakeScript.onload();
+      await tick();
+      assertEqual('chargé, window.grist jamais rempli (CSP sans \'unsafe-eval\') -> null', resolved, null);
+
+      window.grist = { ready: () => {} };
+      resolved = undefined;
+      loadPluginApi().then((v) => { resolved = v; });
+      await tick();
+      fakeScript.onload();
+      await tick();
+      assertEqual('chargé et prêt -> true', resolved, true);
+    } finally {
+      document.createElement = savedCreateElement;
+      document.head.appendChild = savedAppendChild;
+      if (savedGrist === undefined) delete window.grist; else window.grist = savedGrist;
+    }
+  });
+
+  await group('CSP de poc/widget.html : grist-plugin-api.js garde \'unsafe-eval\' et son adresse entière (consigne GFS 018)', async () => {
+    const html = await (await REAL_FETCH('/poc/widget.html')).text();
+    const csp = html.match(/Content-Security-Policy"\s+content="([^"]+)"/)[1];
+    assert('\'unsafe-eval\' présent (le fichier que Grist sert s’évalue par eval())', csp.includes('\'unsafe-eval\''));
+    assert('adresse entière du script, pas seulement l’origine (guide des apps, règle 11)', csp.includes('https://docs.getgrist.com/grist-plugin-api.js'));
   });
 
   await group('couleurs (hexToRgb / softenColor / contrastText)', () => {

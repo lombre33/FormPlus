@@ -6,17 +6,20 @@
 <!-- CSP en <meta> : repli acceptable pour un widget statique sans serveur applicatif (pas de
      frame-ancestors ici, ignoré par les navigateurs dans un <meta> — Grist encadre déjà le
      widget dans son iframe, voir le README). unpkg.com : uniquement Leaflet (carte GPS),
-     chargé à la demande, jamais au démarrage (js/kinds.js, js/respond.js). docs.getgrist.com :
-     grist-plugin-api.js (plugin-loader.js) — repli systématique dès que l'origine qui héberge ce
-     widget n'est pas dans sa propre liste blanche (TRUSTED_ORIGINS, qui ne contient que
-     docs.getgrist.com aujourd'hui), donc TOUTE instance Grist auto-hébergée (y compris DINUM) en
-     dépend à chaque chargement, pas seulement docs.getgrist.com elle-même. Régression trouvée le
-     21 oct lors d'un test en conditions réelles contre un Grist auto-hébergé (tests/grist-env/) :
-     sans cette entrée, le widget ne peut jamais quitter l'écran "standalone" une fois intégré hors
-     du SaaS Grist. img-src et connect-src restent ouverts à tout https : logo et lien de
-     formulaire sont saisis par qui configure le widget, vers un hôte Grist qu'il choisit, jamais
-     fixé par cette page. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://unpkg.com https://docs.getgrist.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https:; connect-src 'self' https:; object-src 'none'; base-uri 'none'">
+     chargé à la demande, jamais au démarrage (js/kinds.js, js/respond.js). L'adresse entière de
+     grist-plugin-api.js (plugin-loader.js), pas seulement son origine — repli systématique dès que
+     l'origine qui héberge ce widget n'est pas dans sa propre liste blanche (TRUSTED_ORIGINS, qui ne
+     contient que docs.getgrist.com aujourd'hui), donc TOUTE instance Grist auto-hébergée (y compris
+     DINUM) en dépend à chaque chargement, pas seulement docs.getgrist.com elle-même. Régression
+     trouvée le 21 oct lors d'un test en conditions réelles contre un Grist auto-hébergé
+     (tests/grist-env/) : sans cette entrée, le widget ne peut jamais quitter l'écran "standalone"
+     une fois intégré hors du SaaS Grist. 'unsafe-eval' reste, faute de mieux : le fichier que Grist
+     sert à ce chemin s'évalue par eval() (bundle de développement) — sans elle, le script
+     s'interrompt au premier appel, window.grist reste vide et le widget ne quitte jamais "Connexion
+     à Grist…" (consigne GFS 018, panne vue par le porteur le 04/11 dans le Grist de la DINUM).
+     img-src et connect-src restent ouverts à tout https : logo et lien de formulaire sont saisis
+     par qui configure le widget, vers un hôte Grist qu'il choisit, jamais fixé par cette page. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' https://docs.getgrist.com/grist-plugin-api.js https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https:; connect-src 'self' https:; object-src 'none'; base-uri 'none'">
 <title>FormPlus</title>
 <link rel="stylesheet" href="../kit/css/tokens.css">
 <link rel="stylesheet" href="../kit/css/windows.css">
@@ -192,6 +195,7 @@
     <p data-i18n="form.standalone.desc1">Cette page est un widget Grist. Ajoutez-la dans un document : Ajouter un widget, Personnalisé, URL personnalisée, puis collez l'adresse de cette page. Niveau d'accès : accès complet, nécessaire au concepteur pour retrouver la page et gérer les questions.</p>
     <p class="muted"><span data-i18n="form.standalone.publicFormA">Pour répondre à un formulaire hors de Grist (sans passer par une page Grist), utilisez</span> <a href="public-form.html">public-form.html</a> <span data-i18n="form.standalone.publicFormB">avec le lien du formulaire après</span> <code>#form=</code><span data-i18n="form.standalone.publicFormC">, ne rend que les champs natifs, pas les questions supplémentaires.</span></p>
     <p class="muted"><span data-i18n="form.standalone.fallbackA">Secours : l'URL du widget peut elle-même contenir le lien du formulaire,</span> <code>widget.html#form=&lt;lien&gt;</code><span data-i18n="form.standalone.fallbackB">. Le mode répondant fonctionne alors même sans options enregistrées.</span></p>
+    <details class="muted" style="margin-top:4px"><summary data-i18n="form.diagLabel">Diagnostic</summary><pre id="diag-standalone" style="white-space:pre-wrap;font-size:.8rem">…</pre></details>
   </div>
 
   <div id="test" class="card hidden">

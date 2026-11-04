@@ -12,6 +12,14 @@ const TRUSTED_ORIGINS = ['https://docs.getgrist.com'];
 // avec les pleins privilèges de l'origine du widget, un grist-plugin-api.js entièrement fourni par
 // cette page tierce — capable de définir un faux window.grist et de piloter tout le widget hors de
 // tout document Grist réel (audit du 21 sept 2026, bug #12).
+// Consigne GFS 018 : l'évènement "load" d'un <script> se déclenche même quand son contenu a
+// planté à l'exécution (ex. un eval() bloqué par la CSP, panne vue par le porteur le 04/11) -
+// window.grist reste alors vide, et grist.ready() (main.js) plante plus loin sans rien dire.
+// Fonction pure, testable seule (tests.js) sans vraiment charger de script.
+export function isPluginApiReady() {
+  return !!(window.grist && typeof window.grist.ready === 'function');
+}
+
 export function loadPluginApi() {
   return new Promise((resolve) => {
     let origin = 'https://docs.getgrist.com';
@@ -21,9 +29,11 @@ export function loadPluginApi() {
         if (TRUSTED_ORIGINS.includes(refOrigin)) origin = refOrigin;
       }
     } catch (e) { /* ignore */ }
+    // true : chargé et prêt. null : chargé mais planté à l'exécution (voir isPluginApiReady).
+    // false : jamais chargé (réseau, 404, CSP qui bloque le <script> lui-même).
     const tryLoad = (src, next) => {
       const s = document.createElement('script');
-      s.src = src; s.onload = () => resolve(true); s.onerror = next;
+      s.src = src; s.onload = () => resolve(isPluginApiReady() ? true : null); s.onerror = next;
       document.head.appendChild(s);
     };
     tryLoad(`${origin}/grist-plugin-api.js`, () =>

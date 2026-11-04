@@ -119,7 +119,13 @@ $('themeToggle').addEventListener('click', () => {
   const inIframe = window.self !== window.top;
   const ok = inIframe && await loadPluginApi();
   if (!ok) {
-    diag({ event: 'standalone', inIframe });
+    // Consigne GFS 018 : `ok === null` veut dire que grist-plugin-api.js a chargé (l'évènement
+    // "load" s'est déclenché) mais a planté à l'exécution (CSP sans 'unsafe-eval', panne vue par
+    // le porteur le 04/11) - window.grist est alors resté vide. Un évènement à part dans le
+    // diagnostic (visible à l'écran, `#diag-standalone`) plutôt que le "standalone" générique :
+    // ce n'est pas que l'app est seule hors de Grist, c'est que le chargement a échoué en plein
+    // milieu, souvent dans Grist/GFS même.
+    diag({ event: ok === null ? 'pluginApiBroken' : 'standalone', inIframe });
     // Secours annoncé sur l'écran standalone lui-même : #form=<lien> doit fonctionner ICI, hors
     // iframe/sans connexion Grist, puisque c'est exactement le cas où ce texte s'affiche. Avant
     // ce correctif (écart relevé par l'audit du 21 sept 2026), le code sortait toujours avant de

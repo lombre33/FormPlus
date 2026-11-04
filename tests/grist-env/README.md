@@ -122,6 +122,22 @@ répondant authentifié, pas seulement l'API REST en anonyme) :
      route.fulfill({ status: 200, contentType: 'application/javascript',
        body: fs.readFileSync('/chemin/vers/grist-plugin-api.js', 'utf8') }));
    ```
+   **Consigne GFS 018** : le script que sert CE conteneur (un Grist Docker)
+   n'évalue rien, à la différence du bundle de développement que sert
+   réellement `docs.getgrist.com` — c'est pourquoi ni ce banc ni les essais
+   de GFS n'avaient vu la panne du 04/11 (`EvalError: call to eval() blocked
+   by CSP`, CSP sans `'unsafe-eval'`) avant qu'elle ne soit vue en vrai, chez
+   le porteur. Pour que ce banc la voie aussi, envelopper le contenu servi
+   dans un `eval(…)`, comme le fait réellement `docs.getgrist.com` :
+   ```js
+   const code = fs.readFileSync('/chemin/vers/grist-plugin-api.js', 'utf8');
+   await ctx.route('https://docs.getgrist.com/grist-plugin-api.js', route =>
+     route.fulfill({ status: 200, contentType: 'application/javascript',
+       body: `eval(${JSON.stringify(code)});` }));
+   ```
+   Une page dont la CSP a perdu `'unsafe-eval'` échoue alors ici comme chez
+   le porteur (`window.grist` reste vide) ; avec `'unsafe-eval'` (consigne
+   018 faite), elle réussit comme avant.
 3. **Ouvrir la page du widget** : se connecter (`/test/login?...&next=` vers
    l'URL du document), puis cliquer l'entrée de page portant son nom dans la
    barre latérale (`page.getByText('FormPlus', { exact: true }).click()`) —
