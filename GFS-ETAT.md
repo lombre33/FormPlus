@@ -1,8 +1,28 @@
 # GFS-ETAT : Form+
 
-Mis à jour le 2026-11-04, au commit `6c79b62` (dernier commit de code que cette page décrit).
+Mis à jour le 2026-11-04, au commit `6c79698` (dernier commit de code que cette page décrit).
 
 ## Consignes
+- 018 · faite · `6c79698` · ta politique de sécurité bloque l'eval du script de Grist. Le fichier
+  que sert `docs.getgrist.com` s'évalue par `eval()` ; `poc/widget.html` ne l'autorisait pas
+  (`EvalError: call to eval() blocked by CSP`, vu par le porteur le 04/11 dans le Grist de la
+  DINUM - Form+ restait bloqué sur « Connexion à Grist… », jamais « prête »). `script-src` ajoute
+  `'unsafe-eval'` (raison dans le commentaire au-dessus de la politique) et nomme l'adresse
+  entière du script (`https://docs.getgrist.com/grist-plugin-api.js`), pas seulement son origine,
+  comme GFS/Publipostage+/Automation+ (guide des apps, règle 11). Point 3 (en option) fait : 
+  `isPluginApiReady()` (`plugin-loader.js`) vérifie `window.grist && typeof window.grist.ready
+  === 'function'` avant de résoudre - `loadPluginApi()` résout maintenant `null` (chargé mais
+  planté à l'exécution) plutôt que `true` à l'aveugle, et `main.js` l'affiche dans le diagnostic
+  de l'écran « standalone » (nouveau `#diag-standalone`, `event: "pluginApiBroken"`) au lieu de
+  planter en silence sur `grist.ready()`. `tests/grist-env/README.md` fait maintenant servir
+  `grist-plugin-api.js` enveloppé dans `eval(...)`, pour que ce banc voie la même panne qu'un
+  vrai `docs.getgrist.com` (le script d'un Grist Docker n'évalue rien). 844 vérifications hors
+  ligne (FR+EN, aucun avertissement) : la CSP garde les deux éléments exigés, `isPluginApiReady`/
+  `loadPluginApi` distinguent bien « planté » de « prêt ». Vérifié aussi en conditions réelles
+  (Playwright, le script réellement enveloppé dans `eval(...)`, dans une iframe) : `grist.ready()`
+  est bien appelé avec la CSP corrigée ; et, à l'inverse, un script qui plante vraiment à
+  l'exécution fait maintenant afficher `#standalone` avec la cause visible dans son diagnostic,
+  au lieu de rester bloqué sur « Connexion à Grist… ».
 - 017 · faite · lue · `6c79b62` · le rejeu de l'ambiance avec ta vraie app. Rejeu confirmé (015 à
   `01ddd10`, 016 à `954483a`) : contraste 4,5:1 au moins tenu sur les 56 mesures de chaque passe
   (FR/EN × clair/sombre), aucune en échec ; aucune autre table/colonne/clé/bibliothèque/permission/
