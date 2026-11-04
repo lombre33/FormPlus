@@ -219,6 +219,11 @@ export async function generate() {
     } else {
       $('page-check').innerHTML = `<span class="ok">${I18n.t('form.editor.cleanPage', { widgetPage, formPage })}</span>`;
     }
+    // Sans ce masquage, l'écran de démarrage (collage de lien) restait affiché juste au-dessus de
+    // l'éditeur qu'on vient de montrer : les deux cohabitaient un instant, effet d'écran cassé
+    // juste après l'action la plus importante du parcours (bug relevé le 4 nov 2026, audit UI/UX
+    // de cette date). Même geste que showConfig()/« Changer de formulaire source » ci-dessous.
+    $('step1').classList.add('hidden');
     $('editor').classList.remove('hidden');
     renderQuestionList();
     showEditorTab('questions');
