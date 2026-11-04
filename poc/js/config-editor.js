@@ -1067,18 +1067,23 @@ function wireCardFooter(id, body, q, combos, isNew) {
   // redimensionnée s'enregistre tout de suite, comme la bascule de type ou "Obligatoire"
   // ci-dessous, jamais au focusout (qui n'a aucun sens pour des boutons).
   body._autoSave = autoSave;
-  // focusout (pas blur) + vérif de relatedTarget : tant que le focus reste DANS la même carte
-  // (titre -> description, sélecteur de type, combobox…), le concepteur est encore en train de la
-  // remplir, pas question de valider/enregistrer déjà — une carte texte toute neuve n'a par
-  // exemple pas encore de colonne de destination choisie juste après la frappe du titre, et
-  // enregistrer à ce moment-là affichait une erreur avant même que le concepteur ait pu s'en
-  // occuper (se résorbait seule au prochain enregistrement réussi, mais restait confus). On
-  // n'enregistre donc qu'en quittant réellement la carte.
-  ['.qf-label', '.qf-desc', '.qf-desc-long', '.qf-choices'].forEach(sel => {
-    body.querySelector(sel).addEventListener('focusout', (e) => {
-      if (e.relatedTarget && body.contains(e.relatedTarget)) return;
-      autoSave();
-    });
+  // focusout (pas blur) + vérif de relatedTarget, délégué sur toute la carte (pas sur une liste de
+  // champs) : tant que le focus reste DANS la même carte (titre -> description, sélecteur de
+  // type, combobox…), le concepteur est encore en train de la remplir, pas question de
+  // valider/enregistrer déjà — une carte texte toute neuve n'a par exemple pas encore de colonne
+  // de destination choisie juste après la frappe du titre, et enregistrer à ce moment-là affichait
+  // une erreur avant même que le concepteur ait pu s'en occuper (se résorbait seule au prochain
+  // enregistrement réussi, mais restait confus). On n'enregistre donc qu'en quittant réellement la
+  // carte — AVEC n'importe quel champ comme dernier point de focus, pas seulement titre/
+  // description/choix : les combos table/colonne (wireSourceAndWriteCombos) et l'éditeur de
+  // condition (wireConditionEditor, valeurs reconstruites dynamiquement par refreshRuleValue, donc
+  // jamais les mêmes éléments DOM d'un rendu à l'autre) ne peuvent être couverts que par une
+  // délégation sur `body`, pas par des écouteurs posés une fois sur des éléments précis — sans ça,
+  // régler une condition puis quitter la carte sans retoucher le titre perdait ce changement sans
+  // aucun message (bug confirmé le 4 nov 2026, voir l'audit UI/UX de cette date).
+  body.addEventListener('focusout', (e) => {
+    if (e.relatedTarget && body.contains(e.relatedTarget)) return;
+    autoSave();
   });
   body.querySelector('.qf-required').addEventListener('change', autoSave);
 
