@@ -1,8 +1,35 @@
 # GFS-ETAT : Form+
 
-Mis à jour le 2026-11-02, au commit `f9dcb81` (dernier commit de code que cette page décrit).
+Mis à jour le 2026-11-04, au commit `954483a` (dernier commit de code que cette page décrit).
 
 ## Consignes
+- 016 · faite · `954483a` · suivre l'ambiance de GFS. Sous-module `kit` de `c0c8660` à `8afa569`
+  (0.3.0 liens entre apps, 0.4.0 identité, 0.5.0 sélecteur de couleur, 0.6.0 l'ambiance).
+  `Ambiance.start()` posé une fois dans `main.js`, à côté de `Theme.init`. Les feuilles de
+  l'éditeur (`poc/css/widget.css`) lisent les jetons de forme (guide des apps, règle 15) avec leur
+  valeur d'origine en repli (`var(--radius-md, 10px)`) : rayons (`--radius-md/-sm/-btn/-input/-pill`),
+  trait des contrôles et cartes (`--bw`), ombre des panneaux et menus flottants (`--shadow-panel`,
+  `--shadow-float`), bouton plein (`--fill`, un dégradé chez Pop), police/casse des titres et
+  étiquettes (`--font-head`/`-label` et leurs compagnons, hors `--fs-head` qui écraserait la
+  hiérarchie h1>h2>h3). **Jamais dans `#fill` ni `.pv-*`** : l'aperçu et l'écran du répondant
+  gardent l'aspect dessiné par la personne, jamais celui de GFS (même principe que `--accent*` via
+  `applyBranding`). Pas d'équivalent retenu ici : `--avatar-*`, `--bar-w`, `--stripe*` (aucun
+  élément correspondant dans l'éditeur) ; 2 catégories de l'exception couleur (état, type) n'ont
+  aucune occurrence en dur dans `widget.css` (déjà des jetons `--good`/`--danger-ink`), seule
+  reste celle « ce que tu produis » (`#qrCanvas`, le QR code lui-même, doit rester blanc pur).
+  829 vérifications hors ligne (FR+EN, aucun avertissement console) : le message d'exemple du kit
+  (`kit/test/ambiance-exemple.json`) change bien le fond, une carte et le bouton plein, et les
+  rend avec `null` ; un essai refuse toute couleur écrite en dur hors de cette unique exception.
+  Vérifié aussi visuellement (Playwright, ambiance Pop, avant/après).
+- 015 · faite · `01ddd10` · un lien public ne lit que les petites tables `FormPlus_Pub_*`. Depuis
+  le 03/11, GFS refuse sans fenêtre toute autre table de l'app lue par un lien public -
+  `FormPlus_Formulaires` en tête (elle garde `shareKey`/`formLink`/`publicUrl` de tous les
+  formulaires). `isFormPlusOwnTable` (`grist-meta.js`) écarte les tables `FormPlus_…` des trois
+  listes de `config-editor.js` qui offraient `listTables()` en entier : « Partir de zéro » > une
+  table existante (`scratchExistingCombo`), la source d'une question « Choix depuis une table »
+  et sa table de réception (`srcTable`/`writeTable`). Le préfixe `FormPlus_Pub_` reste intouché
+  (contrat avec GFS). 820 vérifications hors ligne (FR+EN) : un essai par liste, qui échoue sur
+  l'ancien code.
 - 014 · faite · `f9dcb81` · ton site en ligne reste publié : `.nojekyll` à la racine, vérification
   à chaque lot. `.nojekyll` ajouté à la racine de `main` (sinon GitHub Pages passe tous les `.md`
   du dépôt par Jekyll avant publication, et une seule accolade double non fermée dans l'un d'eux
