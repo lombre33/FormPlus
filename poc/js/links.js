@@ -11,8 +11,24 @@ export function parseFormLink(u) {
   const base = org ? `${host}/o/${org}` : host;
   return { host, org: org || null, key, vsId: Number(vsId), base, api: `${base}/api/s/${key}` };
 }
-export function buildPublicUrl(link, viewRef) {
-  return `${link.base}/s/${link.key}/p/${viewRef}?style=singlePage`;
+// Adresse donnée au répondant ("adresse à diffuser", Paramètres, QR code) : la page STATIQUE du
+// widget lui-même, avec le lien du formulaire natif dans le fragment #form= — déjà le secours
+// documenté sur l'écran standalone (voir fragmentFormLink, diag.js, et son usage dans main.js),
+// promu ici en mécanisme PRINCIPAL. PAS la page Grist /s/<clé>/p/<n> utilisée avant le 4 nov 2026 :
+// mesuré ce jour-là contre un vrai Grist auto-hébergé (même moteur que l'instance DINUM), Grist
+// donne TOUJOURS accessLevel='full' au widget sur cette page, même à un visiteur anonyme (le
+// widget demande requiredAccess:'full' dans grist.ready(), main.js — un réglage du widget sur
+// cette section, jamais une mesure de qui regarde) : decideStartScreen() ci-dessous ne pouvait
+// donc jamais distinguer un vrai répondant du concepteur sur cette page, et affichait toujours la
+// configuration (audit UI/UX du 4 nov 2026). Le fragment #form= ne dépend d'aucun signal Grist :
+// renderFill() lit le formulaire par une simple requête REST publique (respond.js), que la page
+// tourne dans un iframe Grist ou en autonome — fiable par construction, pas par mesure. Bonus :
+// élimine aussi le bandeau de page Grist résiduel sur /s/<clé> (docs/03-roadmap-priorites.md,
+// section V3), puisque le répondant ne voit plus jamais cette page Grist.
+export function buildPublicUrl(link) {
+  const formLink = `${link.base}/forms/${link.key}/${link.vsId}`;
+  const selfUrl = `${location.origin}${location.pathname}`;
+  return `${selfUrl}#form=${encodeURIComponent(formLink)}`;
 }
 
 // Dans _grist_Views_section.options, la clé customView est une CHAÎNE JSON imbriquée
@@ -71,14 +87,18 @@ export function migrateLegacy(opts) {
   return list.map(q => ({ description: '', ...q, condition: normalizeCondition(q.condition) }));
 }
 
-// Décide l'écran à afficher à l'ouverture du widget (config ou répondant), à partir des
-// signaux reçus de Grist. Un visiteur sans accès complet (settings.accessLevel ≠ 'full') est
-// typiquement un visiteur externe anonyme qui a ouvert l'adresse publique partagée depuis
-// Paramètres (voir buildPublicUrl) : il ne peut de toute façon pas configurer le widget, donc
-// s'il existe déjà un formulaire lié on lui montre directement l'écran répondant, jamais la
-// configuration. Avant ce correctif (bug relevé le 21 oct 2026), seule la présence du fragment
-// #form=<lien> déclenchait l'écran répondant : aucune adresse générée par le produit ne montrait
-// alors jamais le formulaire à un vrai visiteur externe.
+// Décide l'écran à afficher à l'ouverture du widget (config ou répondant), à partir des signaux
+// reçus de Grist. `fragmentFormLink` (adresse à diffuser depuis le 4 nov 2026, voir buildPublicUrl
+// ci-dessus) est le cas fiable, décidé par construction, pas par mesure.
+// `accessLevel` reste un repli best-effort pour une adresse /s/<clé>/p/<n> générée AVANT le 4 nov
+// 2026 (déjà distribuée, non régénérable à distance) : un visiteur sans accès complet
+// (accessLevel ≠ 'full') est bien un visiteur externe sur ce genre d'adresse. Mais mesuré le 4 nov
+// 2026 contre un vrai Grist auto-hébergé : `accessLevel` vaut TOUJOURS 'full' sur cette page, même
+// pour un visiteur anonyme (reflète le requiredAccess:'full' que le widget demande lui-même dans
+// grist.ready(), main.js — une propriété de la section, jamais de qui regarde), donc ce repli ne
+// fonctionne en fait JAMAIS pour une ancienne adresse de ce type. Un formulaire déjà publié avec
+// l'ancienne adresse doit donc être republié (nouveau clic sur « Générer l'adresse ») pour que ses
+// futurs répondants reçoivent la nouvelle adresse fiable, pas seulement rouvert.
 export function decideStartScreen({ formLink, fragmentFormLink, accessLevel }) {
   if (fragmentFormLink) return 'fill';
   if (formLink && accessLevel && accessLevel !== 'full') return 'fill';

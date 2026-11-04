@@ -201,7 +201,7 @@ export async function generate() {
     // On garde les questions déjà enregistrées si ce lien était déjà configuré.
     state.cfgQuestions = isSameSource ? migrateLegacy(state.options) : [];
     state.stayOnConfig = true;
-    const publicUrl = buildPublicUrl(link, widgetPage);
+    const publicUrl = buildPublicUrl(link);
     const persisted = await saveConfig(publicUrl, widgetPage);
     const dupNote = isSameSource ? '' : I18n.t('form.editor.dupNote');
     msg.innerHTML = persisted

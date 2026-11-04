@@ -129,14 +129,26 @@ export async function runTests() {
     assertEqual('sans organisation', l2 && { org: l2.org, key: l2.key, vsId: l2.vsId, base: l2.base }, { org: null, key: 'XYZ', vsId: 7, base: 'https://docs.getgrist.com' });
     assert('lien invalide -> null', parseFormLink('pas un lien') === null);
     assert('lien vide -> null', parseFormLink('') === null);
-    assertEqual('buildPublicUrl', buildPublicUrl(l1, 9), 'https://grist.numerique.gouv.fr/o/mon-equipe/s/ABC123/p/9?style=singlePage');
+    // Depuis le 4 nov 2026 : la page du widget lui-même (jamais plus la page Grist /s/<clé>/p/<n>,
+    // voir le commentaire de buildPublicUrl, links.js) avec le lien de formulaire natif encodé
+    // dans le fragment #form= — ce que diag.js lit avec URLSearchParams.get('form'), reproduit ici
+    // à l'identique pour vérifier l'aller-retour (encodage puis décodage).
+    const built = buildPublicUrl(l1);
+    const prefix = `${location.origin}${location.pathname}#form=`;
+    assert('buildPublicUrl pointe vers la page du widget elle-même, fragment #form=', built.startsWith(prefix));
+    const roundTrip = new URLSearchParams(built.slice(built.indexOf('#') + 1)).get('form');
+    assertEqual('le fragment décode vers le lien de formulaire natif', roundTrip, 'https://grist.numerique.gouv.fr/o/mon-equipe/forms/ABC123/12');
   });
 
   await group('decideStartScreen', () => {
-    // Bug du 21 oct 2026 : l'adresse à diffuser (buildPublicUrl, sans fragment #form=) ouvrait
-    // toujours la configuration pour un visiteur externe anonyme, jamais le formulaire, même une
-    // fois un formulaire lié. Reproduit ici sans fragment, avec l'accès réduit que Grist accorde
-    // réellement à ce type de visiteur.
+    // Bug du 21 oct 2026, RÉOUVERT et contourné le 4 nov 2026 (voir buildPublicUrl, links.js) :
+    // l'ancienne adresse à diffuser (page Grist /s/<clé>/p/<n>, sans fragment #form=) ouvrait
+    // toujours la configuration pour un visiteur externe anonyme, jamais le formulaire — mesuré le
+    // 4 nov 2026 contre un vrai Grist auto-hébergé, `accessLevel` y vaut TOUJOURS 'full' pour N'IMPORTE
+    // QUEL visiteur de cette page (reflète le requiredAccess:'full' du widget, jamais qui regarde),
+    // donc ce repli par accessLevel ne fonctionne en fait jamais pour ce type d'adresse. Les
+    // assertions ci-dessous continuent de documenter la logique de decideStartScreen elle-même
+    // (correcte), pas une garantie que Grist fournit un accessLevel réduit en pratique.
     assertEqual('visiteur sans accès complet, formulaire lié -> répondant',
       decideStartScreen({ formLink: 'https://grist.example/o/t/forms/K/1', fragmentFormLink: null, accessLevel: 'read table' }), 'fill');
     assertEqual('visiteur sans aucun accès, formulaire lié -> répondant',
@@ -731,6 +743,20 @@ export async function runTests() {
         assertEqual(`${k} : min par défaut`, state.cfgQuestions[0]?.scaleMin, 1);
         assertEqual(`${k} : max par défaut`, state.cfgQuestions[0]?.scaleMax, 5);
       }
+      // selectCombo laisse volontairement le focus sur le champ (mountCombo, mousedown avec
+      // preventDefault, comme en usage réel) : quitter la carte ici, avant le mount() de
+      // l'itération suivante, qui sinon déclenche le même focusout (wireCardFooter, délégué sur
+      // toute la carte depuis le correctif du bug "condition perdue") au mauvais moment. En usage
+      // réel ce second passage ne fait que remettre à jour la même question (la fermeture
+      // autoSave resynchronise son `q`) ; ici il repasserait par saveQuestionFromCard en dehors de
+      // cette fermeture (jamais resynchronisée) et créerait un doublon dans l'itération SUIVANTE
+      // si on ne le laisse pas se dérouler et se vider maintenant, pendant que cfgQuestions de
+      // cette itération est sur le point d'être jeté. document.activeElement (pas
+      // `.combo-input` : la carte en contient PLUSIEURS à la fois, srcTable/srcCol/writeCol/
+      // writeTable, seulement cachés par CSS selon le type — querySelector prendrait le premier
+      // du DOM, pas forcément celui que selectCombo a réellement focus).
+      if (body.contains(document.activeElement)) document.activeElement.blur();
+      await new Promise((r) => setTimeout(r, 0));
     }
   });
 
@@ -1043,6 +1069,12 @@ export async function runTests() {
       await saveQuestionFromCard('__new__', body, null, combos);
       assertEqual('nouvelle question : repli sur une nouvelle colonne malgré le choix de "colA"', state.cfgQuestions[0]?.writeCol, 'colA_2');
       assertEqual('une seule colonne créée', addColumnCalls.length, 1);
+      // Quitte proprement la carte avant le groupe suivant : voir le commentaire équivalent dans
+      // la boucle "réponses simples, colonne par défaut" ci-dessus (même cause : selectCombo
+      // laisse le focus sur la combo, et le mount() du prochain test le ferait sinon ressortir au
+      // mauvais moment, via le même autoSave délégué sur la carte).
+      if (body.contains(document.activeElement)) document.activeElement.blur();
+      await new Promise((r) => setTimeout(r, 0));
     }
   });
 
@@ -1100,6 +1132,10 @@ export async function runTests() {
     writeColInput.dispatchEvent(new Event('input'));
     await saveQuestionFromCard('__new__', body2, null, combos2);
     assertEqual('texte tapé sans correspondance -> prime sur le libellé pour le nom de colonne créée', state.cfgQuestions[0]?.writeCol, 'Nom_voulu');
+    // Quitte proprement la carte avant le groupe suivant (writeColInput.focus() ci-dessus jamais
+    // rendu à blur) : même cause que le commentaire équivalent plus haut dans ce fichier.
+    if (body2.contains(document.activeElement)) document.activeElement.blur();
+    await new Promise((r) => setTimeout(r, 0));
   });
 
   await group('saveQuestionFromCard : champ "Réserver à..." (mode interne)', async () => {
@@ -1121,6 +1157,10 @@ export async function runTests() {
     body.querySelector('.qf-reserved-emails').value = 'Alice@Exemple.fr\n\nbob@exemple.fr\n';
     await saveQuestionFromCard('__new__', body, null, combos);
     assertEqual('adresses enregistrées en minuscules, lignes vides ignorées', state.cfgQuestions[0]?.reservedTo, ['alice@exemple.fr', 'bob@exemple.fr']);
+    // Quitte proprement la carte avant le test suivant (même cause que les commentaires
+    // équivalents ailleurs dans ce fichier : selectCombo laisse le focus sur la combo).
+    if (body.contains(document.activeElement)) document.activeElement.blur();
+    await new Promise((r) => setTimeout(r, 0));
 
     // Champ laissé vide -> pas de réservation du tout (pas un tableau vide qui, lui, masquerait
     // la question à tout le monde, voir reservationOk dans respond.js).
@@ -1194,6 +1234,10 @@ export async function runTests() {
     selectCombo(body.querySelector('[data-combo="writeCol"]'), 'colA');
     await saveQuestionFromCard('__new__', body, null, combos);
     assertEqual('allowOther enregistré (select)', state.cfgQuestions[0]?.allowOther, true);
+    // Quitte proprement la carte avant le test suivant (même cause que les commentaires
+    // équivalents ailleurs dans ce fichier : selectCombo laisse le focus sur la combo).
+    if (body.contains(document.activeElement)) document.activeElement.blur();
+    await new Promise((r) => setTimeout(r, 0));
 
     state.cfgQuestions = [];
     const body2 = mount(document.createElement('div'));
@@ -1204,6 +1248,8 @@ export async function runTests() {
     selectCombo(body2.querySelector('[data-combo="writeCol"]'), 'colA');
     await saveQuestionFromCard('__new__', body2, null, combos2);
     assertEqual('allowCapture enregistré (attachments)', state.cfgQuestions[0]?.allowCapture, true);
+    if (body2.contains(document.activeElement)) document.activeElement.blur();
+    await new Promise((r) => setTimeout(r, 0));
   });
 
   await group('saveQuestionFromCard : affichage radio persisté', async () => {
@@ -1224,6 +1270,10 @@ export async function runTests() {
     selectCombo(body.querySelector('[data-combo="writeCol"]'), 'colA');
     await saveQuestionFromCard('__new__', body, null, combos);
     assertEqual('displayMode=radio enregistré', state.cfgQuestions[0]?.displayMode, 'radio');
+    // Quitte proprement la carte avant le groupe suivant (même cause que les commentaires
+    // équivalents ailleurs dans ce fichier : selectCombo laisse le focus sur la combo).
+    if (body.contains(document.activeElement)) document.activeElement.blur();
+    await new Promise((r) => setTimeout(r, 0));
   });
 
   await group('renderCardBody : condition, ajouter/retirer une règle fait apparaître/disparaître le choix ET/OU', async () => {
@@ -1351,6 +1401,10 @@ export async function runTests() {
     assertEqual('sourceTable', state.cfgQuestions[0]?.sourceTable, 'Autre');
     assertEqual('sourceCol', state.cfgQuestions[0]?.sourceCol, 'nom');
     assert('writeCol calculé (référence cachée)', typeof state.cfgQuestions[0]?.writeCol === 'string' && state.cfgQuestions[0].writeCol.startsWith('FormPlus_src_'));
+    // Quitte proprement la carte avant le groupe suivant (même cause que les commentaires
+    // équivalents ailleurs dans ce fichier : selectCombo laisse le focus sur la combo).
+    if (body.contains(document.activeElement)) document.activeElement.blur();
+    await new Promise((r) => setTimeout(r, 0));
   });
 
   await group('saveQuestionFromCard : choix depuis une table, écriture dans une autre table (écart fonctionnel de l’audit du 21 sept, corrigé le 29 sept)', async () => {
@@ -1412,6 +1466,10 @@ export async function runTests() {
     assertEqual('un formulaire publié a été créé pour "Secondaire" (ensureTableGate)', sectionsState.tableRef.filter(t => t === 3).length, 1);
     const gateSectionId = sectionsState.id[sectionsState.tableRef.indexOf(3)];
     assertEqual('le champ Référence caché est attaché à CE formulaire, pas au formulaire principal', fieldsState.parentId, [gateSectionId]);
+    // Quitte proprement la carte avant le groupe suivant (même cause que les commentaires
+    // équivalents ailleurs dans ce fichier : selectCombo laisse le focus sur la combo).
+    if (body.contains(document.activeElement)) document.activeElement.blur();
+    await new Promise((r) => setTimeout(r, 0));
   });
 
   await group('renderCardBody : deux enregistrements automatiques rapides sur une question neuve ne créent qu’une seule entrée', async () => {
@@ -1434,11 +1492,13 @@ export async function runTests() {
     // `q` après chaque sauvegarde réussie, le second blur repartait d'un `existing` resté à `null`
     // et créait une SECONDE question au lieu de modifier la première.
     // focusout (pas blur) depuis le 21 oct 2026 : voir wireCardFooter, même événement déclenche
-    // l'auto-enregistrement désormais.
+    // l'auto-enregistrement désormais, délégué sur toute la carte (bubbles:true nécessaire ici
+    // pour qu'un événement synthétique remonte jusqu'à ce listener, posé sur `body` — un vrai
+    // focusout du navigateur, lui, bouillonne toujours, peu importe l'option).
     body.querySelector('.qf-label').value = 'Premier titre';
-    body.querySelector('.qf-label').dispatchEvent(new Event('focusout'));
+    body.querySelector('.qf-label').dispatchEvent(new Event('focusout', { bubbles: true }));
     body.querySelector('.qf-label').value = 'Second titre';
-    body.querySelector('.qf-label').dispatchEvent(new Event('focusout'));
+    body.querySelector('.qf-label').dispatchEvent(new Event('focusout', { bubbles: true }));
     await tick(); await tick(); await tick(); await tick();
     assertEqual('une seule question créée (pas de doublon)', state.cfgQuestions.length, 1, JSON.stringify(state.cfgQuestions));
     assertEqual('le second enregistrement met à jour la même entrée, avec le dernier libellé tapé', state.cfgQuestions[0]?.label, 'Second titre');
@@ -1464,14 +1524,14 @@ export async function runTests() {
     label.value = 'Un titre';
     // Le focus quitte le titre vers la description, DANS la même carte : le concepteur continue
     // de la remplir, ne doit voir ni enregistrement ni erreur de validation prématurée.
-    label.dispatchEvent(new FocusEvent('focusout', { relatedTarget: desc }));
+    label.dispatchEvent(new FocusEvent('focusout', { relatedTarget: desc, bubbles: true }));
     await tick();
     assertEqual('pas encore de question créée (toujours en train de remplir la carte)', state.cfgQuestions.length, 0);
     assertEqual('pas d’erreur affichée prématurément', body.querySelector('.qf-msg').textContent.trim(), '');
     // Le focus quitte vraiment la carte (relatedTarget hors carte, ou aucun) : la validation peut
     // enfin se déclencher — erreur légitime ici, la table source n'a toujours pas été choisie,
     // mais au moins plus AVANT que le concepteur ait eu l'occasion de s'en occuper.
-    label.dispatchEvent(new FocusEvent('focusout', { relatedTarget: null }));
+    label.dispatchEvent(new FocusEvent('focusout', { relatedTarget: null, bubbles: true }));
     await tick();
     assertEqual('en quittant la carte, la validation (légitime, table source non choisie) se déclenche enfin',
       body.querySelector('.qf-msg').textContent.trim(), I18n.t('form.editor.pickSourceTableCol'));
