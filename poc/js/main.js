@@ -4,6 +4,7 @@
 import { $, show } from './dom.js';
 import { ICONS } from './icons.js';
 import { Theme } from '../../kit/js/theme.js';
+import { Ambiance } from '../../kit/js/ambiance.js';
 import { I18n } from '../../kit/js/i18n.js';
 import { GfsLink } from '../../kit/js/gfs-link.js';
 import { applyBranding, updateThemeToggleIcon } from './theme.js';
@@ -66,6 +67,12 @@ function applyGfsBar(bar) {
 // français, puis bascule — kit/README.md). Pas encore de langue venue de GFS (client du courtier,
 // étape 5) : stockage par navigateur, sinon celle du navigateur lui-même.
 Theme.init({ storageKey: 'formplus_theme' });
+// Consigne GFS 016 : pose et suit l'ambiance que la personne a choisie dans GFS (un seul choix
+// pour GFS et toutes ses apps) - jamais posée seule (Ambiance.start() ne fait rien hors GFS), et
+// jamais sur l'aperçu/l'écran du répondant (#fill, .pv-* dans widget.css) : ils gardent l'aspect
+// que la personne a dessiné pour SON formulaire, pas celui de GFS (même principe que --accent*
+// via applyBranding, commentaire au sommet de widget.css).
+Ambiance.start();
 I18n.add(STRINGS);
 I18n.init({ storageKey: 'formplus_lang' });
 I18n.translateDom();

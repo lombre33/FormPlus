@@ -2,6 +2,8 @@ import { $, show } from './dom.js';
 import { parseFormLink, buildPublicUrl, parseCustomView, migrateLegacy, normalizeCondition, decideStartScreen } from './links.js';
 import { hexToRgb, softenColor, contrastText, applyBranding } from './theme.js';
 import { I18n, KIT_STRINGS } from '../../kit/js/i18n.js';
+import { normalizeAmbiance } from '../../kit/js/ambiance-message.js';
+import { paintAmbiance } from '../../kit/js/ambiance-pose.js';
 import { STRINGS } from './strings.js';
 import { KINDS, LAYOUT_KINDS, TABLE_SOURCED_KINDS, FIXED_LIST_KINDS, mapFeatureEnabled } from './kinds.js';
 import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet, reservationOk, splitIntoPages, wirePages, wireConditions, resolveFormTitle } from './respond.js';
@@ -45,6 +47,11 @@ export async function runTests() {
   // GFS) ; le comportement "désactivé par défaut" a son propre test dédié ci-dessous, qui
   // désactive puis réactive le réglage localement.
   window.FORMPLUS_ENABLE_MAP = true;
+  // Capturé AVANT qu'un essai ne remplace window.fetch par son propre mock (plusieurs le font,
+  // sans jamais le restaurer - chacun pour la durée du fichier, pas seulement de son groupe) :
+  // les essais qui ont vraiment besoin du réseau local (ambiance, plus bas) prennent celui-ci,
+  // jamais `fetch`/`window.fetch` nu, qui serait alors le mock d'un essai précédent.
+  const REAL_FETCH = window.fetch.bind(window);
   const results = [];
   const record = (name, pass, detail) => results.push({ name, pass, detail });
   const assert = (name, cond, detail) => record(name, !!cond, detail);
@@ -2020,6 +2027,52 @@ export async function runTests() {
     const writeHost = body.querySelector('[data-combo="writeTable"]');
     writeHost.querySelector('.combo-input').focus();
     assertEqual('destination : jamais FormPlus_…', [...writeHost.querySelectorAll('.combo-opt')].map(o => o.textContent), ['Main', 'Autre']);
+  });
+
+  // Consigne GFS 016 : l'éditeur suit l'ambiance que GFS pose (Ambiance.start(), main.js) - jamais
+  // #fill/.pv-* (l'aperçu et l'écran du répondant gardent l'aspect dessiné par la personne, voir
+  // le commentaire en tête de widget.css). Message réel du kit, comme son README le fait pour un
+  // essai (paintAmbiance) : moins de code à maintenir en double, et toujours d'accord avec ce que
+  // GFS envoie réellement si ce fichier change.
+  await group('Ambiance.start() : le message d\'exemple du kit change le fond, une carte et un bouton plein, puis null les rend', async () => {
+    const raw = await (await REAL_FETCH('/kit/test/ambiance-exemple.json')).json();
+    const message = normalizeAmbiance(raw);
+    assert('le message d\'exemple du kit (Pop) est accepté par normalizeAmbiance', message != null);
+    const root = document.documentElement;
+    const card = mount(document.createElement('div'));
+    card.className = 'card';
+    const btn = document.createElement('button');
+    btn.className = 'primary';
+    card.appendChild(btn);
+    const toRgb = (hex) => { const c = hexToRgb(hex); return `rgb(${c.r}, ${c.g}, ${c.b})`; };
+    const baseline = {
+      bg: getComputedStyle(document.body).backgroundColor,
+      card: getComputedStyle(card).backgroundColor,
+      btnImage: getComputedStyle(btn).backgroundImage,
+    };
+
+    const posed = paintAmbiance(root, message, false, []);
+    assertEqual('le fond (--bg) devient celui du message', getComputedStyle(document.body).backgroundColor, toRgb(message.clair['--bg']));
+    assertEqual('une carte (.card, --surface) devient celle du message', getComputedStyle(card).backgroundColor, toRgb(message.clair['--surface']));
+    assert('un bouton plein (button.primary, --fill) prend le dégradé du message', getComputedStyle(btn).backgroundImage.includes('gradient'));
+
+    paintAmbiance(root, null, false, posed);
+    assertEqual('avec null, le fond redevient le sien', getComputedStyle(document.body).backgroundColor, baseline.bg);
+    assertEqual('…une carte aussi', getComputedStyle(card).backgroundColor, baseline.card);
+    assertEqual('…et le bouton plein aussi', getComputedStyle(btn).backgroundImage, baseline.btnImage);
+  });
+
+  await group('Ambiance de GFS : widget.css ne porte aucune couleur en dur hors d\'une exception justifiée', async () => {
+    const css = await (await REAL_FETCH('/poc/css/widget.css')).text();
+    const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    const found = [...withoutComments.matchAll(/#[0-9a-fA-F]{3,8}\b/g)].map(m => m[0].toLowerCase());
+    // Seule exception retenue (aucune pour l'état ou le type : déjà des jetons, --good/--danger-ink)
+    // : #qrCanvas, le QR code lui-même - ce que l'app PRODUIT (comme un PDF ou un document), jamais
+    // une couleur de GFS ; il doit rester blanc pur pour rester scannable, quelle que soit l'ambiance.
+    const allowed = ['#fff'];
+    const unexpected = found.filter(h => !allowed.includes(h));
+    assertEqual('aucune couleur en dur hors de la liste d\'exceptions justifiée', unexpected, []);
+    assertEqual('l\'exception elle-même reste unique (#qrCanvas seul)', found.filter(h => h === '#fff').length, 1);
   });
 
   await group('sélection dans formPicker : formulaire non publié -> consigne, pas de génération', async () => {
