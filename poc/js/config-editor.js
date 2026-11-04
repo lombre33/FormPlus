@@ -463,6 +463,11 @@ function formatResponseValue(q, raw, refLabelMaps) {
     case 'datetime':
       return esc(new Date(Number(raw) * 1000).toLocaleString(locale));
     case 'choice': {
+      // Référence Grist vide = l'entier 0, jamais null/'' (Grist, pas une convention FormPlus) :
+      // sans ce cas à part, une question jamais répondue affichait "#0 (deleted since)" au lieu
+      // du "—" de toutes les autres questions vides de cet écran (bug relevé le 4 nov 2026, audit
+      // UI/UX de cette date) — 0 n'est l'id d'aucune vraie ligne, donc jamais une suppression.
+      if (raw === 0) return null;
       const label = refLabelMaps.get(`${q.sourceTable}:${q.sourceCol}`)?.get(raw);
       return label != null ? esc(label) : `#${esc(raw)} ${esc(I18n.t('form.editor.responseRefDeleted'))}`;
     }
