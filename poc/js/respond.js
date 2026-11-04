@@ -364,6 +364,17 @@ export function isAnswered(q) {
   const el = q.querySelector('input, select, textarea');
   return el ? el.value.trim() !== '' : null;
 }
+// Consigne GFS 019 : GFS peut appeler « fermer » pendant que le répondant remplit ce formulaire
+// (mode interne, dans GFS) - rien n'est écrit avant l'envoi (onSubmit, plus bas), donc une réponse
+// commencée serait perdue en silence sans ce test. Seulement si #fill est l'écran VISIBLE (jamais
+// si la personne est déjà repartie vers #config, où main.js écrit déjà à chaque champ) et qu'au
+// moins une question y est répondue (isAnswered, ci-dessus - vrai aussi pour un Oui/non jamais
+// touché, son repli déjà choisi pour la barre de progression : au pire une question de plus que
+// nécessaire, jamais une réponse perdue en silence).
+export function hasPendingFillAnswers() {
+  if ($('fill').classList.contains('hidden')) return false;
+  return [...document.querySelectorAll('#fill .q')].some(q => isAnswered(q) === true);
+}
 export function updateProgress(formEl) {
   const box = $('progress');
   if (box.classList.contains('hidden')) return;

@@ -495,6 +495,13 @@ export const STRINGS = {
   'form.respond.sendAnotherBtn': { fr: 'Envoyer une autre réponse', en: 'Submit another response' },
   'form.respond.attachmentsErrorPrefix': { fr: 'Pièces jointes : {message}', en: 'Attachments: {message}' },
   'form.respond.unavailable': { fr: '(indisponible)', en: '(unavailable)' },
+  // Consigne GFS 019 : GFS veut remplacer cette app par une autre pendant que la personne remplit
+  // ce formulaire (mode interne) - rien n'étant écrit avant l'envoi, partir perdrait sa réponse en
+  // cours sans cette question. Pas d'option "Enregistrer" : FormPlus n'a aucun brouillon à garder,
+  // seulement envoyer (ce que la personne n'a pas fini de faire) ou abandonner.
+  'form.respond.leaveTitle': { fr: 'Quitter ce formulaire ?', en: 'Leave this form?' },
+  'form.respond.leaveMsg': { fr: 'Votre réponse n’a pas encore été envoyée. Si vous partez maintenant, elle sera perdue.', en: 'Your response hasn’t been submitted yet. If you leave now, it will be lost.' },
+  'form.respond.leaveConfirmBtn': { fr: 'Quitter sans envoyer', en: 'Leave without submitting' },
 };
 
 // Enregistrée dès que ce module est importé (pas seulement depuis main.js) : config-editor.js

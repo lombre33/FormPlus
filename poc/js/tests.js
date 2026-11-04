@@ -7,7 +7,7 @@ import { paintAmbiance } from '../../kit/js/ambiance-pose.js';
 import { hostContract } from '../../kit/js/host.js';
 import { STRINGS } from './strings.js';
 import { KINDS, LAYOUT_KINDS, TABLE_SOURCED_KINDS, FIXED_LIST_KINDS, mapFeatureEnabled } from './kinds.js';
-import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet, reservationOk, splitIntoPages, wirePages, wireConditions, resolveFormTitle } from './respond.js';
+import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet, reservationOk, splitIntoPages, wirePages, wireConditions, resolveFormTitle, hasPendingFillAnswers } from './respond.js';
 import {
   questionSummary, conditionSourceCandidates, renderCardBody, saveQuestionFromCard,
   customizeNativeField, resetQuestions, createEmptyForm, populateFormPicker, generate, saveConfig,
@@ -279,6 +279,30 @@ export async function runTests() {
     const csp = html.match(/Content-Security-Policy"\s+content="([^"]+)"/)[1];
     assert('\'unsafe-eval\' présent (le fichier que Grist sert s’évalue par eval())', csp.includes('\'unsafe-eval\''));
     assert('adresse entière du script, pas seulement l’origine (guide des apps, règle 11)', csp.includes('https://docs.getgrist.com/grist-plugin-api.js'));
+  });
+
+  // Consigne GFS 019 : #config écrit à chaque champ (rien n'y attend jamais, GfsLink.onClose/
+  // onOpen dans main.js répondent alors tout de suite) ; #fill n'écrit qu'à l'envoi (onSubmit) -
+  // une réponse commencée s'y perdrait en silence sans ce test.
+  await group('hasPendingFillAnswers : une réponse commencée sur #fill, pas encore envoyée (consigne GFS 019)', () => {
+    const fill = $('fill');
+    const savedHtml = fill.innerHTML;
+    const savedHidden = fill.classList.contains('hidden');
+    try {
+      fill.classList.add('hidden');
+      fill.innerHTML = '<div class="q" data-kind="text"><input type="text" value="abc"></div>';
+      assert('#fill masqué (déjà reparti vers #config) -> jamais rien en attente', !hasPendingFillAnswers());
+
+      fill.classList.remove('hidden');
+      fill.innerHTML = '<div class="q" data-kind="text"><input type="text" value=""></div>';
+      assert('#fill visible, rien de répondu -> rien en attente', !hasPendingFillAnswers());
+
+      fill.innerHTML = '<div class="q" data-kind="text"><input type="text" value="abc"></div>';
+      assert('#fill visible, une réponse commencée -> en attente', hasPendingFillAnswers());
+    } finally {
+      fill.innerHTML = savedHtml;
+      fill.classList.toggle('hidden', savedHidden);
+    }
   });
 
   await group('couleurs (hexToRgb / softenColor / contrastText)', () => {

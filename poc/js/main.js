@@ -8,6 +8,7 @@ import { Ambiance } from '../../kit/js/ambiance.js';
 import { hostContract } from '../../kit/js/host.js';
 import { I18n } from '../../kit/js/i18n.js';
 import { GfsLink } from '../../kit/js/gfs-link.js';
+import { Dialogs } from '../../kit/js/dialogs.js';
 import { applyBranding, updateThemeToggleIcon } from './theme.js';
 import { STRINGS } from './strings.js';
 import { diag, hashParams, fragmentFormLink } from './diag.js';
@@ -15,7 +16,7 @@ import { decideStartScreen } from './links.js';
 import { resolveMyDefinition, loadDefinitionByRowId } from './grist-meta.js';
 import { state } from './state.js';
 import { showConfig } from './config-editor.js';
-import { renderFill } from './respond.js';
+import { renderFill, hasPendingFillAnswers } from './respond.js';
 import { runTests } from './tests.js';
 import { loadPluginApi } from './plugin-loader.js';
 
@@ -44,6 +45,23 @@ function resetToNewForm() {
   state.options = {}; state.currentLink = null; state.currentFormSection = null; state.cfgQuestions = [];
   state.formRowId = null; state.formRowVsId = null; state.formRowTitle = undefined;
   if (GfsLink.hosted) GfsLink.storageSet(GFS_OPEN_ROW_KEY, null);
+}
+
+// Consigne GFS 019 : GFS appelle « fermer » (onClose) avant de remplacer cette app par une autre,
+// et le même risque vaut pour « ouvrir » (onOpen, plus bas) un autre fichier de Form+ - les deux
+// détruisent ce qui est à l'écran. #config écrit déjà à chaque champ (rien n'y attend jamais, voir
+// le commentaire d'onOpen plus bas) ; #fill n'écrit qu'à l'envoi (onSubmit, respond.js) - une
+// réponse commencée s'y perdrait en silence sans cette question. Pas d'« Enregistrer » : Form+
+// n'a aucun brouillon à garder, seulement envoyer (ce que la personne n'a pas fini de faire) ou
+// abandonner.
+async function confirmLeaveIfPending() {
+  if (!hasPendingFillAnswers()) return true;
+  return await Dialogs.confirm({
+    title: I18n.t('form.respond.leaveTitle'),
+    message: I18n.t('form.respond.leaveMsg'),
+    confirmLabel: I18n.t('form.respond.leaveConfirmBtn'),
+    danger: true,
+  });
 }
 
 // Ce que la barre de GFS recouvre, à écarter (consigne GFS 011) : --gfs-bar-* (widget.css, .wrap)
@@ -155,9 +173,11 @@ $('themeToggle').addEventListener('click', () => {
     applyGfsBar(GfsLink.bar());
     GfsLink.onBar(applyGfsBar);
     // Le double-clic sur un AUTRE formulaire pendant que celui-ci tourne déjà (point 3) :
-    // FormPlus enregistre à chaque champ (pas de bouton "Enregistrer"), donc rien n'est jamais en
-    // attente ici - on ouvre directement, sans question préalable.
+    // FormPlus enregistre à chaque champ sur #config (pas de bouton "Enregistrer"), donc rien n'y
+    // est jamais en attente ; sur #fill, confirmLeaveIfPending (consigne GFS 019, ci-dessus) pose
+    // la question d'abord si une réponse est en cours.
     GfsLink.onOpen(async ({ fichier }) => {
+      if (!(await confirmLeaveIfPending())) return false;
       if (!fichier) {
         if (state.formRowId == null) return true; // déjà sur l'écran de départ
         resetToNewForm();
@@ -168,6 +188,9 @@ $('themeToggle').addEventListener('click', () => {
       if (state.formRowId != null && String(state.formRowId) === String(fichier.id)) return true; // déjà ouvert
       return await openRow(fichier.id);
     });
+    // Consigne GFS 019 : GFS détruit le cadre de cette app dès que la réponse est { ferme: true } -
+    // jamais avant, et jamais nous-mêmes (point 3 de la consigne).
+    GfsLink.onClose(async () => confirmLeaveIfPending());
   }
 
   grist.onOptions(async (opts, settings) => {
