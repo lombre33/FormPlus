@@ -1,8 +1,25 @@
 # GFS-ETAT : Form+
 
-Mis à jour le 2026-11-04, au commit `6c79698` (dernier commit de code que cette page décrit).
+Mis à jour le 2026-11-04, au commit `1d71b1d` (dernier commit de code que cette page décrit).
 
 ## Consignes
+- 019 · faite · lue · `1d71b1d` · réponds à « fermer » : enregistre avant de laisser la place à
+  une autre app. Ce que Form+ a « en attente » : sur `#config` (le concepteur), rien - chaque
+  champ s'écrit tout de suite dans la section widget, pas de bouton « Enregistrer » (déjà vrai
+  depuis la 012, GfsLink.onOpen le disait déjà). Sur `#fill` (le répondant, mode interne dans
+  GFS), en revanche : une réponse commencée ne s'écrit qu'à l'envoi (`onSubmit`), donc tant que
+  la personne n'a pas cliqué sur le bouton d'envoi, rien n'est encore enregistré. Sous-module
+  `kit` relevé à `0.9.0` (`eaa2ae2`, GfsLink.onClose). `GfsLink.onClose`/`onOpen` (main.js)
+  répondent `{ferme:true}` aussitôt sur `#config` ; sur `#fill` avec une réponse en cours
+  (`hasPendingFillAnswers`, respond.js), une question (Quitter sans envoyer / Annuler - pas
+  d'« Enregistrer » : Form+ n'a aucun brouillon à garder) avant de répondre, `{ferme:false}` si
+  la personne annule, réponse intacte. Même règle pour `ouvrir` un autre fichier de Form+ pendant
+  qu'une réponse est en cours. 847 vérifications hors ligne (FR+EN, aucun avertissement) :
+  `hasPendingFillAnswers` distingue `#fill` masqué/sans réponse/avec une réponse commencée.
+  Vérifié aussi en conditions réelles (Playwright, le protocole `fermer` de GFS rejoué dans une
+  iframe contre le vrai widget) : `{ferme:true}` immédiat sur `#config`, une vraie fenêtre de
+  confirmation qui bloque la réponse à GFS tant que `#fill` a une réponse en cours, `{ferme:false}`
+  sur Annuler avec la réponse intacte, `{ferme:true}` sur « Quitter sans envoyer ».
 - 018 · faite · `6c79698` · ta politique de sécurité bloque l'eval du script de Grist. Le fichier
   que sert `docs.getgrist.com` s'évalue par `eval()` ; `poc/widget.html` ne l'autorisait pas
   (`EvalError: call to eval() blocked by CSP`, vu par le porteur le 04/11 dans le Grist de la
