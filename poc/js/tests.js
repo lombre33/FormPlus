@@ -4,6 +4,7 @@ import { hexToRgb, softenColor, contrastText, applyBranding } from './theme.js';
 import { I18n, KIT_STRINGS } from '../../kit/js/i18n.js';
 import { normalizeAmbiance } from '../../kit/js/ambiance-message.js';
 import { paintAmbiance } from '../../kit/js/ambiance-pose.js';
+import { hostContract } from '../../kit/js/host.js';
 import { STRINGS } from './strings.js';
 import { KINDS, LAYOUT_KINDS, TABLE_SOURCED_KINDS, FIXED_LIST_KINDS, mapFeatureEnabled } from './kinds.js';
 import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet, reservationOk, splitIntoPages, wirePages, wireConditions, resolveFormTitle } from './respond.js';
@@ -2073,6 +2074,29 @@ export async function runTests() {
     const unexpected = found.filter(h => !allowed.includes(h));
     assertEqual('aucune couleur en dur hors de la liste d\'exceptions justifiée', unexpected, []);
     assertEqual('l\'exception elle-même reste unique (#qrCanvas seul)', found.filter(h => h === '#fff').length, 1);
+  });
+
+  // Consigne GFS 017 : un éclair des couleurs d'origine (66 à 100 ms mesurés par GFS) avant que
+  // l'ambiance n'arrive. main.js pose [data-gfs-pending] sur <html> SEULEMENT dans GFS
+  // (hostContract(location.search) non nul), jamais seule - essai direct des deux pièces
+  // testables séparément : la fonction pure qui décide (hostContract, déjà celle que main.js
+  // appelle) et la règle CSS qui cache (widget.css) ; le bootstrap de main.js lui-même (IIFE au
+  // chargement du module, avant que #test n'existe) n'est pas rejouable depuis un essai.
+  await group('hostContract : seule une adresse GFS valide (gfs=<n>) déclenche le cache (consigne GFS 017)', () => {
+    assertEqual('dans GFS (gfs=42)', hostContract('?gfs=42'), 42);
+    assertEqual('hors GFS (aucun paramètre)', hostContract(''), null);
+    assertEqual('hors GFS (autre paramètre)', hostContract('?foo=bar'), null);
+    assertEqual('une valeur non numérique n\'est jamais une adresse GFS', hostContract('?gfs=abc'), null);
+  });
+
+  await group('[data-gfs-pending] (widget.css) cache bien le corps, et le relâche une fois retiré (consigne GFS 017)', () => {
+    const root = document.documentElement;
+    assert('absent par défaut (hors GFS, rien ne cache jamais)', !root.hasAttribute('data-gfs-pending'));
+    const baselineVisibility = getComputedStyle(document.body).visibility;
+    root.setAttribute('data-gfs-pending', '');
+    assertEqual('posé : le corps devient caché', getComputedStyle(document.body).visibility, 'hidden');
+    root.removeAttribute('data-gfs-pending');
+    assertEqual('retiré : le corps redevient ce qu\'il était', getComputedStyle(document.body).visibility, baselineVisibility);
   });
 
   await group('sélection dans formPicker : formulaire non publié -> consigne, pas de génération', async () => {

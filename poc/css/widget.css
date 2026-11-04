@@ -15,6 +15,13 @@
   * { box-sizing: border-box; }
   html, body { height: 100%; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 var(--font-ui); -webkit-font-smoothing: antialiased; }
+  /* Consigne GFS 017 : dans GFS, Ambiance.start() mesure de 66 à 100 ms avant que le message de GFS
+     n'arrive - sans ce cache, la page se dessine un instant dans ses couleurs d'origine, puis
+     change (l'éclair que GFS a mesuré). main.js pose [data-gfs-pending] sur <html> SEULEMENT dans
+     GFS (hostContract(location.search) non nul) et le retire dès l'ambiance posée, ou après 2 s au
+     plus si GFS tarde ou que le kit manque (même mécanisme qu'Automation+, css/style.css). Hors
+     GFS, l'attribut n'est jamais posé : rien ne change. */
+  html[data-gfs-pending] body { visibility: hidden; }
   /* --gfs-bar-* (0px hors GFS, ou quand la barre ne couvre pas ce bord) : la zone que la barre de
      GFS laisse libre à CE bord (GfsLink.onBar, consigne GFS 011), posée sur <html> par main.js.
      Un seul point d'ajustement pour tous les écrans (concepteur, répondant, départ), puisque
