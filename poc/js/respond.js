@@ -461,24 +461,6 @@ export function wirePages(card, pages, extraQuestions) {
   const nextBtn = card.querySelector('#pv-next');
   const indicator = card.querySelector('#pv-page-indicator');
 
-  // Une page sautée (condition fausse) masque aussi chacune de ses questions via la même classe
-  // que les conditions de question (cond-hidden) : c'est ce qui garantit que l'envoi final
-  // (onSubmit, qui ne connaît rien des pages) ne les traite ni comme obligatoires ni comme des
-  // réponses à envoyer, exactement comme une question individuellement masquée par sa condition.
-  const applySkip = () => {
-    pages.forEach((p, i) => {
-      const skip = !pageEligible(p, extraQuestions);
-      pageEl(i)?.querySelectorAll('.q').forEach(q => q.classList.toggle('cond-hidden', skip));
-    });
-  };
-  pages.forEach((p) => {
-    const cond = normalizeCondition(p.condition);
-    if (!cond?.rules?.length) return;
-    cond.rules.map(r => $(`eq-${r.questionId}`)).filter(Boolean)
-      .forEach(c => ['input', 'change'].forEach(evt => c.addEventListener(evt, applySkip)));
-  });
-  applySkip();
-
   const nextEligible = (from, dir) => {
     let i = from + dir;
     while (i >= 0 && i < pages.length) {
@@ -491,16 +473,45 @@ export function wirePages(card, pages, extraQuestions) {
   const eligibleRank = (idx) => pages.slice(0, idx + 1).filter(p => pageEligible(p, extraQuestions)).length;
 
   let current = 0;
+  // Affichage des boutons Précédent/Suivant/Envoyer et de l'indicateur pour la page courante,
+  // SANS toucher à la page affichée elle-même (show() s'en charge en plus de ceci). Appelée à la
+  // fois au changement de page et à chaque fois qu'applySkip() se réévalue ci-dessous : sans ce
+  // second appel, cocher une réponse qui rend une page suivante éligible ne changeait jamais le
+  // bouton Envoyer en Suivant, qui restait figé sur l'état calculé au chargement, avant toute
+  // réponse (bug confirmé le 4 nov 2026, audit UI/UX de cette date : la page conditionnée n'était
+  // alors jamais atteignable, ni montrée, ni collectée).
+  const updateNav = () => {
+    const hasNext = nextEligible(current, 1) !== -1;
+    prevBtn.classList.toggle('hidden', nextEligible(current, -1) === -1);
+    nextBtn.classList.toggle('hidden', !hasNext);
+    submitBtn.classList.toggle('hidden', hasNext);
+    indicator.textContent = I18n.t('form.respond.pageIndicator', { rank: eligibleRank(current), count: eligibleCount() });
+  };
   const show = (idx) => {
     current = idx;
     pages.forEach((_, i) => { const el = pageEl(i); if (el) el.hidden = i !== idx; });
-    const hasNext = nextEligible(idx, 1) !== -1;
-    prevBtn.classList.toggle('hidden', nextEligible(idx, -1) === -1);
-    nextBtn.classList.toggle('hidden', !hasNext);
-    submitBtn.classList.toggle('hidden', hasNext);
-    indicator.textContent = I18n.t('form.respond.pageIndicator', { rank: eligibleRank(idx), count: eligibleCount() });
+    updateNav();
     pageEl(idx)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
+
+  // Une page sautée (condition fausse) masque aussi chacune de ses questions via la même classe
+  // que les conditions de question (cond-hidden) : c'est ce qui garantit que l'envoi final
+  // (onSubmit, qui ne connaît rien des pages) ne les traite ni comme obligatoires ni comme des
+  // réponses à envoyer, exactement comme une question individuellement masquée par sa condition.
+  const applySkip = () => {
+    pages.forEach((p, i) => {
+      const skip = !pageEligible(p, extraQuestions);
+      pageEl(i)?.querySelectorAll('.q').forEach(q => q.classList.toggle('cond-hidden', skip));
+    });
+    updateNav();
+  };
+  pages.forEach((p) => {
+    const cond = normalizeCondition(p.condition);
+    if (!cond?.rules?.length) return;
+    cond.rules.map(r => $(`eq-${r.questionId}`)).filter(Boolean)
+      .forEach(c => ['input', 'change'].forEach(evt => c.addEventListener(evt, applySkip)));
+  });
+  applySkip();
 
   prevBtn.addEventListener('click', () => { const i = nextEligible(current, -1); if (i !== -1) show(i); });
   nextBtn.addEventListener('click', () => {
