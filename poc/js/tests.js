@@ -281,6 +281,19 @@ export async function runTests() {
     assert('adresse entière du script, pas seulement l’origine (guide des apps, règle 11)', csp.includes('https://docs.getgrist.com/grist-plugin-api.js'));
   });
 
+  // Consigne GFS 023 : [data-gfs-pending] posé par poc/js/main.js (un <script type="module">)
+  // arrivait après la première image (76 ms mesurés contre 16 ms) - l'éclair que la 017 voulait
+  // éviter restait entier. js/gfs-pending.js, un script CLASSIQUE chargé en <head> avant les
+  // feuilles, s'exécute lui avant cette première image (comme js/theme.js chez Automation+).
+  await group('poc/widget.html : js/gfs-pending.js est un script classique, chargé en <head> avant les feuilles (consigne GFS 023)', async () => {
+    const html = await (await REAL_FETCH('/poc/widget.html')).text();
+    const scriptIdx = html.indexOf('<script src="js/gfs-pending.js">');
+    const firstStylesheetIdx = html.indexOf('<link rel="stylesheet"');
+    assert('le script existe', scriptIdx >= 0);
+    assert('… avant la première feuille de style (avant que le CSSOM ne commence)', scriptIdx >= 0 && scriptIdx < firstStylesheetIdx);
+    assert('… jamais type="module" (s’exécuterait après la première image, voir le commentaire au-dessus)', !/<script\s[^>]*type="module"[^>]*src="js\/gfs-pending\.js"/.test(html));
+  });
+
   // Consigne GFS 019 : #config écrit à chaque champ (rien n'y attend jamais, GfsLink.onClose/
   // onOpen dans main.js répondent alors tout de suite) ; #fill n'écrit qu'à l'envoi (onSubmit) -
   // une réponse commencée s'y perdrait en silence sans ce test.

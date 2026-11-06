@@ -21,6 +21,9 @@
      par qui configure le widget, vers un hôte Grist qu'il choisit, jamais fixé par cette page. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' https://docs.getgrist.com/grist-plugin-api.js https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https:; connect-src 'self' https:; object-src 'none'; base-uri 'none'">
 <title>FormPlus</title>
+<!-- Consigne GFS 023 : script CLASSIQUE (pas type="module"), avant les feuilles, pour poser
+     [data-gfs-pending] avant la première image - voir js/gfs-pending.js. -->
+<script src="js/gfs-pending.js"></script>
 <link rel="stylesheet" href="../kit/css/tokens.css">
 <link rel="stylesheet" href="../kit/css/windows.css">
 <link rel="stylesheet" href="css/widget.css">

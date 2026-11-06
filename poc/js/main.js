@@ -5,7 +5,6 @@ import { $, show } from './dom.js';
 import { ICONS } from './icons.js';
 import { Theme } from '../../kit/js/theme.js';
 import { Ambiance } from '../../kit/js/ambiance.js';
-import { hostContract } from '../../kit/js/host.js';
 import { I18n } from '../../kit/js/i18n.js';
 import { GfsLink } from '../../kit/js/gfs-link.js';
 import { Dialogs } from '../../kit/js/dialogs.js';
@@ -91,20 +90,18 @@ Theme.init({ storageKey: 'formplus_theme' });
 // jamais sur l'aperçu/l'écran du répondant (#fill, .pv-* dans widget.css) : ils gardent l'aspect
 // que la personne a dessiné pour SON formulaire, pas celui de GFS (même principe que --accent*
 // via applyBranding, commentaire au sommet de widget.css).
-// Consigne GFS 017 : dans GFS (gfs=<n> dans l'adresse, mesuré tout de suite - kit/js/host.js, sans
-// attendre GfsLink.ready, déjà trop tard), la page se dessine sinon un instant dans ses couleurs
-// d'origine avant l'ambiance (66 à 100 ms mesurés par GFS). [data-gfs-pending] (widget.css) cache
-// le corps jusqu'à l'ambiance posée (ambiance.ready) ou, si GFS tarde ou que le kit manque, 2 s au
-// plus (même mécanisme que celui qu'Automation+ montre dans la 017) ; jamais seule, où rien
-// n'attend (hostContract renvoie null : l'attribut n'est même pas posé).
-const gfsPending = hostContract(location.search) != null;
-if (gfsPending) document.documentElement.setAttribute('data-gfs-pending', '');
+// Consigne GFS 017 : dans GFS, la page se dessine sinon un instant dans ses couleurs d'origine
+// avant l'ambiance (66 à 100 ms mesurés par GFS). [data-gfs-pending] (widget.css) cache le corps
+// jusqu'à l'ambiance posée (ambiance.ready) ou, si GFS tarde ou que le kit manque, 2 s au plus.
+// Consigne GFS 023 : POSÉ par js/gfs-pending.js (un script classique en <head>, avant les feuilles
+// - ce module, lui, s'exécute après la première image, trop tard : 76 ms mesurés contre 16 ms).
+// Retiré ici SANS CONDITION (jamais besoin de retester hostContract) : retirer un attribut absent
+// ne fait rien, ce qui évite tout risque d'écart entre le test volontairement simple de l'autre
+// script et celui-ci - seule, hors GFS, l'attribut n'est de toute façon jamais posé.
 const ambiance = Ambiance.start();
-if (gfsPending) {
-  const reveal = () => document.documentElement.removeAttribute('data-gfs-pending');
-  ambiance.ready.then(reveal);
-  setTimeout(reveal, 2000);
-}
+const revealGfsPending = () => document.documentElement.removeAttribute('data-gfs-pending');
+ambiance.ready.then(revealGfsPending);
+setTimeout(revealGfsPending, 2000);
 I18n.add(STRINGS);
 I18n.init({ storageKey: 'formplus_lang' });
 I18n.translateDom();
