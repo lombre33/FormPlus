@@ -1,8 +1,38 @@
 # GFS-ETAT : Form+
 
-Mis à jour le 2026-11-04, au commit `1d71b1d` (dernier commit de code que cette page décrit).
+Mis à jour le 2026-11-06, au commit `bf0ddce` (dernier commit de code que cette page décrit).
 
 ## Consignes
+- 023 · faite · lue · `bf0ddce` · l'attente d'ambiance arrive après la première image. Mesuré par
+  GFS : `[data-gfs-pending]`, posé par `poc/js/main.js` (un `<script type="module">`), arrivait à
+  76 ms - après la première image à 16 ms, laissant l'éclair des couleurs d'origine (017) entier.
+  `poc/js/gfs-pending.js`, un script CLASSIQUE (pas `type="module"`) chargé en `<head>` **avant les
+  feuilles**, pose maintenant l'attribut avant que le navigateur ne dessine quoi que ce soit (même
+  mécanisme que `js/theme.js` chez Automation+) ; il teste `location.search` par une expression
+  volontairement simple (`/[?&]gfs=\d/`), ne pouvant pas importer `hostContract` du kit (un module
+  ES). `main.js` garde le seul rôle de retirer l'attribut (`ambiance.ready`, ou 2 s de repli),
+  **sans condition** cette fois : retirer un attribut absent ne fait rien, ce qui évite tout écart
+  entre les deux tests. Vérifié en conditions réelles (Playwright, observateur posé avant la
+  navigation) : l'attribut est posé à 7 ms, avant la première image mesurée à 26 ms dans ce même
+  essai.
+- 022 · faite · lue · (déjà `1d71b1d`, la 019) · le kit répond à « fermer » (0.9.0). `kit/` est à
+  `eaa2ae2` (0.9.0) depuis la 019, et `GfsLink.onClose`/`onOpen` (main.js) portent déjà la règle
+  de la 019 (rien en attente sur `#config` : vrai aussitôt ; une réponse en cours sur `#fill` :
+  la question Quitter sans envoyer/Annuler). Rien de plus à faire.
+- 021 · lue, **bloquée sur le kit** · réponds à « dupliquer ». Form+ parle à GFS exclusivement par
+  `GfsLink` (`kit/js/gfs-link.js`), qui ne reconnaît que `ouvrir` et `fermer`
+  (`receiveCall` y répond `GFS_INCONNU` à tout autre nom, posté AUSSITÔT par son propre
+  `addEventListener('message', …)`, posé dès l'import du module). Un abonné que Form+ ajouterait
+  lui-même pour `dupliquer` recevrait certes le même évènement (`addEventListener` n'empêche pas
+  un second abonné), mais arriverait toujours APRÈS le `GFS_INCONNU` déjà posté par le kit pour ce
+  même `id` - la course est perdue à chaque fois, pas seulement en théorie. Comme pour la 019 avant
+  la 022 : sans un `GfsLink.onDuplicate(fn)` (même mécanisme que `onClose`), répondre à `dupliquer`
+  obligerait à dupliquer/forker le protocole du kit chez Form+, ce que la 022 dit vouloir éviter
+  (« ne pas dupliquer de code »). Prête à coder dès qu'un tel abonné existe dans le kit.
+- 020 · lue, **bloquée sur le kit** · même limite que la 021, pour `supprimer` : sans un
+  `GfsLink.onDelete(fn)` (ou équivalent) dans le kit, Form+ ne peut pas répondre à un appel que son
+  seul canal vers GFS (`GfsLink`) refuse déjà de lui-même avant qu'un abonné ajouté par Form+ n'ait
+  eu la moindre chance de répondre à temps.
 - 019 · faite · lue · `1d71b1d` · réponds à « fermer » : enregistre avant de laisser la place à
   une autre app. Ce que Form+ a « en attente » : sur `#config` (le concepteur), rien - chaque
   champ s'écrit tout de suite dans la section widget, pas de bouton « Enregistrer » (déjà vrai
