@@ -12,7 +12,7 @@ import { applyBranding, updateThemeToggleIcon } from './theme.js';
 import { STRINGS } from './strings.js';
 import { diag, hashParams, fragmentFormLink } from './diag.js';
 import { decideStartScreen } from './links.js';
-import { resolveMyDefinition, loadDefinitionByRowId } from './grist-meta.js';
+import { resolveMyDefinition, loadDefinitionByRowId, closeManagedFormPublicLink, duplicateManagedForm } from './grist-meta.js';
 import { state } from './state.js';
 import { showConfig } from './config-editor.js';
 import { renderFill, hasPendingFillAnswers } from './respond.js';
@@ -188,6 +188,30 @@ $('themeToggle').addEventListener('click', () => {
     // Consigne GFS 019 : GFS détruit le cadre de cette app dès que la réponse est { ferme: true } -
     // jamais avant, et jamais nous-mêmes (point 3 de la consigne).
     GfsLink.onClose(async () => confirmLeaveIfPending());
+    // Consigne GFS 020 (kit 0.10.0) : GFS met un fichier à la corbeille depuis son explorateur -
+    // ferme son lien public (closeManagedFormPublicLink, grist-meta.js) avant que GFS ne retire sa
+    // ligne de FormPlus_Formulaires (qu'il garde lui-même, pour la restaurer). Jamais le fichier
+    // qu'affiche CE cadre forcément : fichier.id vient de l'explorateur, pas de state.formRowId.
+    GfsLink.onDelete(async ({ fichier }) => {
+      try {
+        await closeManagedFormPublicLink(fichier.id);
+        return { fait: true, dit: I18n.t('form.gfs.deleteClosedLink') };
+      } catch (e) {
+        return { fait: false, dit: I18n.t('form.gfs.deleteFailed') };
+      }
+    });
+    // Consigne GFS 021 (kit 0.10.0) : GFS copie un fichier depuis son explorateur - duplicateManagedForm
+    // (grist-meta.js) copie la section native, la définition et les questions sous le nom déjà
+    // calculé par GFS, avec sa propre table de réponses vide, jamais publiée.
+    GfsLink.onDuplicate(async ({ fichier, nom }) => {
+      try {
+        const copy = await duplicateManagedForm(fichier.id, nom);
+        if (!copy) return { dit: I18n.t('form.gfs.duplicateNotFound') };
+        return { id: copy.id, dit: I18n.t('form.gfs.duplicateNotPublished') };
+      } catch (e) {
+        return { dit: I18n.t('form.gfs.duplicateFailed') };
+      }
+    });
   }
 
   grist.onOptions(async (opts, settings) => {

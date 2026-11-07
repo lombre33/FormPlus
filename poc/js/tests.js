@@ -19,6 +19,7 @@ import {
   otherManagedFormOnPage, isFormPlusOwnTable,
   ensureRespondentProbeTable, probeRespondentIdentity,
   getAttachmentColumns, parseAttachmentList, fetchAttachmentFileNames, downloadAttachmentAsDataUrl,
+  closeManagedFormPublicLink, duplicateManagedForm,
 } from './grist-meta.js';
 import { loadPluginApi, isPluginApiReady } from './plugin-loader.js';
 import { state } from './state.js';
@@ -2585,6 +2586,112 @@ export async function runTests() {
     unblockFirst(); // le 1er débloque enfin, APRÈS que le 2e ait été lancé
     await Promise.all([p1, p2]);
     assertEqual('la configuration finale reflète le DERNIER appel, jamais le premier même débloqué après', state.options.publicUrl, 'https://x/second');
+  });
+
+  // Consignes GFS 020/021 : fixture commune, une ligne FormPlus_Formulaires (id 1, vsId 12) dont
+  // la section native (12, table 10 « Reponses ») est publiée, avec deux questions qui écrivent
+  // dans la table principale (Nom/text, Note/number) et une question « secondaire » qui écrit
+  // dans une AUTRE table (writeTable « AutreTable », jamais recopiée - limite documentée dans
+  // GFS-ETAT.md).
+  function makeManagedFormFixture() {
+    const sectionsState = { id: [12], parentId: [7], parentKey: ['form'], tableRef: [10], shareOptions: ['{"publish":true,"form":true}'] };
+    const tablesState = { id: [10, 50, 90], tableId: ['Reponses', FORMULAIRES_TABLE, 'AutreTable'] };
+    const colsState = {
+      id: [1, 2], parentId: [10, 10], colId: ['Nom', 'Note'], type: ['Text', 'Numeric'],
+    };
+    const def = {
+      vsId: 12, formTitle: 'Original', formLink: 'https://x/forms/K/12', shareKey: 'K', publicUrl: 'https://x/pub',
+      questions: [
+        { id: 'q1', kind: 'text', writeTable: 'Reponses', writeCol: 'Nom' },
+        { id: 'q2', kind: 'number', writeTable: 'Reponses', writeCol: 'Note' },
+        { id: 'q3', kind: 'text', writeTable: 'AutreTable', writeCol: 'X' },
+      ],
+    };
+    const formulairesState = { id: [1], Definition: [JSON.stringify(def)] };
+    let nextTableRef = 100, nextSectionId = 200, nextRowId = 2;
+    const { grist, calls } = makeGristStub({
+      fetchTable: (t) => {
+        if (t === '_grist_Views_section') return { ...sectionsState };
+        if (t === '_grist_Tables') return { ...tablesState };
+        if (t === '_grist_Tables_column') return { ...colsState };
+        if (t === FORMULAIRES_TABLE) return { ...formulairesState };
+        return { id: [] };
+      },
+      onAction: (a) => {
+        if (a[0] === 'UpdateRecord' && a[1] === '_grist_Views_section') {
+          const idx = sectionsState.id.indexOf(a[2]);
+          if (idx >= 0 && a[3].shareOptions !== undefined) { const arr = [...sectionsState.shareOptions]; arr[idx] = a[3].shareOptions; sectionsState.shareOptions = arr; }
+        } else if (a[0] === 'AddTable') {
+          tablesState.id = [...tablesState.id, nextTableRef++];
+          tablesState.tableId = [...tablesState.tableId, a[1]];
+          const tref = tablesState.id[tablesState.id.length - 1];
+          for (const c of a[2]) { colsState.id = [...colsState.id, colsState.id.length + 1]; colsState.parentId = [...colsState.parentId, tref]; colsState.colId = [...colsState.colId, c.id]; colsState.type = [...colsState.type, c.type]; }
+        } else if (a[0] === 'CreateViewSection') {
+          const newId = nextSectionId++;
+          sectionsState.id = [...sectionsState.id, newId];
+          sectionsState.parentId = [...sectionsState.parentId, 300 + newId];
+          sectionsState.parentKey = [...sectionsState.parentKey, 'form'];
+          sectionsState.tableRef = [...sectionsState.tableRef, a[1]];
+          sectionsState.shareOptions = [...sectionsState.shareOptions, '{}'];
+          return { sectionRef: newId, viewRef: 300 + newId };
+        } else if (a[0] === 'AddRecord' && a[1] === FORMULAIRES_TABLE) {
+          const id = nextRowId++;
+          formulairesState.id = [...formulairesState.id, id];
+          formulairesState.Definition = [...formulairesState.Definition, a[3].Definition];
+          return id;
+        }
+      },
+    });
+    window.grist = grist;
+    return { calls, sectionsState, tablesState, colsState, formulairesState };
+  }
+
+  await group('closeManagedFormPublicLink (consigne GFS 020) : dépublie la section, ne touche à rien d’autre', async () => {
+    const { calls, sectionsState, formulairesState } = makeManagedFormFixture();
+    const ok = await closeManagedFormPublicLink(1);
+    assert('répond vrai', ok === true);
+    assertEqual('la section 12 est dépubliée', JSON.parse(sectionsState.shareOptions[sectionsState.id.indexOf(12)]), {});
+    assertEqual('la ligne FormPlus_Formulaires n’est jamais retirée (GFS la garde pour restaurer)', formulairesState.id.includes(1), true);
+    assertEqual('aucune écriture sur FormPlus_Formulaires', calls.flatMap(a => a).some(a => a[1] === FORMULAIRES_TABLE), false);
+
+    // Rappelée sur une section déjà fermée : aucune écriture de plus (idempotent).
+    const callsBefore = calls.length;
+    const again = await closeManagedFormPublicLink(1);
+    assertEqual('toujours vrai', again, true);
+    assertEqual('rien de plus écrit (déjà fermé)', calls.length, callsBefore);
+  });
+
+  await group('closeManagedFormPublicLink : ligne ou section introuvable -> vrai quand même (rien à bloquer)', async () => {
+    makeManagedFormFixture();
+    assertEqual('ligne absente', await closeManagedFormPublicLink(999), true);
+  });
+
+  await group('duplicateManagedForm (consigne GFS 021) : sa propre table vide, l’original intact, jamais publiée', async () => {
+    const { calls, sectionsState, tablesState, colsState, formulairesState } = makeManagedFormFixture();
+    const copy = await duplicateManagedForm(1, 'Original (1)');
+    assert('un identifiant de copie est rendu', copy && copy.id != null);
+    const copyDef = JSON.parse(formulairesState.Definition[formulairesState.id.indexOf(copy.id)]);
+    assertEqual('nom demandé par GFS repris', copyDef.formTitle, 'Original (1)');
+    assertEqual('vsId différent de l’original', copyDef.vsId !== 12 && copyDef.vsId != null, true);
+    assertEqual('jamais publiée : pas de lien/clé repris de l’original', [copyDef.formLink, copyDef.shareKey, copyDef.publicUrl], [null, null, null]);
+    assertEqual('les 2 questions de la table principale visent la nouvelle table', [copyDef.questions[0].writeTable, copyDef.questions[1].writeTable], [tablesState.tableId[tablesState.tableId.length - 1], tablesState.tableId[tablesState.tableId.length - 1]]);
+    assertEqual('la question qui écrit dans une AUTRE table n’est pas touchée (limite documentée)', copyDef.questions[2].writeTable, 'AutreTable');
+    const newTableId = copyDef.questions[0].writeTable;
+    const newTref = tablesState.id[tablesState.tableId.indexOf(newTableId)];
+    const newCols = [];
+    for (let i = 0; i < colsState.id.length; i++) if (colsState.parentId[i] === newTref) newCols.push(colsState.colId[i]);
+    assertEqual('la nouvelle table porte bien Nom et Note, rien de plus', newCols.sort(), ['Nom', 'Note']);
+    const newSectionIdx = sectionsState.id.indexOf(copyDef.vsId);
+    assertEqual('la copie n’est pas publiée (nouvelle page, sans aucune clé)', sectionsState.shareOptions[newSectionIdx], '{}');
+    const allActions = calls.flatMap(a => a);
+    assertEqual('le formulaire source (12) ne reçoit aucune écriture', allActions.some(a => a[0] === 'UpdateRecord' && a[1] === '_grist_Views_section' && a[2] === 12), false);
+    assertEqual('aucune ligne retirée (l’original reste intact)', allActions.some(a => a[0] === 'RemoveRecord' && a[1] === FORMULAIRES_TABLE), false);
+  });
+
+  await group('duplicateManagedForm : ligne ou section source introuvable -> null, rien de créé', async () => {
+    const { calls } = makeManagedFormFixture();
+    assertEqual('ligne absente', await duplicateManagedForm(999, 'X'), null);
+    assertEqual('aucune action Grist déclenchée', calls.length, 0);
   });
 
   // ensureTableGate n'avait jusqu'ici AUCUN test (contrairement à duplicateFormSection ci-dessus,

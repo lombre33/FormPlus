@@ -502,6 +502,15 @@ export const STRINGS = {
   'form.respond.leaveTitle': { fr: 'Quitter ce formulaire ?', en: 'Leave this form?' },
   'form.respond.leaveMsg': { fr: 'Votre réponse n’a pas encore été envoyée. Si vous partez maintenant, elle sera perdue.', en: 'Your response hasn’t been submitted yet. If you leave now, it will be lost.' },
   'form.respond.leaveConfirmBtn': { fr: 'Quitter sans envoyer', en: 'Leave without submitting' },
+
+  // Consignes GFS 020/021 : les phrases « dit » que Form+ rend à GfsLink.onDelete/onDuplicate -
+  // GFS les ajoute à la sienne, dans l'explorateur, pour dire à la personne ce que Form+ a fait de
+  // plus qu'une ligne retirée ou copiée (200 signes au plus, une seule ligne, jamais de HTML).
+  'form.gfs.deleteClosedLink': { fr: 'Son lien public est fermé.', en: 'Its public link is closed.' },
+  'form.gfs.deleteFailed': { fr: 'Impossible de fermer son lien public.', en: 'Could not close its public link.' },
+  'form.gfs.duplicateNotFound': { fr: 'Formulaire introuvable.', en: 'Form not found.' },
+  'form.gfs.duplicateNotPublished': { fr: 'Elle n’est pas publiée.', en: 'It isn’t published.' },
+  'form.gfs.duplicateFailed': { fr: 'Impossible de copier ce formulaire.', en: 'Could not duplicate this form.' },
 };
 
 // Enregistrée dès que ce module est importé (pas seulement depuis main.js) : config-editor.js

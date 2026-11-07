@@ -758,6 +758,102 @@ export async function otherManagedFormOnPage(page, excludeVsId) {
   return null;
 }
 
+// ───────────────────────── Réponses aux appels de GFS « supprimer »/« dupliquer » (consignes 020/021) ─────────────────────────
+// Lit une ligne de FormPlus_Formulaires par son identifiant, SANS jamais toucher au cache
+// state.formRowId/-VsId/-Title (contrairement à loadDefinitionByRowId, fait pour la porte "ouvrir"
+// de GFS, où la ligne lue EST ensuite la ligne affichée par ce widget) : « supprimer » et
+// « dupliquer » agissent sur un fichier qui n'est pas forcément celui déjà ouvert dans cette
+// instance - un enregistrement automatique qui suivrait écrirait sinon dans la ligne du mauvais
+// formulaire.
+async function readFormRow(rowId) {
+  const id = Number(rowId);
+  if (!Number.isFinite(id)) return null;
+  const table = await fetchMeta(FORMULAIRES_TABLE);
+  const idx = (table.id || []).indexOf(id);
+  if (idx < 0) return null;
+  let def = null; try { def = JSON.parse(table.Definition?.[idx] || 'null'); } catch (e) { /* ignore */ }
+  return def ? { rowId: table.id[idx], def } : null;
+}
+
+// Consigne GFS 020 : ferme le lien public d'un formulaire avant que GFS ne retire sa ligne de
+// FormPlus_Formulaires (il la garde lui-même, dans GFS_Corbeille, pour pouvoir la restaurer) -
+// Form+ ne touche à rien d'autre : ni la ligne, ni FormPlus_Pub_<vsId> et ses réponses, ni la
+// définition. Rend true si le lien est fermé (ou l'était déjà, ou la ligne/sa section n'existent
+// déjà plus - rien à fermer n'est pas une erreur) ; lève une erreur seulement si la fermeture
+// elle-même échoue (écriture refusée).
+export async function closeManagedFormPublicLink(rowId) {
+  const row = await readFormRow(rowId);
+  if (!row || row.def.vsId == null) return true;
+  const sections = await fetchMeta('_grist_Views_section');
+  const idx = sections.id.indexOf(row.def.vsId);
+  if (idx < 0) return true;
+  let opt = {}; try { opt = JSON.parse(sections.shareOptions[idx] || '{}') || {}; } catch (e) { /* ignore */ }
+  if (opt.publish || opt.form) {
+    await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section', row.def.vsId, { shareOptions: '{}' }]]);
+  }
+  return true;
+}
+
+// Consigne GFS 021 : copie un formulaire géré par Form+ en entier (sa section native, sa
+// définition, ses questions) sous le nom donné par GFS (le premier nom libre, déjà calculé par
+// lui), avec sa PROPRE table de réponses, vide - jamais celle du formulaire source, pour ne jamais
+// y mélanger les réponses déjà reçues par l'original avec celles, à venir, de la copie. Jamais
+// publiée : nouvelle page (createFormSectionOnNewPage), donc sans aucune clé de partage, comme un
+// formulaire créé de zéro (createEmptyForm) - la personne republie elle-même, à sa façon, quand
+// elle le veut.
+// Limite connue, documentée dans GFS-ETAT.md : seules les colonnes des questions qui écrivent dans
+// LA TABLE PRINCIPALE du formulaire source sont dupliquées ; une question qui écrit dans une AUTRE
+// table (combo « Écrire dans » de l'éditeur) continue de viser cette même autre table, partagée
+// avec l'original - recopier aussi cette autre table est hors de portée de cette consigne.
+// Rend null si la ligne source ou sa section n'existent plus (rien à copier, pas une erreur).
+export async function duplicateManagedForm(rowId, nom) {
+  const row = await readFormRow(rowId);
+  if (!row || row.def.vsId == null) return null;
+  const def = row.def;
+  const srcTableId = await getFormTableId(def.vsId);
+  if (!srcTableId) return null;
+
+  const questions = def.questions || [];
+  const mainColIds = [...new Set(questions.filter(q => q.writeCol && (q.writeTable || srcTableId) === srcTableId).map(q => q.writeCol))];
+  const colDefs = [];
+  if (mainColIds.length) {
+    const cols = await fetchMeta('_grist_Tables_column');
+    const tref = await getTableRef(srcTableId);
+    const typeByColId = {};
+    for (let i = 0; i < (cols.id || []).length; i++) if (cols.parentId[i] === tref) typeByColId[cols.colId[i]] = cols.type[i];
+    for (const colId of mainColIds) colDefs.push({ id: colId, type: typeByColId[colId] || 'Text' });
+  }
+
+  let newTableId = null;
+  {
+    const base = `${srcTableId}_copie`;
+    let name = base;
+    let n = 1;
+    while (await getTableRef(name)) { name = `${base}_${++n}`; }
+    await grist.docApi.applyUserActions([['AddTable', name, colDefs.length ? colDefs : [{ id: 'A', type: 'Text' }]]]);
+    if (await getTableRef(name)) newTableId = name;
+  }
+  if (!newTableId) throw new Error('Table de réponses introuvable après sa création.');
+  const newTref = await getTableRef(newTableId);
+  const { sectionId: newVsId, viewRef: newViewRef } = await createFormSectionOnNewPage(newTref, newTableId);
+  await clearAutoFields(newVsId);
+
+  const newQuestions = questions.map(q => (
+    (q.writeCol && (q.writeTable || srcTableId) === srcTableId) ? { ...q, writeTable: newTableId } : { ...q }
+  ));
+  const clone = {
+    ...def, vsId: newVsId, viewRef: null, sourceVsId: null, formLink: null, shareKey: null, publicUrl: null,
+    formTitle: nom, questions: newQuestions,
+  };
+  const res = await grist.docApi.applyUserActions([['AddRecord', FORMULAIRES_TABLE, null, {
+    Nom: nom, TypeFormulaire: 'formulaire', DateModif: Math.floor(Date.now() / 1000),
+    ModifiePar: 'Form+', Definition: JSON.stringify(clone),
+  }]]);
+  const newRowId = res.retValues?.[0];
+  if (newRowId == null) throw new Error('Copie créée, mais identifiant de ligne introuvable.');
+  return { id: newRowId };
+}
+
 // ───────────────────────── Mode interne : identité réelle du répondant ─────────────────────────
 // Mécanisme documenté par la communauté Grist, pas une API officielle (voir
 // formplus-identite-mode-interne.md, mémoire projet) : une colonne "formule déclencheur" (colonne
