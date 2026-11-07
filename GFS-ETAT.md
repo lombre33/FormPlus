@@ -1,8 +1,36 @@
 # GFS-ETAT : Form+
 
-Mis à jour le 2026-11-06, au commit `bf0ddce` (dernier commit de code que cette page décrit).
+Mis à jour le 2026-11-07, au commit `7057309` (dernier commit de code que cette page décrit).
 
 ## Consignes
+- 024 · faite · lue · `a8307be` · le kit répond à « supprimer » et « dupliquer » (0.10.0).
+  `kit/` relevé à `cb1f8cd` (0.10.0) : `GfsLink.onDelete`/`onDuplicate` existent, exactement le
+  crochet par geste que la carte du 06/11 avait choisi (même mécanisme que `onClose`, 0.9.0).
+  020 et 021 ci-dessous, faites dans le même lot.
+- 021 · faite · `7057309` · copie un formulaire en entier, sans le publier. `GfsLink.onDuplicate`
+  (main.js) appelle `duplicateManagedForm` (grist-meta.js) : copie la section native (une page
+  TOUTE NEUVE, donc sans aucune clé de partage - jamais publiée), la Définition (sous le nom déjà
+  calculé par GFS) et les questions, avec sa PROPRE table de réponses, VIDE (jamais celle de
+  l'original, pour ne jamais y mélanger une réponse déjà reçue avec une réponse à venir de la
+  copie). La copie reprend : ses questions, les colonnes de sa table principale (texte, nombre,
+  case, pièce jointe, et la colonne Référence cachée d'une question « Choix depuis une table »,
+  type compris) ; elle NE reprend PAS : les réponses déjà reçues par l'original (table neuve),
+  et - limite connue - une question qui écrit dans une AUTRE table que la table principale (combo
+  « Écrire dans » de l'éditeur) continue de viser cette même autre table, partagée avec
+  l'original. La personne republie la copie elle-même, comme tout formulaire parti de zéro
+  (Publier dans Grist, puis coller son lien dans Form+). Vérifié en conditions réelles (Grist
+  Docker, `tests/grist-env/`) : `AddTable` accepte bien un type `Ref:<table>` dans sa liste de
+  colonnes (jamais exercé ailleurs dans ce dépôt - `ensureChoiceField` ne crée les siennes que par
+  `AddColumn`), la nouvelle table reste à 0 ligne après la copie, et l'original ne reçoit aucune
+  écriture.
+- 020 · faite · `7057309` · ferme le lien public avant la corbeille. `GfsLink.onDelete` (main.js)
+  appelle `closeManagedFormPublicLink` (grist-meta.js) : dépublie la section native du formulaire
+  (`shareOptions` remis à `{}`, même mécanisme que la dépublication existante) - rien d'autre :
+  jamais la ligne de `FormPlus_Formulaires` (GFS la garde, pour la restaurer), jamais
+  `FormPlus_Pub_<vsId>` et ses réponses, jamais la définition. Idempotent (rappelable sans rien
+  écrire de plus si déjà fermé) ; répond vrai aussi si la ligne ou sa section n'existent déjà
+  plus (rien à bloquer). Vérifié en conditions réelles (même essai que la 021) : la section
+  redevient bien privée, la ligne reste présente.
 - 023 · faite · lue · `bf0ddce` · l'attente d'ambiance arrive après la première image. Mesuré par
   GFS : `[data-gfs-pending]`, posé par `poc/js/main.js` (un `<script type="module">`), arrivait à
   76 ms - après la première image à 16 ms, laissant l'éclair des couleurs d'origine (017) entier.
@@ -19,20 +47,6 @@ Mis à jour le 2026-11-06, au commit `bf0ddce` (dernier commit de code que cette
   `eaa2ae2` (0.9.0) depuis la 019, et `GfsLink.onClose`/`onOpen` (main.js) portent déjà la règle
   de la 019 (rien en attente sur `#config` : vrai aussitôt ; une réponse en cours sur `#fill` :
   la question Quitter sans envoyer/Annuler). Rien de plus à faire.
-- 021 · lue, **bloquée sur le kit** · réponds à « dupliquer ». Form+ parle à GFS exclusivement par
-  `GfsLink` (`kit/js/gfs-link.js`), qui ne reconnaît que `ouvrir` et `fermer`
-  (`receiveCall` y répond `GFS_INCONNU` à tout autre nom, posté AUSSITÔT par son propre
-  `addEventListener('message', …)`, posé dès l'import du module). Un abonné que Form+ ajouterait
-  lui-même pour `dupliquer` recevrait certes le même évènement (`addEventListener` n'empêche pas
-  un second abonné), mais arriverait toujours APRÈS le `GFS_INCONNU` déjà posté par le kit pour ce
-  même `id` - la course est perdue à chaque fois, pas seulement en théorie. Comme pour la 019 avant
-  la 022 : sans un `GfsLink.onDuplicate(fn)` (même mécanisme que `onClose`), répondre à `dupliquer`
-  obligerait à dupliquer/forker le protocole du kit chez Form+, ce que la 022 dit vouloir éviter
-  (« ne pas dupliquer de code »). Prête à coder dès qu'un tel abonné existe dans le kit.
-- 020 · lue, **bloquée sur le kit** · même limite que la 021, pour `supprimer` : sans un
-  `GfsLink.onDelete(fn)` (ou équivalent) dans le kit, Form+ ne peut pas répondre à un appel que son
-  seul canal vers GFS (`GfsLink`) refuse déjà de lui-même avant qu'un abonné ajouté par Form+ n'ait
-  eu la moindre chance de répondre à temps.
 - 019 · faite · lue · `1d71b1d` · réponds à « fermer » : enregistre avant de laisser la place à
   une autre app. Ce que Form+ a « en attente » : sur `#config` (le concepteur), rien - chaque
   champ s'écrit tout de suite dans la section widget, pas de bouton « Enregistrer » (déjà vrai
