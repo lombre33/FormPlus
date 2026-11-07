@@ -1,8 +1,31 @@
 # GFS-ETAT : Form+
 
-Mis à jour le 2026-11-07, au commit `7057309` (dernier commit de code que cette page décrit).
+Mis à jour le 2026-11-07, au commit `886c550` (dernier commit de code que cette page décrit).
 
 ## Consignes
+- 027 · lue · aucun code à changer. Form+ n'écrit, ne lit et n'a jamais écrit aucune colonne
+  `Auteur`, `Visibilite`, `Personnes` ni `Espace` (vérifié : aucune occurrence dans `poc/js/`) -
+  `GFS_Auteur` et les autres colonnes `GFS_…` restent tolérées sans y toucher. Pour le refus
+  d'écriture annoncé (« Blocked by row update access rules ») une fois le partage activé : les deux
+  nouveaux appels qui ÉCRIVENT dans un fichier `FormPlus_Formulaires` au nom de la personne
+  (`GfsLink.onDelete`/`onDuplicate`, consignes 020/021) attrapent déjà toute erreur et répondent
+  `{fait:false}`/`{dit:…}` à GFS plutôt que de planter ou de réessayer (`try`/`catch`, main.js) ;
+  `saveConfig` (l'enregistrement normal d'un formulaire dans l'éditeur) fait de même depuis
+  longtemps, affiche « non enregistré » plutôt que de planter. Pas encore vérifié un par un : les
+  autres écritures de l'éditeur (nouvelle question, nouvelle colonne…) suivent le même chemin
+  (`saveConfig`), jamais essayées précisément sous un partage actif en lecture seule - à affiner si
+  GFS le rejoue et trouve un plantage.
+- 026 · lue · faite · `886c550` · point 3 pris : pas de fenêtre d'accord pour la table de la copie,
+  mais `dit` le dit. L'hypothèse de GFS est le choix de Form+ : une fenêtre à l'appel `dupliquer`
+  attendrait un clic sur un écran pas forcément affiché (l'appel vient de l'explorateur, pas
+  forcément de Form+ au premier plan) - elle resterait invisible, et GFS abandonnerait l'appel au
+  bout de 20 s en disant à la personne que Form+ ne répond pas, pire que l'absence de fenêtre. Le
+  geste « Dupliquer » lui-même, déjà demandé explicitement sur un formulaire dont la personne sait
+  qu'il a sa table de réponses, en tient lieu. `duplicateManagedForm` rend maintenant aussi le nom
+  de la nouvelle table ; `dit` le dit (« Elle n'est pas publiée. Ses réponses iront dans une
+  nouvelle table, « … », vide. »), pour que la personne le sache sans avoir à cliquer. Rejeu
+  mesuré par GFS (25 vérifications, FR/EN, aucune en échec) pris en compte, rien à corriger côté
+  Form+ au-delà du point 3.
 - 024 · faite · lue · `a8307be` · le kit répond à « supprimer » et « dupliquer » (0.10.0).
   `kit/` relevé à `cb1f8cd` (0.10.0) : `GfsLink.onDelete`/`onDuplicate` existent, exactement le
   crochet par geste que la carte du 06/11 avait choisi (même mécanisme que `onClose`, 0.9.0).
