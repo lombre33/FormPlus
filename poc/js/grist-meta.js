@@ -851,7 +851,11 @@ export async function duplicateManagedForm(rowId, nom) {
   }]]);
   const newRowId = res.retValues?.[0];
   if (newRowId == null) throw new Error('Copie créée, mais identifiant de ligne introuvable.');
-  return { id: newRowId };
+  // Consigne GFS 026, point 3 : la copie crée une table (newTableId, la table de réponses du
+  // formulaire copié) sans fenêtre d'accord - choix délibéré, jamais un oubli (voir le commentaire
+  // au-dessus de l'appel à GfsLink.onDuplicate, main.js) : rendu ici pour que main.js le dise dans
+  // `dit`, à la personne qui a cliqué « Dupliquer ».
+  return { id: newRowId, tableId: newTableId };
 }
 
 // ───────────────────────── Mode interne : identité réelle du répondant ─────────────────────────

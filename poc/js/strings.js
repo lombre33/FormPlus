@@ -509,7 +509,7 @@ export const STRINGS = {
   'form.gfs.deleteClosedLink': { fr: 'Son lien public est fermé.', en: 'Its public link is closed.' },
   'form.gfs.deleteFailed': { fr: 'Impossible de fermer son lien public.', en: 'Could not close its public link.' },
   'form.gfs.duplicateNotFound': { fr: 'Formulaire introuvable.', en: 'Form not found.' },
-  'form.gfs.duplicateNotPublished': { fr: 'Elle n’est pas publiée.', en: 'It isn’t published.' },
+  'form.gfs.duplicateNotPublished': { fr: 'Elle n’est pas publiée. Ses réponses iront dans une nouvelle table, « {table} », vide.', en: 'It isn’t published. Its answers will go to a new, empty table, “{table}”.' },
   'form.gfs.duplicateFailed': { fr: 'Impossible de copier ce formulaire.', en: 'Could not duplicate this form.' },
 };
 

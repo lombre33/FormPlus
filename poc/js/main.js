@@ -203,11 +203,20 @@ $('themeToggle').addEventListener('click', () => {
     // Consigne GFS 021 (kit 0.10.0) : GFS copie un fichier depuis son explorateur - duplicateManagedForm
     // (grist-meta.js) copie la section native, la définition et les questions sous le nom déjà
     // calculé par GFS, avec sa propre table de réponses vide, jamais publiée.
+    // Consigne GFS 026, point 3 : cette table nouvelle naît sans fenêtre d'accord (guide 1.1,
+    // règle 4) - choix délibéré, pas un oubli. Une fenêtre à ce moment précis attendrait un clic
+    // de la personne alors que Form+ n'est pas forcément l'écran affiché (GFS vient de l'appeler
+    // depuis son explorateur) : elle resterait invisible, et GFS abandonnerait l'appel au bout de
+    // 20 s (contrats 5.4) en disant à la personne que Form+ ne répond pas - pire que l'absence de
+    // fenêtre. Le geste « Dupliquer » lui-même, déjà explicitement demandé par la personne sur UN
+    // formulaire dont elle sait qu'il a sa table de réponses, en tient lieu (hypothèse de GFS,
+    // reprise ici) ; `dit` dit quand même le nom de cette table, pour qu'elle le sache sans avoir
+    // à cliquer.
     GfsLink.onDuplicate(async ({ fichier, nom }) => {
       try {
         const copy = await duplicateManagedForm(fichier.id, nom);
         if (!copy) return { dit: I18n.t('form.gfs.duplicateNotFound') };
-        return { id: copy.id, dit: I18n.t('form.gfs.duplicateNotPublished') };
+        return { id: copy.id, dit: I18n.t('form.gfs.duplicateNotPublished', { table: copy.tableId }) };
       } catch (e) {
         return { dit: I18n.t('form.gfs.duplicateFailed') };
       }

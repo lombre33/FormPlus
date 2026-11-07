@@ -2670,6 +2670,10 @@ export async function runTests() {
     const { calls, sectionsState, tablesState, colsState, formulairesState } = makeManagedFormFixture();
     const copy = await duplicateManagedForm(1, 'Original (1)');
     assert('un identifiant de copie est rendu', copy && copy.id != null);
+    // Consigne GFS 026, point 3 : main.js lit copy.tableId pour le dire dans `dit` (GfsLink.onDuplicate)
+    // - jamais de fenêtre d'accord à ce moment (voir son commentaire), mais la personne apprend
+    // quand même le nom de la table née pour sa copie.
+    assertEqual('tableId rendu, celui de la nouvelle table', copy.tableId, tablesState.tableId[tablesState.tableId.length - 1]);
     const copyDef = JSON.parse(formulairesState.Definition[formulairesState.id.indexOf(copy.id)]);
     assertEqual('nom demandé par GFS repris', copyDef.formTitle, 'Original (1)');
     assertEqual('vsId différent de l’original', copyDef.vsId !== 12 && copyDef.vsId != null, true);
