@@ -412,6 +412,20 @@ Mis à jour le 2026-11-07, au commit `886c550` (dernier commit de code que cette
     consentement que pour un document qui n'a encore aucun formulaire FormPlus.
 
 ## Changements qui touchent GFS
+- 2026-11-09 · `c32ae54` · guide de publication après « Nouveau > Formulaire > Partir de zéro »
+  (`poc/js/publish-guide.js`, demande d'Antoine : un message très long qui ne disait pas où était la
+  page créée). Mesuré sur un vrai Grist : la page que `CreateViewSection(…, 0, 'form')` pose s'appelle
+  « New page », tout en bas de la liste ; Form+ la renomme « Formulaire <table> » et déroule 3 étapes
+  (ouvrir la page, Publier, copier le lien et le coller). Côté GFS, ce que ça lit/écrit en plus :
+  **écriture de `_grist_Views.name`** dans un lot À PART (refus toléré : la page garde « New page »,
+  le guide le dit tel quel) ; lecture de `_grist_Views_section.shareOptions` (déjà déclarée) toutes
+  les 2,5 s tant que le guide attend la publication ; `getAccessToken({ readOnly: true })` (« jeton »,
+  déjà déclaré) pour composer l'adresse de la page ; `GfsLink.storageSet('formplus_pending_guide', …)`
+  (table, page et section en attente de publication, pour reprendre le guide après un rechargement :
+  dans GFS, quitter la page de GFS pour celle du formulaire recharge le cadre, et « Nouveau » retrouve
+  alors le guide au lieu de recréer une deuxième page). Dans GFS le guide donne l'adresse de la page
+  **à copier** plutôt qu'un lien : un onglet ouvert depuis le cadre hérite de son bac à sable (contrats
+  1.3, point 1) et Grist n'y marcherait pas.
 - 2026-11-02 · `df2dc1e`…`16cf6b1` (consignes 013 et 012, cette page) · la colonne Référence cachée
   `FormPlusDef` (apparue à la 008) n'existe plus : chaque formulaire publié a maintenant sa PROPRE
   table d'une seule ligne (`FormPlus_Pub_<vsId>`, type `Ref:FormPlus_Pub_<vsId>` affichant
@@ -468,6 +482,16 @@ Mis à jour le 2026-11-07, au commit `886c550` (dernier commit de code que cette
 (aucune en attente)
 
 ## Demandes à GFS
+- manifeste · `gristInterne` · `_grist_Views` · `lit: true`, `ecrit: ["name"]` · pour nommer la page
+  du formulaire créé « Formulaire <table> » au lieu de « New page » (que le moteur de Grist pose,
+  en anglais, tout en bas de la liste des pages, et que la personne ne retrouve pas). Un seul
+  `UpdateRecord` par formulaire créé, dans son propre lot. Sans cette entrée, rien ne casse : le
+  courtier refuse, Form+ garde « New page » et le dit (`poc/js/grist-meta.js`, `nameFormPage`).
+- kit/courtier · ouvrir une page du document dans un onglet **hors cage** (par exemple
+  `GfsLink.openPage(page)`, qui ferait `window.open` depuis GFS lui-même, non isolé) · le bouton
+  « Ouvrir la page » de Form+ ne peut aujourd'hui qu'être un lien en nouvel onglet, qui hérite du bac
+  à sable de GFS : Form+ remplace donc ce bouton par « Copier l'adresse de la page » quand GFS
+  l'héberge. Dès que le kit expose ce verbe, Form+ l'appelle (un changement de `publish-guide.js`).
 - leaflet · 1.9.4 · type de question « Lieu sur carte » (`poc/js/kinds.js`, `poc/js/respond.js`) ·
   en attente de l'entrée de Form+ dans GFS (décision du porteur, consigne 006) ; d'ici là, le
   chargement autonome (`window.FORMPLUS_ENABLE_MAP`, unpkg) reste le mécanisme hors GFS
