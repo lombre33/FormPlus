@@ -144,6 +144,11 @@ pour lire lui-même la clé de partage, avec comme témoin les vraies clés de `
   propriétaire dont `/sql`, `/download` et la base entière (aucune clé) ; le jeton `getAccessToken` (ne donne ni la
   clé ni l'accès public du document : 403) ; la WebSocket ouverte depuis une autre origine (refusée, code 1006,
   alors que la même adresse ouverte depuis la page Grist s'ouvre).
+- **L'affichage du lien et le bouton « Copier le lien »** : la clé y transite (serveur, WebSocket, page Grist), mais
+  hors de portée du widget. Il vit dans un iframe d'une autre origine : la page Grist qui affiche le lien lui est
+  illisible (`SecurityError`), le référent ne porte pas la clé, et Grist ne lui délègue que `clipboard-write`
+  (`WidgetFrame.js`, `allow: "clipboard-write"`) : `navigator.clipboard.readText()` est refusé par la politique
+  de permissions. Le seul chemin est donc ce que la personne colle elle-même (événement `paste`, Ctrl+V), ce que fait le guide.
 - **Ce qui marche en revanche** : un widget peut **publier à la place de la personne**. Les trois actions du bouton
   Publier (`AddRecord _grist_Shares {linkId, options}`, `UpdateRecord _grist_Pages {shareRef}`,
   `UpdateRecord _grist_Views_section {shareOptions}`) créent la clé côté serveur, le formulaire répond en anonyme tout

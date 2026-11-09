@@ -250,6 +250,23 @@ const owner = () => ({ Authorization: `Bearer ${apiKey()}` });
   await grist2.getByText('Copier le lien', { exact: true }).click();
   const clip = await grist2.evaluate(() => navigator.clipboard.readText());
   expect('le bouton « Copier le lien » de Grist donne /forms/<clé du serveur>/<section> (c’est LE geste qui reste à la personne)', clip.includes(`/forms/${serverKey}/${made.sectionRef}`), clip);
+
+  // ─── 7. Le lien affiché et copié par Grist : le widget peut-il le récupérer ? ───
+  section('7. Le lien que Grist affiche puis place dans le presse-papiers, vu depuis le widget');
+  await page.bringToFront();
+  await w.locator('body').click({ position: { x: 5, y: 5 } }).catch(() => {});
+  const seen = await w.evaluate(async () => {
+    const out = {};
+    try { out.clipboard = `LU : ${await navigator.clipboard.readText()}`; } catch (e) { out.clipboard = `refusé (${String(e.message || e).slice(0, 110)})`; }
+    try { out.parentDom = `LU : ${window.parent.document.body.innerText.slice(0, 20)}`; } catch (e) { out.parentDom = `refusé (${e.name})`; }
+    out.referrer = document.referrer;
+    out.iframeAllow = window.frameElement ? 'accessible' : 'inaccessible (autre origine)';
+    return out;
+  });
+  console.log(`   presse-papiers : ${seen.clipboard}\n   DOM de la page Grist (où le lien s'affiche) : ${seen.parentDom}\n   référent : ${seen.referrer}`);
+  expect('le widget ne peut pas lire le presse-papiers que « Copier le lien » vient de remplir', seen.clipboard.startsWith('refusé'), seen.clipboard);
+  expect('le widget ne peut pas lire la page Grist qui affiche le lien (autre origine)', seen.parentDom.startsWith('refusé'), seen.parentDom);
+  expect('le référent ne porte pas la clé', !leaks(seen.referrer).length && !seen.referrer.includes(serverKey));
   await w.evaluate((t) => grist.docApi.applyUserActions([['RemoveTable', t]]), probeTable).catch(() => {});
 
   await browser.close();
