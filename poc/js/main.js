@@ -44,6 +44,10 @@ function resetToNewForm() {
   state.options = {}; state.currentLink = null; state.currentFormSection = null; state.cfgQuestions = [];
   state.formRowId = null; state.formRowVsId = null; state.formRowTitle = undefined;
   if (GfsLink.hosted) GfsLink.storageSet(GFS_OPEN_ROW_KEY, null);
+  // Un guide de publication non terminé (publish-guide.js) n'est PAS jeté ici : dans GFS, ouvrir la
+  // page du formulaire dans Grist quitte la page de GFS, qui se recharge au retour - le seul moyen
+  // de retrouver le guide est alors « Nouveau », que showConfig() reprend (resumePublishGuide).
+  // « ‹ Choisir une autre méthode », en haut du guide, est la sortie de qui veut repartir de zéro.
 }
 
 // Consigne GFS 019 : GFS appelle « fermer » (onClose) avant de remplacer cette app par une autre,

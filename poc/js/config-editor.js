@@ -12,12 +12,13 @@ import { diag } from './diag.js';
 import {
   fetchMeta, getTableRef, tableIdOfRef, columnOptions,
   ensureTableGate, ensureChoiceField, ensureRefListField, ensureFreeColumn,
-  findViewRefForSection, findMyWidgetPage, ensureFormulairesTable, ensureRespondentDefinitionField, saveFormDefinition, fetchManagedVsIds,
+  findViewRefForSection, ensureFormulairesTable, ensureRespondentDefinitionField, saveFormDefinition, fetchManagedVsIds,
   duplicateFormSection, clearAutoFields, createFormSectionOnNewPage, otherManagedFormOnPage, getColumnType, KIND_TO_GRIST_TYPE,
   ensureRespondentProbeTable, isFormPlusOwnTable,
   getAttachmentColumns, parseAttachmentList, fetchAttachmentFileNames, downloadAttachmentAsDataUrl,
 } from './grist-meta.js';
 import { state } from './state.js';
+import { startPublishGuide, resumePublishGuide, forgetPublishGuide, initPublishGuide } from './publish-guide.js';
 import { renderFill, layoutOrder, renderNativeField } from './respond.js';
 import { blobToResizedDataUrl, imageBlockHtml, IMAGE_WIDTH_PRESETS, IMAGE_DEFAULT_WIDTH } from './image-block.js';
 
@@ -112,8 +113,11 @@ export async function saveConfig(publicUrl, widgetPage) {
   return saveChain;
 }
 
-export async function generate() {
-  const msg = $('cfg-msg');
+// `msgEl` : l'élément où écrire l'avancement et les refus. Par défaut celui de l'écran « Coller un
+// lien » ; le guide de publication (publish-guide.js) passe le sien, puisque ce premier est caché
+// pendant le guide. (Appelée par un clic, l'argument est un événement : sans msgEl, donc le défaut.)
+export async function generate(opts) {
+  const msg = (opts && opts.msgEl) || $('cfg-msg');
   // Verrou de ré-entrance : le bouton et la touche Entrée appellent tous les deux generate()
   // sans jamais s'attendre l'un l'autre. Sans ce verrou, un double-clic ou un Entrée suivi d'un
   // clic sur un lien jamais encore configuré lance deux duplicateFormSection() en parallèle
@@ -224,6 +228,7 @@ export async function generate() {
     // juste après l'action la plus importante du parcours (bug relevé le 4 nov 2026, audit UI/UX
     // de cette date). Même geste que showConfig()/« Changer de formulaire source » ci-dessous.
     $('step1').classList.add('hidden');
+    forgetPublishGuide(); // le formulaire est lié : plus rien à attendre du guide de publication, ni à reprendre
     $('editor').classList.remove('hidden');
     renderQuestionList();
     showEditorTab('questions');
@@ -323,13 +328,14 @@ $('edit').addEventListener('click', showConfig);
 
 // ───────────────────────── Créer un formulaire natif vide depuis FormPlus ─────────────────────────
 // Automatise la seule partie sans risque : la table (créée si besoin) et une section Formulaire
-// native VIDE sur la page de ce widget, avec CreateViewSection (même action que ensureTableGate,
-// ligne ~365). Ce qui reste manuel, volontairement : cliquer Publier puis Copier le lien. Aucune
-// méthode de l'API plugin n'expose la clé de partage secrète que "Publier" génère (_grist_Shares) ;
-// il n'y a donc pas moyen d'automatiser cette dernière étape sans passer par un compte propriétaire
-// en dehors du widget (voir docs/01-etude-comparative.md).
+// native VIDE sur une page neuve, avec CreateViewSection (même action que ensureTableGate). Ce qui
+// reste manuel, volontairement : Publier, Partager, Copier le lien - le guide de publication
+// (publish-guide.js) le déroule en 3 étapes. Aucune méthode de l'API plugin n'expose la clé de
+// partage secrète que "Publier" génère (_grist_Shares) ; il n'y a donc pas moyen d'automatiser
+// cette dernière étape sans passer par un compte propriétaire en dehors du widget (voir
+// docs/01-etude-comparative.md).
 // ───────────────────────── Démarrage : tuiles + panneau déplié, un seul à la fois ─────────────────────────
-const START_VIEWS = { choices: 'start-choices', existing: 'start-panel-existing', scratch: 'start-panel-scratch', link: 'start-panel-link' };
+const START_VIEWS = { choices: 'start-choices', existing: 'start-panel-existing', scratch: 'start-panel-scratch', link: 'start-panel-link', guide: 'start-panel-guide' };
 export function showStartView(view) {
   state.startView = view;
   Object.entries(START_VIEWS).forEach(([v, id]) => $(id).classList.toggle('hidden', v !== view));
@@ -362,53 +368,43 @@ $('step1').addEventListener('click', (e) => {
 setScratchMode('new');
 $('scratchCreate').addEventListener('click', createEmptyForm);
 
+// Le guide de publication prend la suite (publish-guide.js) : il affiche ses vues par showStartView
+// et prépare le formulaire par generate() quand le lien collé est reconnu.
+initPublishGuide({
+  show: showStartView,
+  onLink: (link, msgEl) => { $('link').value = link; return generate({ msgEl }); },
+});
+
 export async function createEmptyForm() {
   const msg = $('scratch-msg');
-  const widgetPage = await findMyWidgetPage();
-  if (!widgetPage) {
-    msg.innerHTML = `<span class="err">${I18n.t('form.editor.widgetPageUnreadable')}</span>`;
-    return;
-  }
-
-  if (state.scratchMode === 'existing') {
-    const tableId = scratchExistingCombo.value;
-    if (!tableId) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.pickTable')}</span>`; return; }
-    msg.textContent = I18n.t('form.editor.creating');
-    try {
-      const tref = await getTableRef(tableId);
-      // Sur une page TOUTE NEUVE (jamais celle du widget, jamais celle d'un autre formulaire déjà
-      // géré) : consigne GFS 013, point 2, et 012, point 2 (même cause - poser la section sur la
-      // page du widget la rechargeait, voir createFormSectionOnNewPage, grist-meta.js).
-      const { sectionId } = await createFormSectionOnNewPage(tref, tableId);
-      // CreateViewSection remplit la nouvelle section d'un champ par colonne de la table : sans
-      // ce nettoyage, une table existante déjà pourvue de colonnes donnerait un formulaire natif
-      // rempli de tous ses champs, pas « vide » comme annoncé ci-dessous.
-      await clearAutoFields(sectionId);
-      msg.innerHTML = `<span class="ok">${I18n.t('form.editor.emptyFormCreated', { table: esc(tableId) })}</span>`;
-    } catch (e) {
-      msg.innerHTML = `<span class="err">${I18n.t('form.editor.genericError', { message: esc(e.message) })}</span>`;
-    }
-    return;
-  }
-
-  const name = $('scratchTable').value.trim();
-  if (!name) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.giveTableName')}</span>`; return; }
+  const useExisting = state.scratchMode === 'existing';
+  const wanted = useExisting ? scratchExistingCombo.value : $('scratchTable').value.trim();
+  if (!wanted) { msg.innerHTML = `<span class="err">${I18n.t(useExisting ? 'form.editor.pickTable' : 'form.editor.giveTableName')}</span>`; return; }
   msg.textContent = I18n.t('form.editor.creating');
   try {
-    const existingRef = await getTableRef(name);
-    let tableId = existingRef ? name : null;
-    if (!tableId) {
+    let tableId = wanted;
+    if (!useExisting && !(await getTableRef(wanted))) {
       const before = await fetchMeta('_grist_Tables');
-      await grist.docApi.applyUserActions([['AddTable', name, [{ id: 'A', type: 'Text' }]]]);
+      await grist.docApi.applyUserActions([['AddTable', wanted, [{ id: 'A', type: 'Text' }]]]);
       const after = await fetchMeta('_grist_Tables');
       tableId = after.tableId.find(t => !before.tableId.includes(t));
       if (!tableId) throw new Error(I18n.t('form.editor.tableCreateFailed'));
     }
     const tref = await getTableRef(tableId);
-    const { sectionId } = await createFormSectionOnNewPage(tref, tableId);
+    // Sur une page TOUTE NEUVE (jamais celle du widget, jamais celle d'un autre formulaire déjà
+    // géré) : consigne GFS 013, point 2, et 012, point 2 (même cause - poser la section sur la page
+    // du widget la rechargeait, voir createFormSectionOnNewPage, grist-meta.js). La page du widget
+    // n'a donc plus à être retrouvée ici : avant le 9 nov 2026 elle l'était quand même, et un
+    // document portant plusieurs widgets personnalisés faisait échouer toute la création (GFS
+    // compris, où le référent est celui de GFS).
+    const { sectionId, viewRef } = await createFormSectionOnNewPage(tref, tableId);
+    // CreateViewSection remplit la nouvelle section d'un champ par colonne de la table : sans ce
+    // nettoyage, une table déjà pourvue de colonnes donnerait un formulaire natif rempli de tous
+    // ses champs, pas « vide » comme annoncé.
     await clearAutoFields(sectionId);
-    msg.innerHTML = `<span class="ok">${I18n.t('form.editor.emptyFormCreated', { table: esc(tableId) })}</span>`;
-    $('scratchTable').value = '';
+    msg.textContent = '';
+    if (!useExisting) $('scratchTable').value = '';
+    await startPublishGuide({ tableId, viewRef, sectionId });
   } catch (e) {
     msg.innerHTML = `<span class="err">${I18n.t('form.editor.genericError', { message: esc(e.message) })}</span>`;
   }
@@ -1658,6 +1654,10 @@ export async function showConfig() {
         if (!state.editorTabPicked) showEditorTab('questions');
       }
     }
+  } else {
+    // Un formulaire créé juste avant un rechargement (la page ouverte par la barre latérale de Grist
+    // au lieu du bouton du guide) : on reprend le guide là où il en était, pas l'écran de départ.
+    try { await resumePublishGuide(); } catch (e) { diag({ event: 'resumePublishGuideFailed', message: e && e.message }); }
   }
 }
 

@@ -38,10 +38,10 @@ export const STRINGS = {
   },
   'form.scratch.pickExistingLabel': { fr: 'Table à utiliser', en: 'Table to use' },
   'form.scratch.existingHint': {
-    fr: 'FormPlus crée un formulaire natif vide sur cette page, relié à cette table existante.',
-    en: 'FormPlus creates an empty native form on this page, linked to this existing table.',
+    fr: 'FormPlus ajoute à Grist une nouvelle page avec un formulaire vide, relié à cette table existante.',
+    en: 'FormPlus adds a new page to Grist with an empty form, linked to this existing table.',
   },
-  'form.scratch.createBtn': { fr: 'Créer un formulaire natif vide', en: 'Create an empty native form' },
+  'form.scratch.createBtn': { fr: 'Créer le formulaire', en: 'Create the form' },
 
   // ───────────────────────── widget.html : lien d'un formulaire existant ─────────────────────────
   'form.link.label': { fr: "Lien du formulaire (bouton « Copier le lien » du formulaire)", en: 'Form link (the form\'s "Copy link" button)' },
@@ -222,18 +222,68 @@ export const STRINGS = {
   'form.editor.copyFallbackMsg': { fr: 'Copiez cette adresse :', en: 'Copy this address:' },
 
   // createEmptyForm()
-  'form.editor.widgetPageUnreadable': {
-    fr: 'Impossible de déterminer la page de ce widget (adresse de la page Grist illisible). Créez le formulaire manuellement depuis Grist : Ajouter une page → Formulaire.',
-    en: "Could not determine this widget's page (the Grist page address is unreadable). Create the form manually from Grist: Add page → Form.",
-  },
   'form.editor.pickTable': { fr: 'Choisissez une table.', en: 'Choose a table.' },
   'form.editor.creating': { fr: 'Création en cours…', en: 'Creating…' },
-  'form.editor.emptyFormCreated': {
-    fr: 'Formulaire natif vide créé sur une NOUVELLE page pour la table « {table} » (jamais la page de ce widget, et jamais celle d\'un autre formulaire : chacun garde sa propre clé de partage). Ouvrez cette nouvelle page, cliquez sur <strong>Publier</strong> dans ce formulaire, puis <strong>Copier le lien</strong>, et collez-le ci-dessus. Dès la publication, n\'importe qui avec ce lien pourra ajouter des lignes à « {table} » (dans toutes les colonnes que vous y ajouterez, y compris celles que le formulaire ne montre pas), mais jamais en lire, modifier ou supprimer une.',
-    en: 'Empty native form created on a NEW page for table "{table}" (never this widget\'s own page, and never another form\'s page: each one keeps its own share key). Open that new page, click <strong>Publish</strong> in this form, then <strong>Copy link</strong>, and paste it above. Once published, anyone with that link will be able to add rows to "{table}" (in any column you add there, including ones the form does not show), but never read, change, or delete one.',
-  },
   'form.editor.giveTableName': { fr: 'Indiquez un nom de table.', en: 'Enter a table name.' },
   'form.editor.tableCreateFailed': { fr: "La table n'a pas pu être créée.", en: 'The table could not be created.' },
+
+  // ───────────────────────── publish-guide.js : guide de publication (après « Créer le formulaire ») ─────────────────────────
+  // Les noms de boutons (Publier, Partager, Copier le lien, Aperçu) sont ceux de Grist dans la langue du
+  // widget, qui suit celle de Grist : mesurés sur un vrai Grist en français (9 nov 2026).
+  'form.guide.pageName': { fr: 'Formulaire {table}', en: 'Form {table}' },
+  'form.guide.cancel': { fr: '‹ Choisir une autre méthode', en: '‹ Choose another method' },
+  'form.guide.title': { fr: 'Publiez votre formulaire dans Grist', en: 'Publish your form in Grist' },
+  'form.guide.stepOf': { fr: 'Étape {n} sur 3', en: 'Step {n} of 3' },
+  'form.guide.intro': {
+    fr: 'La table « {table} » est prête. Trois gestes, puis vous ajoutez vos questions.',
+    en: 'Table "{table}" is ready. Three steps, then you add your questions.',
+  },
+  'form.guide.s1.title': { fr: 'Ouvrez la page du formulaire', en: 'Open the form page' },
+  'form.guide.s1.titleDone': { fr: 'Page ouverte', en: 'Page opened' },
+  'form.guide.s1.text': {
+    fr: 'Form+ a ajouté la page <strong>{page}</strong> à la fin de la liste des pages de Grist.',
+    en: 'Form+ added the page <strong>{page}</strong> at the end of the Grist page list.',
+  },
+  'form.guide.s1.open': { fr: 'Ouvrir la page', en: 'Open the page' },
+  'form.guide.s1.copy': { fr: "Copier l'adresse de la page", en: 'Copy the page address' },
+  'form.guide.s1.copied': { fr: 'Adresse copiée', en: 'Address copied' },
+  'form.guide.s1.pasteInTab': { fr: 'Collez-la dans un nouvel onglet de votre navigateur : cet onglet reste ouvert ici.', en: 'Paste it into a new browser tab: this tab stays open here.' },
+  'form.guide.s1.noLink': { fr: 'Elle est tout en bas de la liste des pages, à gauche.', en: 'It is at the very bottom of the page list, on the left.' },
+  'form.guide.s1.already': { fr: 'Je suis déjà dessus', en: "I'm already on it" },
+  'form.guide.s1.openedBtn': { fr: "J'ai ouvert la page", en: 'I opened the page' },
+  'form.guide.s1.here': { fr: '← ici', en: '← here' },
+  'form.guide.pageGone': {
+    fr: 'La page « {page} » n\'existe plus dans Grist. Choisissez une autre méthode pour recommencer.',
+    en: 'The page "{page}" no longer exists in Grist. Choose another method to start over.',
+  },
+  'form.guide.s2.title': { fr: 'Cliquez sur Publier', en: 'Click Publish' },
+  'form.guide.s2.titleDone': { fr: 'Formulaire publié', en: 'Form published' },
+  'form.guide.s2.text': {
+    fr: 'En bas à droite de la page, cliquez sur <strong>Publier</strong>, puis confirmez.',
+    en: 'At the bottom right of the page, click <strong>Publish</strong>, then confirm.',
+  },
+  'form.guide.s2.access': {
+    fr: 'Dès la publication, toute personne qui aura le lien pourra envoyer des réponses dans « {table} » (dans toutes ses colonnes, même celles que le formulaire ne montre pas). Elle ne pourra jamais en lire, modifier ni supprimer.',
+    en: 'Once published, anyone with the link will be able to send answers into "{table}" (in all its columns, even ones the form does not show). They will never be able to read, change or delete any.',
+  },
+  'form.guide.s2.waiting': { fr: "J'attends la publication : cette étape se coche toute seule.", en: 'Waiting for the publication: this step ticks itself.' },
+  'form.guide.s3.title': { fr: 'Copiez le lien et collez-le ici', en: 'Copy the link and paste it here' },
+  'form.guide.s3.text': {
+    fr: 'Dans Grist, cliquez sur <strong>Partager</strong>, puis <strong>Copier le lien</strong>. Revenez ici et collez-le avec Ctrl+V.',
+    en: 'In Grist, click <strong>Share</strong>, then <strong>Copy link</strong>. Come back here and paste it with Ctrl+V.',
+  },
+  'form.guide.s3.placeholder': { fr: 'Collez le lien ici', en: 'Paste the link here' },
+  'form.guide.s3.aria': { fr: 'Lien du formulaire', en: 'Form link' },
+  'form.guide.s3.goBtn': { fr: 'Continuer', en: 'Continue' },
+  'form.guide.s3.hint': {
+    fr: 'Dès que le lien est collé et reconnu, Form+ prépare le formulaire.',
+    en: 'As soon as the link is pasted and recognised, Form+ prepares the form.',
+  },
+  'form.guide.s3.working': { fr: 'Lien reconnu, préparation du formulaire…', en: 'Link recognised, preparing the form…' },
+  'form.guide.btn.preview': { fr: 'Aperçu', en: 'Preview' },
+  'form.guide.btn.publish': { fr: 'Publier', en: 'Publish' },
+  'form.guide.btn.share': { fr: 'Partager', en: 'Share' },
+  'form.guide.btn.copyLink': { fr: 'Copier le lien', en: 'Copy link' },
 
   // Onglet Réponses
   'form.editor.noFormLinkedYet': { fr: "Aucun formulaire lié pour l'instant.", en: 'No form linked yet.' },

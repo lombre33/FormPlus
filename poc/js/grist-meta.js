@@ -1,5 +1,6 @@
 import { esc } from './dom.js';
-import { parseCustomView, myPageFromReferrer } from './links.js';
+import { parseCustomView, myPageFromReferrer, pageUrlFromReferrer, pageUrlFromBaseUrl } from './links.js';
+import { GfsLink } from '../../kit/js/gfs-link.js';
 import { diag } from './diag.js';
 import { I18n } from '../../kit/js/i18n.js';
 import { Dialogs } from '../../kit/js/dialogs.js';
@@ -118,6 +119,54 @@ export async function createFormSectionOnNewPage(tref, tableId) {
   const viewRef = res.retValues?.[0]?.viewRef;
   if (sectionId == null || viewRef == null) throw new Error('CreateViewSection : identifiant de section ou de page absent de la réponse.');
   return { sectionId, viewRef };
+}
+
+// Nom de la page qu'un CreateViewSection(…, viewRef=0) vient de créer. Le moteur de Grist l'appelle
+// « New page » (mesuré, useractions.py), en anglais quelle que soit la langue de l'interface, et
+// la range tout en bas de la liste : sans autre repère, la personne ne la retrouve pas (retour
+// d'Antoine, 9 nov 2026). On la renomme donc d'après la table. Un geste à part, jamais dans le même
+// lot que la création : dans GFS, le manifeste de Form+ ne déclare pas encore l'écriture de
+// _grist_Views.name (voir GFS-ETAT.md), le courtier refuserait alors tout le lot. Un refus n'est
+// jamais une erreur : on rend le nom que la page garde (celui du moteur), pour que le guide
+// le dise tel qu'il s'affiche dans Grist.
+export const DEFAULT_NEW_PAGE_NAME = 'New page';
+export async function nameFormPage(viewRef, wantedName) {
+  try {
+    await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views', viewRef, { name: wantedName }]]);
+    return { name: wantedName, renamed: true };
+  } catch (e) {
+    diag({ event: 'renameFormPageRefused', message: e && e.message });
+    return { name: DEFAULT_NEW_PAGE_NAME, renamed: false };
+  }
+}
+
+// Adresse directe de la page `viewRef` de CE document, ou null quand elle n'est pas sûre. Seule,
+// le référent (la page Grist qui encadre le widget) la donne ; dans GFS il porte l'adresse de GFS,
+// jamais celle de Grist, donc on passe directement à l'adresse d'API du jeton d'accès (déclarée
+// par le manifeste de Form+, rubrique « jeton »), avec l'instance que GFS donne dans son contexte.
+export async function gristPageUrl(viewRef, hosted = GfsLink.hosted) {
+  if (!hosted) {
+    const fromReferrer = pageUrlFromReferrer(document.referrer, viewRef);
+    if (fromReferrer) return fromReferrer;
+  }
+  try {
+    const { baseUrl } = await grist.docApi.getAccessToken({ readOnly: true });
+    return pageUrlFromBaseUrl(baseUrl, viewRef, GfsLink.context()?.instance);
+  } catch (e) {
+    return null;
+  }
+}
+
+// Le formulaire natif `vsId` est-il publié (le geste « Publier » de Grist écrit publish/form dans
+// shareOptions de sa section, lisible par Form+ y compris dans GFS) ? null quand la section n'existe
+// plus : le guide de publication s'arrête alors de l'attendre.
+export async function isSectionPublished(vsId) {
+  const sections = await fetchMeta('_grist_Views_section');
+  const idx = sections.id.indexOf(vsId);
+  if (idx < 0) return null;
+  let opt = {};
+  try { opt = JSON.parse(sections.shareOptions?.[idx] || '{}') || {}; } catch (e) { /* illisible : non publié */ }
+  return !!(opt.publish && opt.form);
 }
 
 // CreateViewSection peuple automatiquement la nouvelle section avec un champ par colonne de la

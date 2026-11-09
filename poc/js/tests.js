@@ -1,5 +1,5 @@
 import { $, show } from './dom.js';
-import { parseFormLink, buildPublicUrl, parseCustomView, migrateLegacy, normalizeCondition, decideStartScreen } from './links.js';
+import { parseFormLink, buildPublicUrl, parseCustomView, migrateLegacy, normalizeCondition, decideStartScreen, pageUrlFromReferrer, pageUrlFromBaseUrl } from './links.js';
 import { hexToRgb, softenColor, contrastText, applyBranding } from './theme.js';
 import { I18n, KIT_STRINGS } from '../../kit/js/i18n.js';
 import { normalizeAmbiance } from '../../kit/js/ambiance-message.js';
@@ -20,7 +20,10 @@ import {
   ensureRespondentProbeTable, probeRespondentIdentity,
   getAttachmentColumns, parseAttachmentList, fetchAttachmentFileNames, downloadAttachmentAsDataUrl,
   closeManagedFormPublicLink, duplicateManagedForm,
+  gristPageUrl, nameFormPage, DEFAULT_NEW_PAGE_NAME,
 } from './grist-meta.js';
+import { PENDING_KEY, forgetPublishGuide, resumePublishGuide, refreshPublication, submitGuideLink, initPublishGuide } from './publish-guide.js';
+import { GfsLink } from '../../kit/js/gfs-link.js';
 import { loadPluginApi, isPluginApiReady } from './plugin-loader.js';
 import { state } from './state.js';
 import { imageBlockHtml, blobToResizedDataUrl, IMAGE_MAX_DATA_URL_BYTES } from './image-block.js';
@@ -1997,6 +2000,14 @@ export async function runTests() {
   // disparaissait un jour. La section créée (id 50) est directement renvoyée dans retValues,
   // comme le fait un vrai document Grist (voir createFormSection, grist-meta.js) : plus besoin de
   // la retrouver en re-lisant _grist_Views_section après coup.
+  // Après un createEmptyForm réussi, le guide de publication (publish-guide.js) est affiché ET noté
+  // (PENDING_KEY) : chaque essai qui en crée un le referme ici, sans quoi le suivant (showConfig
+  // reprend un guide noté) en hériterait.
+  const closeGuide = () => { forgetPublishGuide(); showStartView('choices'); };
+  const guideText = () => $('start-panel-guide').textContent;
+  const REFERRER_P7 = 'https://grist.example.com/o/team/docs/abc/p/7';
+  closeGuide();
+
   await group('createEmptyForm : réutilise une table existante, sur une page neuve, section vidée de ses champs auto-créés', async () => {
     const { grist, calls } = makeGristStub({
       fetchTable: (t) => {
@@ -2015,12 +2026,15 @@ export async function runTests() {
     // createEmptyForm lit les vrais #scratchTable/#scratch-msg de la page (pas de la sandbox) :
     // on les renseigne directement, ils existent déjà de façon statique dans le document.
     $('scratchTable').value = 'Departements';
-    Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
+    Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
     await createEmptyForm();
-    assertEqual('deux actions : CreateViewSection puis retrait du champ auto-créé', calls.map(c => c[0][0]), ['CreateViewSection', 'RemoveRecord']);
+    assertEqual('trois actions : CreateViewSection, retrait du champ auto-créé, puis renommage de la page', calls.map(c => c[0][0]), ['CreateViewSection', 'RemoveRecord', 'UpdateRecord']);
     assertEqual('CreateViewSection sur la bonne table, page neuve (0), jamais la page du widget (7)', calls[0][0], ['CreateViewSection', 1, 0, 'form', null, 'Departements']);
     assertEqual('le champ auto-créé (201) est bien retiré', calls[1][0], ['RemoveRecord', '_grist_Views_section_field', 201]);
-    assert('message de succès (formulaire réellement vide)', $('scratch-msg').innerHTML.includes('ok'));
+    assertEqual('la page neuve (124) reçoit un nom qui dit à quoi elle sert, à part dans un lot à part', calls[2][0], ['UpdateRecord', '_grist_Views', 124, { name: I18n.t('form.guide.pageName', { table: 'Departements' }) }]);
+    assert('le guide de publication est affiché, plus le panneau de création', !$('start-panel-guide').classList.contains('hidden') && $('start-panel-scratch').classList.contains('hidden'));
+    assert('aucun message d’erreur', !$('scratch-msg').innerHTML.includes('err'));
+    closeGuide();
   });
 
   await group('createEmptyForm : crée une nouvelle table, sur une page neuve', async () => {
@@ -2039,53 +2053,315 @@ export async function runTests() {
     });
     window.grist = grist;
     $('scratchTable').value = 'Réponses';
-    Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/7', configurable: true });
+    Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
     await createEmptyForm();
-    assertEqual('deux actions : AddTable puis CreateViewSection (rien à retirer, aucun champ auto simulé ici)', calls.map(c => c[0][0]), ['AddTable', 'CreateViewSection']);
+    assertEqual('AddTable, CreateViewSection (rien à retirer ici), puis renommage de la page', calls.map(c => c[0][0]), ['AddTable', 'CreateViewSection', 'UpdateRecord']);
     assertEqual('CreateViewSection cible la table nouvellement créée (ref 2)', calls[1][0][1], 2);
     assertEqual('CreateViewSection demande une page neuve (viewRef=0), jamais celle du widget', calls[1][0][2], 0);
+    assert('le guide cite le nom de la table réellement créée (Reponses, normalisé par Grist)', guideText().includes('Reponses'));
+    assertEqual('le champ de nom est vidé', $('scratchTable').value, '');
+    closeGuide();
   });
 
-  await group('createEmptyForm : page introuvable -> message clair, aucune action', async () => {
-    const { grist, calls } = makeGristStub({ fetchTable: () => ({ tableId: [], id: [] }) });
-    window.grist = grist;
-    $('scratchTable').value = 'Table';
-    Object.defineProperty(document, 'referrer', { value: '', configurable: true });
-    await createEmptyForm();
-    assertEqual('aucune action déclenchée', calls.length, 0);
-    assert('message d’erreur affiché', $('scratch-msg').innerHTML.includes('err'));
-  });
-
-  await group('createEmptyForm : référent illisible mais widget retrouvé via les métadonnées -> page correcte', async () => {
+  // Avant le 9 nov 2026, createEmptyForm retrouvait d'abord la page du widget et refusait de créer
+  // quoi que ce soit si elle restait introuvable - alors que la section va sur une page neuve et
+  // n'a jamais eu besoin de celle-ci. Dans GFS (référent = GFS) avec deux widgets personnalisés
+  // dans le document, la création échouait pour rien.
+  await group('createEmptyForm : référent muet et plusieurs widgets dans le document -> la création réussit quand même', async () => {
     const myFile = location.pathname.split('/').pop();
     const { grist, calls } = makeGristStub({
       fetchTable: (t) => {
         if (t === '_grist_Tables') return { tableId: ['Departements'], id: [1] };
         if (t === '_grist_Views_section') return {
-          // tableRef/parentKey doivent être définis pour TOUTES les sections, comme sur un vrai
-          // document Grist : cette section personnalisée (le widget lui-même) n'est pas une
-          // section "form", donc exclue par parentKey quel que soit son tableRef.
-          id: [9], parentId: [7], tableRef: [1], parentKey: ['custom'],
-          options: [JSON.stringify({ customView: JSON.stringify({ url: `https://cdn.example.com/${myFile}` }) })],
+          // Deux sections personnalisées, dont aucune ne désigne ce widget : l'ancien repérage
+          // (findMyWidgetPage) répondait « introuvable » et bloquait la création.
+          id: [9, 10], parentId: [7, 8], tableRef: [1, 1], parentKey: ['custom', 'custom'],
+          options: [JSON.stringify({ customView: JSON.stringify({ url: 'https://cdn.example.com/autre-widget.html' }) }), JSON.stringify({ customView: JSON.stringify({ url: `https://cdn.example.com/${myFile}.autre` }) })],
         };
         if (t === '_grist_Views_section_field') return { id: [], parentId: [] };
         return {};
       },
-      onAction: () => ({ sectionRef: 55, viewRef: 126 }),
+      onAction: (a) => (a[0] === 'CreateViewSection' ? { sectionRef: 55, viewRef: 126 } : undefined),
     });
     window.grist = grist;
     $('scratchTable').value = 'Departements';
-    // Référent vide (ex. embed=true, ou navigateur qui le bloque) : myPageFromReferrer() échoue,
-    // le repli doit retrouver la page (7) via l'unique section personnalisée qui pointe vers ce
-    // widget dans les métadonnées du document - uniquement pour vérifier que createEmptyForm n'est
-    // pas bloqué (findMyWidgetPage réussit), le message d'erreur ne doit jamais s'afficher. La
-    // section du formulaire, elle, va toujours sur une page neuve (0), jamais celle du widget (7) :
-    // consignes GFS 013 pt.2 / 012 pt.2.
     Object.defineProperty(document, 'referrer', { value: '', configurable: true });
     await createEmptyForm();
-    assertEqual('CreateViewSection déclenché malgré le référent illisible', calls.length, 1);
-    assertEqual('page du widget (7) retrouvée via les métadonnées mais jamais utilisée : page neuve (0) demandée', calls[0][0], ['CreateViewSection', 1, 0, 'form', null, 'Departements']);
+    assertEqual('CreateViewSection déclenché, page neuve (0), puis renommage', calls.map(c => c[0].slice(0, 3)), [['CreateViewSection', 1, 0], ['UpdateRecord', '_grist_Views', 126]]);
     assert('aucun message d’erreur', !$('scratch-msg').innerHTML.includes('err'));
+    closeGuide();
+  });
+
+  await group('createEmptyForm : aucun nom de table -> message clair, aucune action', async () => {
+    const { grist, calls } = makeGristStub({ fetchTable: () => ({ tableId: [], id: [] }) });
+    window.grist = grist;
+    $('scratchTable').value = '   ';
+    await createEmptyForm();
+    assertEqual('aucune action déclenchée', calls.length, 0);
+    assert('message d’erreur affiché', $('scratch-msg').innerHTML.includes('err'));
+    $('scratch-msg').innerHTML = '';
+  });
+
+  // ───────────────────────── Guide de publication (publish-guide.js) ─────────────────────────
+  await group('pageUrlFromReferrer : remplace le numéro de page, jamais une page de partage', () => {
+    assertEqual('page ordinaire du document', pageUrlFromReferrer('https://grist.example.com/o/team/abcDEF/Mon-doc/p/7?style=singlePage#a1', 12), 'https://grist.example.com/o/team/abcDEF/Mon-doc/p/12');
+    assertEqual('première page du document (pas de /p/)', pageUrlFromReferrer('https://grist.example.com/o/team/abcDEF/Mon-doc', 12), 'https://grist.example.com/o/team/abcDEF/Mon-doc/p/12');
+    assertEqual('site sans /o/', pageUrlFromReferrer('https://docs.example.org/abcDEF/Mon-doc/p/3', 4), 'https://docs.example.org/abcDEF/Mon-doc/p/4');
+    assertEqual('une page de PARTAGE n’est pas le document : rien', pageUrlFromReferrer('https://grist.example.com/o/team/s/CLE/p/9?style=singlePage', 12), null);
+    assertEqual('référent vide', pageUrlFromReferrer('', 12), null);
+    assertEqual('référent qui n’est pas une adresse web', pageUrlFromReferrer('about:blank', 12), null);
+    assertEqual('origine seule (cas de GFS) : rien', pageUrlFromReferrer('https://lombre33.github.io/', 12), null);
+    assertEqual('numéro de page invalide', pageUrlFromReferrer('https://grist.example.com/o/team/abc/p/7', 0), null);
+  });
+
+  await group('pageUrlFromBaseUrl : adresse /doc/<id>/p/<n> sous le préfixe du site', () => {
+    assertEqual('site en chemin (/o/<site>)', pageUrlFromBaseUrl('http://localhost:8484/o/formplus-test/api/docs/gv7X', 11), 'http://localhost:8484/o/formplus-test/doc/gv7X/p/11');
+    assertEqual('site sans préfixe', pageUrlFromBaseUrl('https://docs.example.org/api/docs/abc123', 3), 'https://docs.example.org/doc/abc123/p/3');
+    assertEqual('l’instance donnée par GFS l’emporte sur l’origine du jeton', pageUrlFromBaseUrl('http://interne:8484/o/team/api/docs/abc', 5, 'https://grist.example.com'), 'https://grist.example.com/o/team/doc/abc/p/5');
+    assertEqual('adresse sans /api/docs/ : rien', pageUrlFromBaseUrl('https://grist.example.com/o/team', 5), null);
+    assertEqual('adresse illisible : rien', pageUrlFromBaseUrl('pas une adresse', 5), null);
+  });
+
+  await group('gristPageUrl : le référent d’abord, le jeton d’accès quand il est muet, rien quand ni l’un ni l’autre', async () => {
+    window.grist = makeGristStub({ extra: { getAccessToken: async () => ({ token: 't', baseUrl: 'https://autre.example.com/o/team/api/docs/ZZZ' }) } }).grist;
+    Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
+    assertEqual('référent exploitable', await gristPageUrl(30), 'https://grist.example.com/o/team/docs/abc/p/30');
+    Object.defineProperty(document, 'referrer', { value: '', configurable: true });
+    assertEqual('référent vide -> adresse d’API du jeton', await gristPageUrl(30), 'https://autre.example.com/o/team/doc/ZZZ/p/30');
+    window.grist = makeGristStub({ extra: { getAccessToken: async () => { throw new Error('refusé'); } } }).grist;
+    assertEqual('jeton refusé -> null, jamais d’exception', await gristPageUrl(30), null);
+    window.grist = makeGristStub().grist;
+    assertEqual('pas de getAccessToken du tout -> null', await gristPageUrl(30), null);
+    // Hébergé par GFS, le référent est celui de GFS (jamais celui de Grist) : jamais utilisé.
+    window.grist = makeGristStub({ extra: { getAccessToken: async () => ({ token: 't', baseUrl: 'https://grist.example.com/o/team/api/docs/ZZZ' }) } }).grist;
+    Object.defineProperty(document, 'referrer', { value: 'https://lombre33.github.io/grist-widget-GFS/p/5', configurable: true });
+    assertEqual('hébergé : l’adresse vient du jeton, pas du référent de GFS', await gristPageUrl(30, true), 'https://grist.example.com/o/team/doc/ZZZ/p/30');
+  });
+
+  await group('nameFormPage : renomme la page, ou garde « New page » sans exception si GFS refuse', async () => {
+    const ok = makeGristStub();
+    window.grist = ok.grist;
+    assertEqual('renommage accepté', await nameFormPage(77, 'Formulaire Reponses'), { name: 'Formulaire Reponses', renamed: true });
+    assertEqual('un seul geste, sur _grist_Views.name', ok.calls, [[['UpdateRecord', '_grist_Views', 77, { name: 'Formulaire Reponses' }]]]);
+    window.grist = { docApi: { applyUserActions: async () => { throw new Error('GFS_REFUSE : _grist_Views ne s’écrit pas'); } } };
+    assertEqual('renommage refusé : le nom du moteur de Grist', await nameFormPage(77, 'Formulaire Reponses'), { name: DEFAULT_NEW_PAGE_NAME, renamed: false });
+    assertEqual('…et ce nom est bien celui que Grist donne (mesuré sur un vrai Grist)', DEFAULT_NEW_PAGE_NAME, 'New page');
+  });
+
+  // Une section de formulaire de test (id 50, page 124, table Departements=1) que le guide suit.
+  const guideDoc = (shareOptions) => makeGristStub({
+    fetchTable: (t) => {
+      if (t === '_grist_Tables') return { tableId: ['Departements'], id: [1] };
+      if (t === '_grist_Views_section') return { id: [50], parentId: [124], parentKey: ['form'], tableRef: [1], shareOptions: [shareOptions()] };
+      if (t === '_grist_Views_section_field') return { id: [], parentId: [] };
+      return {};
+    },
+    onAction: (a) => (a[0] === 'CreateViewSection' ? { sectionRef: 50, viewRef: 124 } : undefined),
+    extra: { getDocName: async () => 'docTest' },
+  });
+
+  await group('guide de publication : étape 1 avec lien direct, étape 2 au clic, étape 3 dès que Grist enregistre la publication', async () => {
+    let share = '{}';
+    window.grist = guideDoc(() => share).grist;
+    Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
+    $('scratchTable').value = 'Departements';
+    state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
+    await createEmptyForm();
+    const open = $('guide-open');
+    assert('le bouton « Ouvrir la page » est un vrai lien, dans un nouvel onglet', open && open.target === '_blank' && open.rel.includes('noopener'));
+    assertEqual('…vers la page neuve (124) du même document', open.getAttribute('href'), 'https://grist.example.com/o/team/docs/abc/p/124');
+    assert('le guide dit le nom de la page', guideText().includes(I18n.t('form.guide.pageName', { table: 'Departements' })));
+    assertEqual('étape 1 sur 3', $('start-panel-guide').querySelector('[aria-current="step"] .guide-num').textContent, '1');
+    assert('la page est retenue pour un rechargement', !!JSON.parse(GfsLink.storageGet(PENDING_KEY) || 'null'));
+    open.addEventListener('click', (e) => e.preventDefault(), { once: true }); // un vrai clic ouvrirait un onglet : on n'essaie que le gestionnaire du guide
+    open.click();
+    await new Promise(r => setTimeout(r, 20));
+    assertEqual('après le clic, étape 2', $('start-panel-guide').querySelector('[aria-current="step"] .guide-num').textContent, '2');
+    await refreshPublication();
+    assertEqual('formulaire pas encore publié : toujours l’étape 2', $('start-panel-guide').querySelector('[aria-current="step"] .guide-num').textContent, '2');
+    share = '{"publish":true,"form":true}';
+    await refreshPublication();
+    assertEqual('publication détectée : étape 3', $('start-panel-guide').querySelector('[aria-current="step"] .guide-num').textContent, '3');
+    assert('les étapes 1 et 2 sont cochées', $('start-panel-guide').querySelectorAll('.guide-step.done').length === 2);
+    assert('le champ de collage est là', !!$('guide-link'));
+    closeGuide();
+  });
+
+  await group('guide de publication : sans adresse sûre, on dit où est la page au lieu d’un lien cassé', async () => {
+    window.grist = guideDoc(() => '{}').grist; // pas de getAccessToken
+    Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/s/CLE/p/9', configurable: true });
+    state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
+    await createEmptyForm();
+    assert('aucun lien « Ouvrir la page »', !$('guide-open'));
+    assert('la place de la page est dite', guideText().includes(I18n.t('form.guide.s1.noLink')));
+    assert('un bouton pour passer à l’étape suivante', !!$('start-panel-guide').querySelector('[data-guide="opened"]'));
+    closeGuide();
+  });
+
+  await group('guide de publication : un renommage refusé (GFS) montre « New page » tel qu’il s’affiche dans Grist', async () => {
+    const stub = guideDoc(() => '{}');
+    const orig = stub.grist.docApi.applyUserActions;
+    stub.grist.docApi.applyUserActions = async (actions) => {
+      if (actions[0][1] === '_grist_Views') throw new Error('GFS_REFUSE');
+      return orig(actions);
+    };
+    window.grist = stub.grist;
+    Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
+    state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
+    await createEmptyForm();
+    assert('la création a réussi malgré le refus', !$('start-panel-guide').classList.contains('hidden'));
+    assert('le guide cite le nom réel de la page', guideText().includes('New page'));
+    closeGuide();
+  });
+
+  await group('guide de publication : un formulaire déjà publié au chargement -> directement l’étape 3', async () => {
+    window.grist = guideDoc(() => '{"publish":true,"form":true}').grist;
+    Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
+    state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
+    await createEmptyForm();
+    await refreshPublication(); // (le guide a déjà lancé cette lecture lui-même à son affichage : on s'assure seulement qu'elle est finie)
+    assertEqual('dès la première lecture, l’étape 3', $('start-panel-guide').querySelector('[aria-current="step"] .guide-num').textContent, '3');
+    closeGuide();
+  });
+
+  await group('guide de publication : la page supprimée dans Grist -> message clair, plus d’attente', async () => {
+    let sections = { id: [50], parentId: [124], parentKey: ['form'], tableRef: [1], shareOptions: ['{}'] };
+    window.grist = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Tables' ? { tableId: ['Departements'], id: [1] } : t === '_grist_Views_section' ? sections : { id: [], parentId: [] }),
+      onAction: (a) => (a[0] === 'CreateViewSection' ? { sectionRef: 50, viewRef: 124 } : undefined),
+      extra: { getDocName: async () => 'docTest' },
+    }).grist;
+    Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
+    $('scratchTable').value = 'Departements'; state.scratchMode = 'new';
+    await createEmptyForm();
+    sections = { id: [], parentId: [], parentKey: [], tableRef: [], shareOptions: [] };
+    await refreshPublication();
+    assert('le guide dit que la page n’existe plus', $('guide-msg').innerHTML.includes(I18n.t('form.guide.pageGone', { page: I18n.t('form.guide.pageName', { table: 'Departements' }) })), $('guide-msg').innerHTML);
+    assert('le guide reste affiché, avec sa sortie', !$('start-panel-guide').classList.contains('hidden') && !!$('start-panel-guide').querySelector('[data-guide="cancel"]'));
+    closeGuide();
+  });
+
+  await group('guide de publication : lien collé -> reconnu ou refusé, message dans le guide, formulaire préparé par generate()', async () => {
+    // Même document que « refuse de dupliquer sur une page déjà gérée par un AUTRE formulaire » :
+    // generate() refuse net, ce qui prouve qu'il est atteint avec le lien collé ET que son message
+    // va dans le guide (msgEl), pas dans l'écran « Coller un lien » caché pendant le guide.
+    const stub = makeGristStub({
+      listTables: ['Reponses'],
+      fetchTable: (t) => {
+        if (t === '_grist_Views_section') return { id: [12, 40, 50], parentId: [7, 7, 124], parentKey: ['form', 'form', 'form'], tableRef: [10, 50, 10], shareOptions: ['{}', '{}', '{"publish":true,"form":true}'] };
+        if (t === '_grist_Tables') return { id: [10, 50], tableId: ['Reponses', 'FormPlus_Formulaires'] };
+        if (t === '_grist_Tables_column') return {
+          id: [1, 2, 3, 4, 5, 6], parentId: [50, 50, 50, 50, 50, 50],
+          colId: ['Nom', 'TypeFormulaire', 'DateModif', 'ModifiePar', 'Definition', 'IdSectionWidget'],
+          type: ['Text', 'Text', 'DateTime', 'Text', 'Text', 'Numeric'], visibleCol: [0, 0, 0, 0, 0, 0],
+        };
+        if (t === FORMULAIRES_TABLE) return { id: [1], Definition: ['{"vsId":40}'] };
+        if (t === '_grist_Views_section_field') return { id: [], parentId: [] };
+        return {};
+      },
+      onAction: (a) => (a[0] === 'CreateViewSection' ? { sectionRef: 50, viewRef: 124 } : undefined),
+      extra: { getDocName: async () => 'docTest' },
+    });
+    window.grist = stub.grist;
+    state.options = {}; state.cfgQuestions = [];
+    Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/docs/abc/p/99', configurable: true });
+    state.scratchMode = 'new'; $('scratchTable').value = 'Reponses';
+    await createEmptyForm();
+    await refreshPublication();
+    assert('étape 3 atteinte', !!$('guide-link'));
+    await submitGuideLink('https://grist.example.com/o/team/n-importe-quoi');
+    assertEqual('un lien qui n’en est pas un : refus clair, dans le guide', $('guide-msg').innerHTML, `<span class="err">${I18n.t('form.editor.linkNotRecognized')}</span>`);
+    await submitGuideLink('https://grist.example.com/o/team/forms/SECRETKEY/12');
+    assertEqual('un vrai lien arrive jusqu’à generate() : son refus s’écrit dans le guide', $('guide-msg').innerHTML, `<span class="err">${I18n.t('form.editor.pageAlreadyManaged', { vsId: 40 })}</span>`);
+    assertEqual('le lien est aussi posé dans le champ de generate()', $('link').value, 'https://grist.example.com/o/team/forms/SECRETKEY/12');
+    assert('le guide reste affiché après un refus (on peut réessayer)', !$('start-panel-guide').classList.contains('hidden'));
+    // Le collage lui-même (événement paste) lance la même chose, sans autre clic.
+    $('guide-msg').innerHTML = '';
+    $('guide-link').value = 'https://grist.example.com/o/team/forms/SECRETKEY/12';
+    $('guide-link').dispatchEvent(new Event('paste', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 60));
+    assertEqual('le collage déclenche generate() tout seul', $('guide-msg').innerHTML, `<span class="err">${I18n.t('form.editor.pageAlreadyManaged', { vsId: 40 })}</span>`);
+    closeGuide();
+  });
+
+  await group('guide de publication : repris après un rechargement, abandonné si la page a disparu, ignoré dans un autre document', async () => {
+    const section = () => ({ id: [50], parentId: [124], parentKey: ['form'], tableRef: [1], shareOptions: ['{}'] });
+    const doc = (docId, sections) => makeGristStub({
+      fetchTable: (t) => (t === '_grist_Tables' ? { tableId: ['Departements'], id: [1] } : t === '_grist_Views_section' ? sections : {}),
+      extra: { getDocName: async () => docId },
+    }).grist;
+    const note = (extra) => GfsLink.storageSet(PENDING_KEY, JSON.stringify({ doc: 'docA', tableId: 'Departements', viewRef: 124, sectionId: 50, pageName: 'Formulaire Departements', ...extra }));
+    Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
+
+    note(); window.grist = doc('docA', section());
+    assertEqual('rechargement du même document : guide repris', await resumePublishGuide(), true);
+    assert('…avec le nom de la page noté', guideText().includes('Formulaire Departements'));
+    assert('…affiché à la place de l’écran de départ', !$('start-panel-guide').classList.contains('hidden'));
+    closeGuide();
+
+    note(); window.grist = doc('docB', section());
+    assertEqual('un AUTRE document : rien repris', await resumePublishGuide(), false);
+    assert('…et la note de l’autre document est conservée', !!GfsLink.storageGet(PENDING_KEY));
+    GfsLink.storageSet(PENDING_KEY, null);
+
+    note(); window.grist = doc('docA', { id: [], parentId: [], parentKey: [], tableRef: [], shareOptions: [] });
+    assertEqual('page supprimée depuis : rien repris', await resumePublishGuide(), false);
+    assertEqual('…et la note est effacée', GfsLink.storageGet(PENDING_KEY), null);
+
+    note({ tableId: 'Autre' }); window.grist = doc('docA', section());
+    assertEqual('la section n’est plus celle de cette table : rien repris', await resumePublishGuide(), false);
+
+    GfsLink.storageSet(PENDING_KEY, '{pas du json');
+    assertEqual('note illisible : rien repris, aucune exception', await resumePublishGuide(), false);
+    GfsLink.storageSet(PENDING_KEY, null);
+  });
+
+  await group('guide de publication : showConfig() reprend le guide noté, même après « Nouveau » ; « Choisir une autre méthode » en sort', async () => {
+    // Dans GFS, ouvrir la page du formulaire quitte la page de GFS : au retour, « Nouveau » doit
+    // retrouver le guide, pas un écran de départ qui recréerait une deuxième page.
+    GfsLink.storageSet(PENDING_KEY, JSON.stringify({ doc: 'docA', tableId: 'Departements', viewRef: 124, sectionId: 50, pageName: 'Formulaire Departements' }));
+    window.grist = makeGristStub({
+      fetchTable: (t) => (t === '_grist_Tables' ? { tableId: ['Departements'], id: [1] } : t === '_grist_Views_section' ? { id: [50], parentId: [124], parentKey: ['form'], tableRef: [1], shareOptions: ['{}'] } : { id: [] }),
+      extra: { getDocName: async () => 'docA' },
+    }).grist;
+    Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
+    state.options = {}; state.currentLink = null;
+    await showConfig();
+    assert('showConfig a rouvert le guide à la place des tuiles', !$('start-panel-guide').classList.contains('hidden') && $('start-choices').classList.contains('hidden'));
+    await showConfig(); // rappelé (« Nouveau » alors que le cadre est déjà là) : le même guide, pas deux
+    assertEqual('un seul guide affiché', document.querySelectorAll('#start-panel-guide .guide-steps').length, 1);
+    $('start-panel-guide').querySelector('[data-guide="cancel"]').click();
+    assert('« Choisir une autre méthode » : les tuiles du départ', !$('start-choices').classList.contains('hidden') && $('start-panel-guide').classList.contains('hidden'));
+    assertEqual('…et plus rien de noté', GfsLink.storageGet(PENDING_KEY), null);
+    await showConfig();
+    assert('après abandon, plus de guide à la réouverture', $('start-panel-guide').classList.contains('hidden') && !$('start-choices').classList.contains('hidden'));
+    closeGuide();
+  });
+
+  await group('guide de publication : hébergé par GFS, on copie l’adresse de la page (un lien ouvrirait un onglet sans stockage)', async () => {
+    window.grist = guideDoc(() => '{}').grist;
+    window.grist.docApi.getAccessToken = async () => ({ token: 't', baseUrl: 'https://grist.example.com/o/team/api/docs/abc' });
+    Object.defineProperty(document, 'referrer', { value: 'https://lombre33.github.io/grist-widget-GFS/', configurable: true });
+    initPublishGuide({ hosted: () => true });
+    try {
+      let written = null;
+      const realClipboard = Object.getOwnPropertyDescriptor(Navigator.prototype, 'clipboard');
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (t) => { written = t; } }, configurable: true });
+      $('scratchTable').value = 'Departements'; state.scratchMode = 'new';
+      await createEmptyForm();
+      assert('aucun lien « Ouvrir la page » hébergé', !$('guide-open'));
+      assert('un bouton pour copier l’adresse', !!$('guide-copy'));
+      assert('le bouton passe à l’étape suivante par « J’ai ouvert la page »', guideText().includes(I18n.t('form.guide.s1.openedBtn')));
+      $('guide-copy').click();
+      await new Promise(r => setTimeout(r, 20));
+      assertEqual('l’adresse de la page neuve est copiée', written, 'https://grist.example.com/o/team/doc/abc/p/124');
+      assertEqual('le bouton dit que c’est fait', $('guide-copy').textContent, I18n.t('form.guide.s1.copied'));
+      assert('et dit où la coller', $('guide-msg').textContent.includes(I18n.t('form.guide.s1.pasteInTab')));
+      if (realClipboard) Object.defineProperty(navigator, 'clipboard', realClipboard); else delete navigator.clipboard;
+    } finally {
+      initPublishGuide({ hosted: () => GfsLink.hosted });
+      closeGuide();
+    }
   });
 
   await group('populateFormPicker : liste et filtre les formulaires natifs', async () => {

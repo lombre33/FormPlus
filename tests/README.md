@@ -33,7 +33,7 @@ document de test prêt à l'emploi, pour vérifier le widget en conditions
 réelles (installation en widget personnalisé, publication de formulaire,
 écriture anonyme via la clé de partage) sans dépendre de la machine
 d'Antoine ni de l'instance DINUM. Démarrage en une commande :
-`tests/grist-env/start-grist-test.sh`. Détails, écarts constatés avec
+`tests/grist-env/start-grist-test.sh`. Le parcours complet de création d'un formulaire (guide de publication, page ouverte, Publier, Copier le lien, collage au vrai clavier, reprise après rechargement) se rejoue avec `NODE_PATH=$(npm root -g) node tests/grist-env/e2e-onboarding.js` une fois Grist démarré. Détails, écarts constatés avec
 l'instance DINUM et nettoyage : [`tests/grist-env/README.md`](grist-env/README.md).
 
 ## Vérifier que le site en ligne sert bien le lot qui vient d'être poussé

@@ -43,6 +43,7 @@ Un rôle par fichier, chargé depuis `main.js` (le seul `<script type="module">`
 | `state.js` | État mutable partagé entre l'écran de configuration et le rendu répondant (un seul objet, voir plus bas) |
 | `grist-meta.js` | Lecture des métadonnées du document (`_grist_Views_section`…), table `FormPlus_Formulaires` (`ensureFormulairesTable`, `saveFormDefinition`, `resolveMyDefinition`, `fetchManagedVsIds`), `ensureTableGate`, `ensureChoiceField`, `probeCanEdit` |
 | `config-editor.js` | Tout l'écran de configuration : questions, apparence, import des champs natifs |
+| `publish-guide.js` | Guide de publication en 3 étapes affiché après « Créer le formulaire » : page renommée et ouverte (lien direct, ou adresse à copier dans GFS), publication détectée toute seule (`shareOptions` de la section), collage du lien qui lance `generate()` ; noté dans `GfsLink.storage` pour survivre à un rechargement |
 | `respond.js` | Tout le rendu répondant : champs natifs et questions supplémentaires, soumission |
 | `plugin-loader.js` | Charge `grist-plugin-api.js` depuis l'origine qui héberge le widget |
 | `tests.js` | Suite de non-régression (`#test`), voir plus bas |

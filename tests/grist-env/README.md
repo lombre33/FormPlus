@@ -97,6 +97,35 @@ sections).
   à l'identité B, posée par l'identité A via l'éditeur réel : A ne la voit
   pas en répondant, B la voit. Détail et portée : `docs/09-mode-interne.md`.
 
+## Parcours de création d'un formulaire, de bout en bout
+
+`e2e-onboarding.js` rejoue, contre CE Grist, ce qu'une personne fait pour créer
+un formulaire : « Partir de zéro », le guide de publication, « Ouvrir la page »
+(nouvel onglet), Publier + confirmer, Partager > Copier le lien, Ctrl+V dans le
+widget (le lien vient du bouton de Grist lui-même, lu dans le presse-papiers),
+fenêtre d'accord du kit, éditeur ; puis la variante « page cliquée dans la barre
+latérale » (le widget se recharge, le guide est repris à l'étape 3). 17 contrôles,
+code de sortie non nul au premier échec, captures dans le dossier donné en
+argument. Le script retire lui-même les lignes de `FormPlus_Formulaires` pour la
+variante (un widget qui a déjà un formulaire rouvre celui-ci) : le document de
+test s'en trouve changé, `start-grist-test.sh` le recrée à neuf.
+
+Mesures prises avec ce banc le 9 nov 2026, qui fondent le guide :
+- `CreateViewSection(tref, 0, 'form', …)` nomme la page **« New page »** (en
+  anglais, quelle que soit la langue de l'interface : `useractions.py`) et la
+  range à la fin de la liste, juste sous la page de la table (`AddTable` en crée
+  une, la grille) : c'est ce qui rendait le formulaire introuvable.
+- Une page se renomme par `UpdateRecord _grist_Views <viewRef> {name}` ; Grist
+  accepte deux pages de même nom.
+- `/o/<site>/doc/<id>/p/<n>` ouvre la page (Grist complète l'adresse avec le
+  nom du document) ; le référent du widget, lui, ne porte souvent que l'origine.
+- Publier = 4 clics : Publier, confirmer (« Publier votre formulaire ? »),
+  Partager, Copier le lien. La section reçoit alors
+  `shareOptions = {"publish":true,"form":true}`, lisible par le widget.
+- Dans GFS, un onglet ouvert depuis le cadre de l'app hérite de son bac à sable
+  (origine nulle, stockage refusé, `contrats.md` 1.3 de GFS) : Grist n'y
+  marcherait pas, d'où l'adresse à copier à la place du lien.
+
 ## Tester avec Playwright
 
 Pour piloter le widget EN IFRAME dans ce Grist (écran concepteur ou

@@ -123,6 +123,41 @@ export function myPageFromReferrer() {
   return typeof page === 'number' ? page : null;
 }
 
+// Adresse directe d'une page du document (celle qu'un clic sur « Ouvrir la page » ouvre dans un
+// nouvel onglet) : la forme canonique de Grist, /doc/<id>/p/<n> sous le préfixe du site
+// (/o/<site> ou rien). Sans le nom du document dans l'adresse, Grist la complète lui-même (mesuré
+// sur un vrai Grist : /o/formplus-test/doc/<id>/p/11 redirige vers .../<id>/<nom>/p/11). Fonctions
+// pures, testées seules (tests.js) ; la lecture du référent et du jeton est dans grist-meta.js.
+const isPageRef = (n) => Number.isInteger(n) && n > 0;
+
+// Depuis le référent (la page Grist qui encadre le widget) : on garde tout ce qui précède /p/<n>,
+// on remplace le numéro. Un référent qui est une page de PARTAGE (/s/<clé>/...) n'est pas le
+// document : un lien posé dessus n'ouvrirait pas la nouvelle page (non partagée), donc rien.
+export function pageUrlFromReferrer(referrer, viewRef) {
+  if (!isPageRef(viewRef)) return null;
+  let u;
+  try { u = new URL(referrer); } catch (e) { return null; }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+  const path = u.pathname.replace(/\/p\/\d+.*$/, '').replace(/\/+$/, '');
+  if (!path || /\/s\/[^/]+(?:\/|$)/.test(path)) return null;
+  return `${u.origin}${path}/p/${viewRef}`;
+}
+
+// Depuis l'adresse d'API du document (baseUrl du jeton d'accès : <origine>[/o/<site>]/api/docs/<id>) :
+// utile quand le référent est muet - dans GFS notamment, où il ne porte que l'adresse de GFS. Le
+// site est pris de cette adresse, l'origine de `instance` (celle que GFS a corrigée) l'emporte si
+// elle est donnée.
+export function pageUrlFromBaseUrl(baseUrl, viewRef, instance) {
+  if (!isPageRef(viewRef)) return null;
+  let u;
+  try { u = new URL(baseUrl); } catch (e) { return null; }
+  const m = /^(.*)\/api\/docs\/([^/]+)/.exec(u.pathname);
+  if (!m) return null;
+  let origin = u.origin;
+  if (instance) { try { origin = new URL(instance).origin; } catch (e) { /* on garde celle du jeton */ } }
+  return `${origin}${m[1]}/doc/${m[2]}/p/${viewRef}`;
+}
+
 // Exposé pour un débogage externe (console, script tiers) : jamais utilisé par le widget
 // lui-même ni par sa suite de tests, qui importent ces fonctions directement comme modules.
 window.FormPlus = { parseFormLink, buildPublicUrl, parseCustomView: (o) => parseCustomView(o) };
