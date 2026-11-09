@@ -7,11 +7,12 @@ import { paintAmbiance } from '../../kit/js/ambiance-pose.js';
 import { hostContract } from '../../kit/js/host.js';
 import { STRINGS } from './strings.js';
 import { KINDS, LAYOUT_KINDS, TABLE_SOURCED_KINDS, FIXED_LIST_KINDS, mapFeatureEnabled } from './kinds.js';
-import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet, reservationOk, splitIntoPages, wirePages, wireConditions, resolveFormTitle, hasPendingFillAnswers } from './respond.js';
+import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet, reservationOk, splitIntoPages, wirePages, wireConditions, resolveFormTitle, hasPendingFillAnswers, renderFill } from './respond.js';
 import {
   questionSummary, conditionSourceCandidates, renderCardBody, saveQuestionFromCard,
   customizeNativeField, resetQuestions, createEmptyForm, populateFormPicker, generate, saveConfig,
   renderQuestionList, showEditorTab, showConfig, loadResponsesSummary, setScratchMode, showStartView,
+  refreshLinkBanner,
 } from './config-editor.js';
 import {
   ensureTableGate, ensureFreeColumn, FORMULAIRES_TABLE,
@@ -20,7 +21,7 @@ import {
   ensureRespondentProbeTable, probeRespondentIdentity,
   getAttachmentColumns, parseAttachmentList, fetchAttachmentFileNames, downloadAttachmentAsDataUrl,
   closeManagedFormPublicLink, duplicateManagedForm,
-  gristPageUrl, nameFormPage, DEFAULT_NEW_PAGE_NAME, publishFormSection,
+  gristPageUrl, nameFormPage, DEFAULT_NEW_PAGE_NAME, publishFormSection, fetchNativeForm, duplicateFormSection,
 } from './grist-meta.js';
 import { PENDING_KEY, forgetPublishGuide, resumePublishGuide, refreshPublication, submitGuideLink, initPublishGuide, publishNow } from './publish-guide.js';
 import { GfsLink } from '../../kit/js/gfs-link.js';
@@ -2454,6 +2455,314 @@ export async function runTests() {
       initPublishGuide({ hosted: () => GfsLink.hosted });
       closeGuide();
     }
+  });
+
+  // ───────────────────────── Construire le formulaire AVANT d'avoir collé son lien ─────────────────────────
+  // Demande d'Antoine (9 nov 2026) : avancer sur la construction sans coller le lien, avec un rappel
+  // que le formulaire n'est pas publié / que son lien manque. Un document à état, comme un vrai Grist :
+  // CreateViewSection pose la section 50 sur la page neuve 124, la suivante (la copie de Form+) la 51
+  // sur la même page ; les publications s'écrivent et se relisent.
+  const sansLienDoc = () => {
+    const doc = {
+      sections: { id: [], parentId: [], parentKey: [], tableRef: [], shareOptions: [], options: [] },
+      pages: { id: [3], viewRef: [124], shareRef: [0] },
+      fields: { id: [], parentId: [], colRef: [], widgetOptions: [], parentPos: [] },
+      next: 50, formules: [], questionsEnregistrees: 0,
+    };
+    const stub = makeGristStub({
+      fetchTable: (t) => {
+        if (t === '_grist_Tables') return { id: [1, 50], tableId: ['Departements', 'FormPlus_Formulaires'] };
+        if (t === '_grist_Tables_column') return { id: [], parentId: [], colId: [], type: [], visibleCol: [] };
+        if (t === '_grist_Views_section') return { ...doc.sections };
+        if (t === '_grist_Views_section_field') return { ...doc.fields };
+        if (t === '_grist_Pages') return { ...doc.pages };
+        if (t === '_grist_Views') return { id: [124], name: ['Formulaire Departements'] };
+        if (t === FORMULAIRES_TABLE) return { id: [], Definition: [] };
+        return {};
+      },
+      onAction: (a) => {
+        if (a[0] === 'CreateViewSection') {
+          const id = doc.next++;
+          const S = doc.sections;
+          doc.sections = { id: [...S.id, id], parentId: [...S.parentId, 124], parentKey: [...S.parentKey, 'form'], tableRef: [...S.tableRef, a[1]], shareOptions: [...S.shareOptions, '{}'], options: [...S.options, '{}'] };
+          return { sectionRef: id, viewRef: 124 };
+        }
+        if (a[0] === 'UpdateRecord' && a[1] === '_grist_Views_section' && a[3].shareOptions !== undefined) {
+          const i = doc.sections.id.indexOf(a[2]);
+          const arr = [...doc.sections.shareOptions]; arr[i] = a[3].shareOptions; doc.sections.shareOptions = arr;
+        }
+        if (a[0] === 'AddRecord' && a[1] === '_grist_Shares') return 9;
+        if (a[0] === 'UpdateRecord' && a[1] === '_grist_Pages') doc.pages = { ...doc.pages, shareRef: [a[3].shareRef] };
+        return undefined;
+      },
+      extra: {
+        getDocName: async () => 'docTest',
+        getAccessToken: async () => ({ token: 'JETON', baseUrl: 'https://grist.example.com/o/team/api/docs/abc' }),
+      },
+    });
+    return { ...stub, doc };
+  };
+  const FORME = { formFieldsById: { 7: { colId: 'Nom', question: 'Nom', description: '', type: 'Text', options: {}, refValues: null } }, formLayoutSpec: '', formTableId: 'Departements', formTitle: 'Departements' };
+  const fetchAvantSansLien = window.fetch; // ce que les essais d'avant ont laissé : on le remet, jamais le vrai fetch (aucun appel réseau dans cette suite)
+  const ecritures = (calls, from = 0) => calls.slice(from).flatMap(a => a);
+  const publicationsDeSection = (calls, id) => ecritures(calls).filter(a => a[0] === 'UpdateRecord' && a[1] === '_grist_Views_section' && a[2] === id && a[3].shareOptions !== undefined);
+  const resetEditeur = () => {
+    state.options = {}; state.currentLink = null; state.currentFormSection = null; state.cfgQuestions = [];
+    $('editor').classList.add('hidden'); $('step1').classList.remove('hidden'); $('link').value = ''; $('public-url').textContent = '';
+    forgetPublishGuide(); showStartView('choices');
+  };
+
+  await group('fetchNativeForm : avec un lien, la route publique ; sans lien, la route du document avec le jeton', async () => {
+    const urls = [];
+    window.fetch = async (url) => { urls.push(String(url)); return urls.length === 3 ? { ok: false, status: 404 } : { ok: true, json: async () => FORME }; };
+    window.grist = sansLienDoc().grist;
+    const lien = parseFormLink('https://grist.example.com/o/team/forms/CLE/12');
+    assertEqual('lien collé : la route de partage, sans jeton', (await fetchNativeForm(51, lien)) && urls[0], 'https://grist.example.com/o/team/api/s/CLE/forms/51');
+    await fetchNativeForm(51, { key: null, api: null, noLink: true });
+    assertEqual('sans lien : la route du document, avec le jeton d’accès du widget', urls[1], 'https://grist.example.com/o/team/api/docs/abc/forms/51?auth=JETON');
+    let err = null;
+    try { await fetchNativeForm(51, null); } catch (e) { err = e; }
+    assertEqual('une réponse refusée lève une erreur lisible', err && err.message, 'HTTP 404');
+    window.fetch = fetchAvantSansLien;
+  });
+
+  await group('duplicateFormSection : { publish: false } laisse la copie non publiée, sinon elle l’est comme avant', async () => {
+    const a = sansLienDoc(); window.grist = a.grist;
+    const source = await a.grist.docApi.applyUserActions([['CreateViewSection', 1, 0, 'form', null, 'Departements']]);
+    const brouillon = await duplicateFormSection(source.retValues[0].sectionRef, { publish: false });
+    assertEqual('brouillon : aucune écriture de shareOptions', publicationsDeSection(a.calls, brouillon).length, 0);
+    const b = sansLienDoc(); window.grist = b.grist;
+    const src2 = await b.grist.docApi.applyUserActions([['CreateViewSection', 1, 0, 'form', null, 'Departements']]);
+    const publiee = await duplicateFormSection(src2.retValues[0].sectionRef);
+    assertEqual('par défaut : publiée sous la clé de la page', publicationsDeSection(b.calls, publiee).map(x => x[3].shareOptions), ['{"publish":true,"form":true}']);
+  });
+
+  await group('« Construire d’abord » avant toute publication : l’éditeur s’ouvre en brouillon, rien n’est publié, le bandeau le dit', async () => {
+    resetEditeur();
+    const d = sansLienDoc(); window.grist = d.grist;
+    const urls = [];
+    window.fetch = async (url) => { urls.push(String(url)); return { ok: true, json: async () => FORME }; };
+    Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
+    state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
+    await createEmptyForm();
+    assertEqual('le guide est à l’étape 1', stepNow(), '1');
+    assert('« Construire le formulaire d’abord » est proposé, sans que la publication ait eu lieu', !!$('guide-build') && $('guide-build').textContent === I18n.t('form.guide.build.btn'));
+    $('guide-build').click();
+    for (let i = 0; i < 40 && $('editor').classList.contains('hidden'); i++) await tick();
+    await tick();
+    assert('l’éditeur s’affiche, l’écran de départ se cache', !$('editor').classList.contains('hidden') && $('step1').classList.contains('hidden'));
+    assertEqual('la copie de Form+ (51) est la section gérée', state.options.vsId, 51);
+    assertEqual('…construite depuis la section d’origine (50)', state.options.sourceVsId, 50);
+    assert('aucun lien enregistré', !state.options.formLink && !state.options.publicUrl && !state.options.shareKey);
+    assertEqual('rien n’a été publié : ni la copie, ni la section d’origine', publicationsDeSection(d.calls, 51).length + publicationsDeSection(d.calls, 50).length, 0);
+    assert('aucun partage créé', !ecritures(d.calls).some(a => a[1] === '_grist_Shares'));
+    assert('aucune fenêtre « ceci va devenir public » : rien de public n’est créé', document.querySelector('#pp-dialog-modal')?.style.display !== 'flex');
+    assertEqual('le guide est oublié', JSON.parse(GfsLink.storageGet(PENDING_KEY) || 'null'), null);
+    await refreshLinkBanner();
+    const bandeau = $('nolink-banner');
+    assert('le bandeau de rappel est affiché', !bandeau.classList.contains('hidden'));
+    assert('…il dit « pas encore publié »', bandeau.textContent.includes(I18n.t('form.link.banner.draft.title')));
+    assert('…et propose de publier', $('nolink-go').textContent === I18n.t('form.link.banner.draft.btn'));
+    assert('l’adresse à diffuser est remplacée par son explication, et ses boutons sont éteints',
+      $('public-url').classList.contains('hidden') && !$('url-pending').classList.contains('hidden') && $('copy').disabled && $('open').disabled && $('qrToggle').disabled);
+    // Les champs natifs du formulaire se lisent sans lien (route du document, jeton du widget).
+    assert('les champs natifs sont lus par la route du document', urls.some(u => u === 'https://grist.example.com/o/team/api/docs/abc/forms/51?auth=JETON'));
+    assert('…et aucune route de partage n’a été appelée', !urls.some(u => u.includes('/api/s/')));
+    assert('la carte du champ natif « Nom » est dans la liste', !!$('qlist').querySelector('[data-native-id="7"]'));
+    window.fetch = fetchAvantSansLien;
+  });
+
+  await group('du brouillon au formulaire diffusable : publier depuis le bandeau, puis coller le lien (aucune nouvelle copie)', async () => {
+    resetEditeur();
+    const d = sansLienDoc(); window.grist = d.grist;
+    window.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes('/api/s/GOODKEY/forms/51')) return { ok: true, json: async () => FORME };
+      if (u.includes('/api/s/')) return { ok: false, status: 404 };
+      return { ok: true, json: async () => FORME };
+    };
+    Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
+    state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
+    await createEmptyForm();
+    $('guide-build').click();
+    for (let i = 0; i < 40 && $('editor').classList.contains('hidden'); i++) await tick();
+    await tick();
+    // 1. Le bandeau ramène au guide, à l'étape 1, sans rien recréer.
+    // Des questions construites avant la publication : la phrase d'avant le clic dit aussi les tables que la clé ouvrira.
+    state.cfgQuestions = [
+      { id: 'a', kind: 'text', label: 'Nom', writeTable: 'Clients', writeCol: 'Nom' },
+      { id: 'b', kind: 'choice', label: 'Ville', sourceTable: 'Villes', sourceCol: 'Nom' },
+      { id: 'c', kind: 'section', label: 'Titre', writeTable: 'Ignoree' },
+    ];
+    const avant = d.calls.length;
+    $('nolink-go').click();
+    for (let i = 0; i < 40 && $('start-panel-guide').classList.contains('hidden'); i++) await tick();
+    await tick();
+    assert('le guide remplace l’éditeur', $('editor').classList.contains('hidden') && !$('start-panel-guide').classList.contains('hidden'));
+    assertEqual('étape 1 : publier', stepNow(), '1');
+    assert('la phrase d’avant le clic nomme la table où une question écrit (jamais un bloc de mise en page)', guideText().includes(I18n.t('form.guide.s1.accessWrites', { tables: '« Clients »' })));
+    assert('…et la table dont une liste de choix est lue', guideText().includes(I18n.t('form.guide.s1.accessReads', { tables: '« Villes »' })));
+    state.cfgQuestions = [];
+    assert('en mode rattachement, pas de « Construire d’abord »', !$('guide-build'));
+    assert('« Retour au formulaire » est proposé', guideText().includes(I18n.t('form.guide.attach.back')));
+    assert('le nom de la page est lu dans le document, rien n’est renommé', !ecritures(d.calls, avant).some(a => a[1] === '_grist_Views'));
+    // 2. Publier : c'est la COPIE (51) que Form+ publie.
+    $('guide-publish').click();
+    await new Promise(r => setTimeout(r, 60));
+    assertEqual('la copie (51) est publiée, et la section d’origine (50) aussi : Grist montre « Partager » sur les deux, jamais « Publier » sur l’une', [publicationsDeSection(d.calls, 51).length, publicationsDeSection(d.calls, 50).length], [1, 1]);
+    assertEqual('étape 2 : copier le lien', stepNow(), '2');
+    $('start-panel-guide').querySelector('[data-guide="opened"]').click();
+    await new Promise(r => setTimeout(r, 20));
+    assert('étape 3 : le champ de collage', !!$('guide-link'));
+    // 3. Un lien d'une AUTRE page est refusé.
+    await submitGuideLink('https://grist.example.com/o/team/forms/GOODKEY/99');
+    assertEqual('lien d’un autre formulaire : refus clair', $('guide-msg').innerHTML, `<span class="err">${I18n.t('form.editor.attach.wrongPage')}</span>`);
+    // 4. Une clé que Grist n'accepte pas est refusée avant d'être enregistrée.
+    await submitGuideLink('https://grist.example.com/o/team/forms/BADKEY/50');
+    assert('clé refusée par Grist : message, rien d’enregistré', $('guide-msg').textContent.includes('404') && !state.options.formLink);
+    // 5. Le bon lien, copié depuis la section d'ORIGINE (50) : la clé est celle de la page.
+    const avantLien = d.calls.length;
+    await submitGuideLink('https://grist.example.com/o/team/forms/GOODKEY/50');
+    for (let i = 0; i < 40 && $('editor').classList.contains('hidden'); i++) await tick();
+    assertEqual('le lien est enregistré avec la section de Form+ (51)', state.options.formLink, 'https://grist.example.com/o/team/forms/GOODKEY/51');
+    assertEqual('la clé est gardée', state.options.shareKey, 'GOODKEY');
+    assert('l’adresse à diffuser est construite', state.options.publicUrl.includes('#form=') && decodeURIComponent(state.options.publicUrl).endsWith('/forms/GOODKEY/51'));
+    assertEqual('aucune section créée ni publiée de plus', ecritures(d.calls, avantLien).filter(a => a[0] === 'CreateViewSection' || a[1] === '_grist_Views_section').length, 0);
+    assert('retour à l’éditeur, guide oublié', !$('editor').classList.contains('hidden') && $('step1').classList.contains('hidden') && JSON.parse(GfsLink.storageGet(PENDING_KEY) || 'null') === null);
+    assert('le bandeau confirme, l’adresse est disponible', $('nolink-banner').textContent.includes(I18n.t('form.link.banner.linked')) && !$('public-url').classList.contains('hidden') && !$('copy').disabled);
+    assertEqual('l’adresse est affichée dans Paramètres', $('public-url').textContent, state.options.publicUrl);
+    // 6. Au rechargement suivant, plus aucun rappel.
+    await showConfig();
+    assert('formulaire lié : plus de bandeau', $('nolink-banner').classList.contains('hidden'));
+    window.fetch = fetchAvantSansLien;
+  });
+
+  await group('publié mais lien pas collé : le bandeau le dit autrement, et se met à jour quand la page est publiée à la main', async () => {
+    resetEditeur();
+    const d = sansLienDoc(); window.grist = d.grist;
+    window.fetch = async () => ({ ok: true, json: async () => FORME });
+    Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
+    state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
+    await createEmptyForm();
+    await publishNow();
+    assertEqual('étape 2 une fois publié', stepNow(), '2');
+    $('guide-build').click();
+    for (let i = 0; i < 40 && $('editor').classList.contains('hidden'); i++) await tick();
+    await tick();
+    assertEqual('construit publié : la copie l’est aussi (même clé)', publicationsDeSection(d.calls, 51).length, 1);
+    await refreshLinkBanner();
+    assert('« Presque prêt : il manque le lien »', $('nolink-banner').textContent.includes(I18n.t('form.link.banner.nolink.title')));
+    assertEqual('…avec « Coller le lien »', $('nolink-go').textContent, I18n.t('form.link.banner.nolink.btn'));
+    // La personne dépublie la copie dans Grist, le bandeau suit la lecture du document.
+    d.doc.sections.shareOptions = d.doc.sections.shareOptions.map(() => '{}');
+    await refreshLinkBanner();
+    assert('…redevenu « Pas encore publié »', $('nolink-banner').textContent.includes(I18n.t('form.link.banner.draft.title')));
+  });
+
+  await group('guide en mode rattachement : la section d’ORIGINE publiée à la main -> Form+ marque lui-même la copie, sans toucher au partage', async () => {
+    resetEditeur();
+    const d = sansLienDoc(); window.grist = d.grist;
+    window.fetch = async () => ({ ok: true, json: async () => FORME });
+    Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
+    state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
+    await createEmptyForm();
+    $('guide-build').click();
+    for (let i = 0; i < 40 && $('editor').classList.contains('hidden'); i++) await tick();
+    await tick();
+    $('nolink-go').click();
+    for (let i = 0; i < 40 && $('start-panel-guide').classList.contains('hidden'); i++) await tick();
+    await tick();
+    assertEqual('étape 1 tant que rien n’est publié', stepNow(), '1');
+    // Publication à la main (GFS : Form+ n'a pas pu), sur la section d'origine.
+    const i50 = d.doc.sections.id.indexOf(50);
+    const so = [...d.doc.sections.shareOptions]; so[i50] = '{"publish":true,"form":true}'; d.doc.sections.shareOptions = so;
+    const avant = d.calls.length;
+    await refreshPublication();
+    assertEqual('la copie est marquée publiée (une seule écriture)', publicationsDeSection(d.calls, 51).map(x => x[3].shareOptions), ['{"publish":true,"form":true}']);
+    assert('…sans toucher au partage ni à la page', !ecritures(d.calls, avant).some(a => a[1] === '_grist_Shares' || a[1] === '_grist_Pages'));
+    assertEqual('étape 2', stepNow(), '2');
+    assertEqual('…et la section d’origine reste publiée comme la personne l’a laissée (jamais réécrite)', publicationsDeSection(d.calls, 50).length, 0);
+    // « Retour au formulaire » sans rien changer.
+    $('start-panel-guide').querySelector('[data-guide="cancel"]').click();
+    await tick();
+    assert('retour à l’éditeur', !$('editor').classList.contains('hidden') && $('step1').classList.contains('hidden'));
+    window.fetch = fetchAvantSansLien;
+  });
+
+  await group('formulaire sans lien : l’aperçu s’ouvre par la route du document, l’envoi est désactivé, un visiteur n’a rien', async () => {
+    resetEditeur();
+    const d = sansLienDoc(); window.grist = d.grist;
+    const urls = [], methods = [];
+    window.fetch = async (url, init) => { urls.push(String(url)); methods.push(init && init.method); return { ok: true, json: async () => FORME }; };
+    Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
+    state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
+    await createEmptyForm();
+    $('guide-build').click();
+    for (let i = 0; i < 40 && $('editor').classList.contains('hidden'); i++) await tick();
+    await tick();
+    assert('« Voir le formulaire » n’est pas éteint', !$('done').disabled);
+    $('done').click();
+    for (let i = 0; i < 40 && !$('fill-card').querySelector('#preview-finish'); i++) await tick();
+    assert('l’aperçu dit qu’il n’y a pas encore de lien', $('fill-card').textContent.includes(I18n.t('form.respond.previewNote')));
+    assert('…avec « Terminer la publication »', !!$('fill-card').querySelector('#preview-finish'));
+    assert('le champ natif est dessiné', !!$('fill-card').querySelector('[data-col="Nom"]'));
+    assert('lu par la route du document', urls.some(u => u.includes('/api/docs/abc/forms/51?auth=JETON')));
+    $('f').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    await tick();
+    assertEqual('l’envoi est refusé avec son explication', $('fill-status').textContent, I18n.t('form.respond.previewNoSubmit'));
+    assert('…et rien n’est posté', !methods.includes('POST'));
+    // « Terminer la publication » ramène à l'éditeur, guide ouvert.
+    $('fill-card').querySelector('#preview-finish').click();
+    await new Promise(r => setTimeout(r, 250));
+    assert('le guide de rattachement est ouvert', !$('start-panel-guide').classList.contains('hidden') && $('editor').classList.contains('hidden'));
+    forgetPublishGuide();
+    // Un visiteur (pas de window.grist) n'a droit qu'au message d'indisponibilité.
+    const g = window.grist; delete window.grist;
+    try {
+      state.options = { vsId: 51 };
+      await renderFill();
+      assert('sans Grist ni lien : formulaire indisponible, pas d’aperçu', $('fill-card').textContent.includes(I18n.t('form.respond.formUnavailable')) && !$('fill-card').querySelector('#preview-finish'));
+    } finally { window.grist = g; }
+    window.fetch = fetchAvantSansLien;
+  });
+
+  await group('showConfig : un formulaire sans lien (« Construire d’abord », ou la copie faite par GFS) rouvre l’éditeur avec son bandeau', async () => {
+    resetEditeur();
+    const d = sansLienDoc(); window.grist = d.grist;
+    window.fetch = async () => ({ ok: true, json: async () => FORME });
+    // La copie de GFS (consigne 021) : vsId neuf, sourceVsId null, ni lien ni clé ni adresse, jamais publiée.
+    const S = d.doc.sections;
+    d.doc.sections = { id: [...S.id, 77], parentId: [...S.parentId, 124], parentKey: [...S.parentKey, 'form'], tableRef: [...S.tableRef, 1], shareOptions: [...S.shareOptions, '{}'], options: [...S.options, '{}'] };
+    state.options = { vsId: 77, sourceVsId: null, viewRef: null, formLink: null, shareKey: null, publicUrl: null, formTitle: 'Copie', questions: [] };
+    await showConfig();
+    assert('éditeur affiché, écran de départ caché', !$('editor').classList.contains('hidden') && $('step1').classList.contains('hidden'));
+    assertEqual('la section gérée est la 77', state.currentFormSection && state.currentFormSection.id, 77);
+    assert('bandeau « pas encore publié »', $('nolink-banner').textContent.includes(I18n.t('form.link.banner.draft.title')));
+    // Section disparue et jamais liée : on repart de l'écran de départ, pas d'un écran vide.
+    resetEditeur();
+    state.options = { vsId: 999, formLink: null };
+    await showConfig();
+    assert('section disparue : l’écran de départ revient', !$('step1').classList.contains('hidden') && $('editor').classList.contains('hidden'));
+    // Formulaire lié : comme avant, pas de bandeau.
+    resetEditeur();
+    state.options = { vsId: 77, formLink: 'https://grist.example.com/o/team/forms/K/77', publicUrl: 'https://x/#form=y' };
+    await showConfig();
+    assert('formulaire lié : pas de bandeau', $('nolink-banner').classList.contains('hidden'));
+    resetEditeur();
+    window.fetch = fetchAvantSansLien;
+  });
+
+  await group('saveConfig : un formulaire sans lien n’enregistre jamais le texte d’un ancien collage', async () => {
+    resetEditeur();
+    const d = sansLienDoc(); window.grist = d.grist;
+    $('link').value = 'https://grist.example.com/o/team/forms/ANCIEN/12';
+    state.options = { vsId: 51, sourceVsId: 50 };
+    state.currentLink = { key: null, api: null, base: null, vsId: 51, sourceVsId: 50, noLink: true };
+    state.currentFormSection = { id: 51, viewRef: 124, tableRef: 1 };
+    state.cfgQuestions = [];
+    await saveConfig(null, null);
+    assert('formLink vide, pas de clé', !state.options.formLink && !state.options.shareKey && !state.options.publicUrl);
+    resetEditeur();
   });
 
   await group('populateFormPicker : liste et filtre les formulaires natifs', async () => {

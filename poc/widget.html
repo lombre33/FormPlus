@@ -95,6 +95,7 @@
     </div>
 
     <div class="card hidden" id="editor">
+      <div id="nolink-banner" class="nolink-banner hidden" role="status"></div>
       <div class="tabbar">
         <button type="button" class="tabbtn" data-etab="questions" data-i18n="form.tabs.questions">Questions</button>
         <button type="button" class="tabbtn" data-etab="responses" data-i18n="form.tabs.responses">Réponses</button>
@@ -123,6 +124,7 @@
           <button type="button" class="qf-link" id="change-source-btn" data-i18n="form.settings.changeSourceBtn">Changer de formulaire source</button>
         </p>
         <div class="url" id="public-url"></div>
+        <p id="url-pending" class="muted hidden" data-i18n="form.settings.urlPending">L'adresse à diffuser apparaîtra ici dès que le lien du formulaire publié sera collé (voir le bandeau en haut).</p>
         <div class="row" style="margin-top:10px">
           <button id="copy" type="button" class="primary" data-i18n="form.settings.copyBtn">Copier l'adresse</button>
           <button id="open" type="button" data-i18n="form.settings.openBtn">Ouvrir dans un nouvel onglet</button>

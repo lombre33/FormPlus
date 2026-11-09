@@ -14,11 +14,11 @@ import {
   ensureTableGate, ensureChoiceField, ensureRefListField, ensureFreeColumn,
   findViewRefForSection, ensureFormulairesTable, ensureRespondentDefinitionField, saveFormDefinition, fetchManagedVsIds,
   duplicateFormSection, clearAutoFields, createFormSectionOnNewPage, otherManagedFormOnPage, getColumnType, KIND_TO_GRIST_TYPE,
-  ensureRespondentProbeTable, isFormPlusOwnTable,
+  ensureRespondentProbeTable, isFormPlusOwnTable, fetchNativeForm, isSectionPublished,
   getAttachmentColumns, parseAttachmentList, fetchAttachmentFileNames, downloadAttachmentAsDataUrl,
 } from './grist-meta.js';
 import { state } from './state.js';
-import { startPublishGuide, resumePublishGuide, forgetPublishGuide, initPublishGuide } from './publish-guide.js';
+import { startPublishGuide, startAttachGuide, resumePublishGuide, forgetPublishGuide, initPublishGuide } from './publish-guide.js';
 import { renderFill, layoutOrder, renderNativeField } from './respond.js';
 import { blobToResizedDataUrl, imageBlockHtml, IMAGE_WIDTH_PRESETS, IMAGE_DEFAULT_WIDTH } from './image-block.js';
 
@@ -57,7 +57,9 @@ let saveChain = Promise.resolve();
 
 export async function saveConfig(publicUrl, widgetPage) {
   const saved = {
-    formLink: state.currentLink ? $('link').value.trim() : state.options?.formLink,
+    // Formulaire construit avant d'en avoir collé le lien (currentLink.noLink, voir buildWithoutLink) :
+    // aucun lien à garder, et surtout pas le texte d'un ancien collage resté dans le champ.
+    formLink: state.currentLink ? (state.currentLink.noLink ? null : $('link').value.trim()) : state.options?.formLink,
     shareKey: state.currentLink?.key ?? state.options?.shareKey,
     vsId: state.currentLink?.vsId ?? state.options?.vsId,
     // Le formulaire natif réellement collé/choisi par le concepteur, avant duplication : sert à
@@ -113,78 +115,111 @@ export async function saveConfig(publicUrl, widgetPage) {
   return saveChain;
 }
 
+// Verrou de ré-entrance commun à « Générer l'adresse » (generate) et à « Construire d'abord »
+// (buildWithoutLink) : le bouton et la touche Entrée appellent tous les deux sans jamais s'attendre
+// l'un l'autre. Sans ce verrou, un double-clic ou un Entrée suivi d'un clic sur un lien jamais encore
+// configuré lance deux duplicateFormSection() en parallèle (isSameSource reste faux pour les deux tant
+// qu'aucun des deux n'a fini), créant une seconde copie du formulaire natif, orpheline, jamais
+// référencée par FormPlus.
+async function withGenerating(fn) {
+  if (state.generating) return;
+  state.generating = true;
+  $('generate').disabled = true;
+  try { return await fn(); }
+  finally {
+    state.generating = false;
+    $('generate').disabled = false;
+  }
+}
+
 // `msgEl` : l'élément où écrire l'avancement et les refus. Par défaut celui de l'écran « Coller un
 // lien » ; le guide de publication (publish-guide.js) passe le sien, puisque ce premier est caché
 // pendant le guide. (Appelée par un clic, l'argument est un événement : sans msgEl, donc le défaut.)
 export async function generate(opts) {
   const msg = (opts && opts.msgEl) || $('cfg-msg');
-  // Verrou de ré-entrance : le bouton et la touche Entrée appellent tous les deux generate()
-  // sans jamais s'attendre l'un l'autre. Sans ce verrou, un double-clic ou un Entrée suivi d'un
-  // clic sur un lien jamais encore configuré lance deux duplicateFormSection() en parallèle
-  // (isSameSource reste faux pour les deux tant qu'aucun des deux n'a fini), créant une seconde
-  // copie du formulaire natif, orpheline, jamais référencée par FormPlus.
-  if (state.generating) return;
-  state.generating = true;
-  $('generate').disabled = true;
-  try {
+  return withGenerating(async () => {
     const pastedLink = parseFormLink($('link').value);
     if (!pastedLink) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.linkNotRecognized')}</span>`; return; }
-    msg.textContent = I18n.t('form.editor.searchingPage');
-    let formPage = null, widgetPage = null, self = null, samePage = null, onFormPage = 0, ambiguous = false;
-    try { ({ formPage, widgetPage, self, samePage, onFormPage, ambiguous } = await findViewRefForSection(pastedLink.vsId)); }
-    catch (e) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.metaReadError', { message: esc(e.message) })}</span>`; return; }
-    if (!formPage) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.sectionMissing')}</span>`; return; }
+    await prepareForm({ sourceVsId: pastedLink.vsId, pastedLink, msg });
+  });
+}
 
-    // saveConfig (plus bas, via le dernier appel de cette fonction) s'en assure aussi, mais ICI,
-    // AVANT toute duplication : la fenêtre de consentement du kit (si la table n'existe pas
-    // encore) doit s'afficher avant de dupliquer, pour ne jamais créer une copie inutile si la
-    // personne refuse.
-    try { await ensureFormulairesTable(); }
-    catch (e) { msg.innerHTML = `<span class="err">${esc(e.message)}</span>`; return; }
+// « Construire d'abord » (guide de publication) : prépare le formulaire SANS lien, depuis la section
+// que Form+ vient de créer (`sourceVsId`). Tout ce qu'il faut est dans le document (page, table,
+// colonnes, publication) ; la clé de partage n'est nécessaire qu'à l'adresse à diffuser et à l'envoi
+// d'une réponse par un visiteur, donc au moment de DIFFUSER, pas de construire. `published` : la
+// section est-elle déjà publiée (Form+ l'a publiée, ou la personne) ? Sinon la copie reste un brouillon
+// non publié, que le bandeau du haut propose de publier (refreshLinkBanner).
+export async function buildWithoutLink({ sourceVsId, published, msgEl }) {
+  const msg = msgEl || $('guide-msg');
+  return withGenerating(() => prepareForm({ sourceVsId, pastedLink: null, msg, published }));
+}
 
-    // FormPlus ne travaille jamais directement sur un formulaire natif qu'il n'a pas lui-même
-    // créé. Même lien déjà collé auparavant (sourceVsId inchangé) : on garde la copie déjà faite,
-    // avec ses questions. Lien nouveau ou différent : on en duplique un exemplaire (même colonnes,
-    // même page, donc même clé de partage, sans republication manuelle), et on repart d'une liste
-    // de questions vide, comme pour tout changement de formulaire aujourd'hui. Les configurations
-    // enregistrées avant cette fonctionnalité (sourceVsId absent) sont préservées telles quelles :
-    // pas de duplication rétroactive tant que le même lien continue d'être utilisé.
-    const knownSource = state.options?.sourceVsId ?? state.options?.vsId;
-    const isSameSource = knownSource === pastedLink.vsId;
-    let vsId;
-    if (isSameSource && state.options?.vsId) {
-      vsId = state.options.vsId;
-    } else {
-      // Consigne GFS 013, point 2 : jamais deux formulaires gérés par FormPlus sur la même page
-      // (donc sous la même clé de partage) - mesuré sur un vrai Grist, une clé ouvre l'écriture
-      // dans TOUTES les tables publiées sur sa page, pas seulement celle visée par le lien utilisé
-      // pour y entrer. On refuse ICI, avant toute duplication, plutôt que de créer silencieusement
-      // ce risque.
-      let collidingVsId = null;
-      try { collidingVsId = await otherManagedFormOnPage(formPage, pastedLink.vsId); }
-      catch (e) { /* une lecture impossible ne doit pas bloquer : au pire le risque reste à vérifier à la main */ }
-      if (collidingVsId != null) {
-        msg.innerHTML = `<span class="err">${I18n.t('form.editor.pageAlreadyManaged', { vsId: collidingVsId })}</span>`;
-        return;
-      }
-      // Consigne GFS 012, point 2 : poser la copie sur la page du formulaire source QUAND cette
-      // page est aussi celle de CE widget fait recharger le cadre du widget (comportement natif de
-      // Grist : ajouter une section à une page reconstruit tous ses cadres personnalisés), avant
-      // que saveConfig (plus bas) n'ait écrit la ligne - mesuré avec et sans GFS : la fenêtre
-      // d'accord et FormPlus_Formulaires passent, puis plus rien n'est enregistré, et chaque
-      // nouvel essai ajoute une copie orpheline de plus. On refuse ICI, avant toute duplication,
-      // plutôt que de laisser cet échec silencieux se reproduire.
-      if (samePage) {
-        msg.innerHTML = `<span class="err">${I18n.t('form.editor.sourceOnWidgetPage')}</span>`;
-        return;
-      }
-      // Consigne GFS 013, points 3 et 4 : c'est ICI, et seulement ici dans toute cette fonction,
-      // que FormPlus rend quelque chose de nouveau public (duplicateFormSection publie la copie
-      // tout de suite, sous la clé déjà en place) - avant de le faire, dire ce que ça ouvre et
-      // attendre un geste explicite. Rien n'est encore créé à ce stade : un refus ne laisse donc
-      // rien à moitié fait, sans qu'aucun retrait ne soit nécessaire.
+// Prépare le formulaire géré par FormPlus (une COPIE du natif, voir l'en-tête de ce fichier) puis
+// montre l'éditeur. `pastedLink` : le lien collé, ou null pour un formulaire construit avant son lien.
+async function prepareForm({ sourceVsId, pastedLink, msg, published = true }) {
+  msg.textContent = I18n.t('form.editor.searchingPage');
+  let formPage = null, widgetPage = null, self = null, samePage = null, onFormPage = 0, ambiguous = false;
+  try { ({ formPage, widgetPage, self, samePage, onFormPage, ambiguous } = await findViewRefForSection(sourceVsId)); }
+  catch (e) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.metaReadError', { message: esc(e.message) })}</span>`; return; }
+  if (!formPage) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.sectionMissing')}</span>`; return; }
+
+  // saveConfig (plus bas, via le dernier appel de cette fonction) s'en assure aussi, mais ICI,
+  // AVANT toute duplication, la fenêtre de consentement du kit (si la table n'existe pas
+  // encore) doit s'afficher avant de dupliquer, pour ne jamais créer une copie inutile si la
+  // personne refuse.
+  try { await ensureFormulairesTable(); }
+  catch (e) { msg.innerHTML = `<span class="err">${esc(e.message)}</span>`; return; }
+
+  // FormPlus ne travaille jamais directement sur un formulaire natif qu'il n'a pas lui-même
+  // créé. Même lien déjà collé auparavant (sourceVsId inchangé) : on garde la copie déjà faite,
+  // avec ses questions. Lien nouveau ou différent : on en duplique un exemplaire (même colonnes,
+  // même page, donc même clé de partage, sans republication manuelle), et on repart d'une liste
+  // de questions vide, comme pour tout changement de formulaire aujourd'hui. Les configurations
+  // enregistrées avant cette fonctionnalité (sourceVsId absent) sont préservées telles quelles :
+  // pas de duplication rétroactive tant que le même lien continue d'être utilisé.
+  const knownSource = state.options?.sourceVsId ?? state.options?.vsId;
+  const isSameSource = knownSource === sourceVsId;
+  let vsId;
+  if (isSameSource && state.options?.vsId) {
+    vsId = state.options.vsId;
+  } else {
+    // Consigne GFS 013, point 2 : jamais deux formulaires gérés par FormPlus sur la même page
+    // (donc sous la même clé de partage) - mesuré sur un vrai Grist, une clé ouvre l'écriture
+    // dans TOUTES les tables publiées sur sa page, pas seulement celle visée par le lien utilisé
+    // pour y entrer. On refuse ICI, avant toute duplication, plutôt que de créer silencieusement
+    // ce risque.
+    let collidingVsId = null;
+    try { collidingVsId = await otherManagedFormOnPage(formPage, sourceVsId); }
+    catch (e) { /* une lecture impossible ne doit pas bloquer : au pire le risque reste à vérifier à la main */ }
+    if (collidingVsId != null) {
+      msg.innerHTML = `<span class="err">${I18n.t('form.editor.pageAlreadyManaged', { vsId: collidingVsId })}</span>`;
+      return;
+    }
+    // Consigne GFS 012, point 2 : poser la copie sur la page du formulaire source QUAND cette
+    // page est aussi celle de CE widget fait recharger le cadre du widget (comportement natif de
+    // Grist : ajouter une section à une page reconstruit tous ses cadres personnalisés), avant
+    // que saveConfig (plus bas) n'ait écrit la ligne - mesuré avec et sans GFS : la fenêtre
+    // d'accord et FormPlus_Formulaires passent, puis plus rien n'est enregistré, et chaque
+    // nouvel essai ajoute une copie orpheline de plus. On refuse ICI, avant toute duplication,
+    // plutôt que de laisser cet échec silencieux se reproduire.
+    if (samePage) {
+      msg.innerHTML = `<span class="err">${I18n.t('form.editor.sourceOnWidgetPage')}</span>`;
+      return;
+    }
+    // Consigne GFS 013, points 3 et 4 : c'est ICI, et seulement ici dans toute cette fonction,
+    // que FormPlus rend quelque chose de nouveau public (duplicateFormSection publie la copie
+    // tout de suite, sous la clé déjà en place) - avant de le faire, dire ce que ça ouvre et
+    // attendre un geste explicite. Rien n'est encore créé à ce stade : un refus ne laisse donc
+    // rien à moitié fait, sans qu'aucun retrait ne soit nécessaire.
+    // Formulaire construit avant son lien (pastedLink null) : rien de NOUVEAU n'est ouvert ici. Ou
+    // bien la copie reste un brouillon (published faux : aucune publication), ou bien la section
+    // d'origine vient d'être publiée par le geste explicite du guide (qui dit lui-même ce que ça
+    // ouvre, avant le clic) et la copie, sur la même table, sous la même clé, n'ajoute aucune
+    // exposition : une seconde confirmation ne dirait rien de plus.
+    if (pastedLink) {
       const srcSections = await fetchMeta('_grist_Views_section');
-      const srcIdx = srcSections.id.indexOf(pastedLink.vsId);
+      const srcIdx = srcSections.id.indexOf(sourceVsId);
       const srcTableId = srcIdx >= 0 ? await tableIdOfRef(srcSections.tableRef[srcIdx]) : '?';
       const okToPublish = await Dialogs.confirm({
         title: I18n.t('form.editor.publishDisclosureTitle'),
@@ -192,50 +227,153 @@ export async function generate(opts) {
         confirmLabel: I18n.t('form.editor.publishDisclosureConfirmBtn'),
       });
       if (!okToPublish) { msg.innerHTML = `<span class="ok">${I18n.t('form.editor.publishDeclined')}</span>`; return; }
-      msg.textContent = I18n.t('form.editor.duplicating');
-      try { vsId = await duplicateFormSection(pastedLink.vsId); }
-      catch (e) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.duplicateError', { message: esc(e.message) })}</span>`; return; }
     }
-    const link = { ...pastedLink, vsId, sourceVsId: pastedLink.vsId };
-    state.currentLink = link;
-    const sections = await fetchMeta('_grist_Views_section');
-    const idx = sections.id.indexOf(vsId);
-    state.currentFormSection = { id: vsId, viewRef: formPage, tableRef: sections.tableRef[idx] };
-    state.mainTableIdCache = await tableIdOfRef(state.currentFormSection.tableRef);
-    // On garde les questions déjà enregistrées si ce lien était déjà configuré.
-    state.cfgQuestions = isSameSource ? migrateLegacy(state.options) : [];
-    state.stayOnConfig = true;
-    const publicUrl = buildPublicUrl(link);
-    const persisted = await saveConfig(publicUrl, widgetPage);
-    const dupNote = isSameSource ? '' : I18n.t('form.editor.dupNote');
-    msg.innerHTML = persisted
-      ? `<span class="ok">${dupNote}${I18n.t('form.editor.configSavedDoc')}</span>`
-      : `<span class="err">${dupNote}${I18n.t('form.editor.configSessionOnly')}</span>`;
-    $('public-url').textContent = publicUrl;
-    $('qrPanel').classList.add('hidden'); // évite d'afficher un QR code périmé après une nouvelle adresse
-    if (!self && ambiguous) {
-      $('page-check').innerHTML = `<span class="err">${I18n.t('form.editor.multiWidgetAmbiguous', { page: widgetPage })}</span>`;
-    } else if (!self) {
-      $('page-check').innerHTML = `<span class="err">${I18n.t('form.editor.pageUnreadable', { page: formPage })}</span>`;
-    } else if (samePage) {
-      const samePageExtra = onFormPage > 1 ? I18n.t('form.editor.samePageExtra', { n: onFormPage }) : '';
-      $('page-check').innerHTML = `<span class="ok">${I18n.t('form.editor.samePageWarning', { page: formPage, extra: samePageExtra })}</span>`;
-    } else {
-      $('page-check').innerHTML = `<span class="ok">${I18n.t('form.editor.cleanPage', { widgetPage, formPage })}</span>`;
-    }
-    // Sans ce masquage, l'écran de démarrage (collage de lien) restait affiché juste au-dessus de
-    // l'éditeur qu'on vient de montrer : les deux cohabitaient un instant, effet d'écran cassé
-    // juste après l'action la plus importante du parcours (bug relevé le 4 nov 2026, audit UI/UX
-    // de cette date). Même geste que showConfig()/« Changer de formulaire source » ci-dessous.
-    $('step1').classList.add('hidden');
-    forgetPublishGuide(); // le formulaire est lié : plus rien à attendre du guide de publication, ni à reprendre
-    $('editor').classList.remove('hidden');
-    renderQuestionList();
-    showEditorTab('questions');
-  } finally {
-    state.generating = false;
-    $('generate').disabled = false;
+    msg.textContent = I18n.t('form.editor.duplicating');
+    try { vsId = await duplicateFormSection(sourceVsId, pastedLink ? undefined : { publish: !!published }); }
+    catch (e) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.duplicateError', { message: esc(e.message) })}</span>`; return; }
   }
+  const link = pastedLink
+    ? { ...pastedLink, vsId, sourceVsId }
+    : { key: null, api: null, base: null, vsId, sourceVsId, noLink: true };
+  state.currentLink = link;
+  const sections = await fetchMeta('_grist_Views_section');
+  const idx = sections.id.indexOf(vsId);
+  state.currentFormSection = { id: vsId, viewRef: formPage, tableRef: sections.tableRef[idx] };
+  state.mainTableIdCache = await tableIdOfRef(state.currentFormSection.tableRef);
+  // On garde les questions déjà enregistrées si ce lien était déjà configuré.
+  state.cfgQuestions = isSameSource ? migrateLegacy(state.options) : [];
+  state.stayOnConfig = true;
+  const publicUrl = pastedLink ? buildPublicUrl(link) : null;
+  if (!pastedLink) $('link').value = '';
+  const persisted = await saveConfig(publicUrl, widgetPage);
+  const dupNote = isSameSource ? '' : I18n.t('form.editor.dupNote');
+  msg.innerHTML = persisted
+    ? `<span class="ok">${dupNote}${I18n.t('form.editor.configSavedDoc')}</span>`
+    : `<span class="err">${dupNote}${I18n.t('form.editor.configSessionOnly')}</span>`;
+  $('public-url').textContent = publicUrl || '';
+  $('qrPanel').classList.add('hidden'); // évite d'afficher un QR code périmé après une nouvelle adresse
+  if (!self && ambiguous) {
+    $('page-check').innerHTML = `<span class="err">${I18n.t('form.editor.multiWidgetAmbiguous', { page: widgetPage })}</span>`;
+  } else if (!self) {
+    $('page-check').innerHTML = `<span class="err">${I18n.t('form.editor.pageUnreadable', { page: formPage })}</span>`;
+  } else if (samePage) {
+    const samePageExtra = onFormPage > 1 ? I18n.t('form.editor.samePageExtra', { n: onFormPage }) : '';
+    $('page-check').innerHTML = `<span class="ok">${I18n.t('form.editor.samePageWarning', { page: formPage, extra: samePageExtra })}</span>`;
+  } else {
+    $('page-check').innerHTML = `<span class="ok">${I18n.t('form.editor.cleanPage', { widgetPage, formPage })}</span>`;
+  }
+  // Sans ce masquage, l'écran de démarrage (collage de lien) restait affiché juste au-dessus de
+  // l'éditeur qu'on vient de montrer : les deux cohabitaient un instant, effet d'écran cassé
+  // juste après l'action la plus importante du parcours (bug relevé le 4 nov 2026, audit UI/UX
+  // de cette date). Même geste que showConfig()/« Changer de formulaire source » ci-dessous.
+  $('step1').classList.add('hidden');
+  forgetPublishGuide(); // le formulaire est lié : plus rien à attendre du guide de publication, ni à reprendre
+  $('editor').classList.remove('hidden');
+  renderQuestionList();
+  showEditorTab('questions');
+  refreshLinkBanner();
+}
+
+// ───────────────────────── Formulaire construit avant son lien : rappel, rattachement ─────────────────────────
+// Un formulaire peut exister (vsId, questions, apparence) sans que Form+ en connaisse la clé de
+// partage : la clé ne se lit pas depuis un widget (voir tests/grist-env/probe-share-key.js), elle se
+// copie dans Grist. Tant qu'elle manque, tout se construit et se prévisualise (fetchNativeForm lit le
+// document avec le jeton du widget), mais rien ne se diffuse : ni adresse, ni QR code, ni réponse d'un
+// visiteur. Le bandeau en haut de l'éditeur le dit, tout le temps, et mène au guide pour finir.
+
+// L'adresse à diffuser (Paramètres) n'existe pas tant que le lien manque : on le dit à sa place plutôt
+// que d'afficher des boutons qui copieraient du vide.
+function setAddressAvailable(ok) {
+  $('public-url').classList.toggle('hidden', !ok);
+  $('url-pending').classList.toggle('hidden', ok);
+  ['copy', 'open', 'qrToggle'].forEach(id => { $(id).disabled = !ok; });
+  if (!ok) $('qrPanel').classList.add('hidden');
+}
+
+// Le bandeau dit où en est la publication, d'après le document (shareOptions de la copie) et non d'un
+// souvenir : publiée à la main entre-temps, il passe tout seul de « brouillon » à « il manque le lien ».
+// `justLinked` : confirmation brève juste après le collage du lien.
+export async function refreshLinkBanner({ justLinked = false } = {}) {
+  const el = $('nolink-banner');
+  const vsId = state.options?.vsId;
+  if (justLinked) {
+    el.className = 'nolink-banner ok';
+    el.innerHTML = `<div><strong>${I18n.t('form.link.banner.linked')}</strong></div>`;
+    setAddressAvailable(true);
+    return;
+  }
+  if (vsId == null || !state.currentFormSection || state.options?.formLink) {
+    el.classList.add('hidden');
+    setAddressAvailable(true);
+    return;
+  }
+  let published = false;
+  try { published = !!(await isSectionPublished(vsId)); } catch (e) { /* lecture impossible : on suppose non publié */ }
+  const k = published ? 'nolink' : 'draft';
+  el.className = 'nolink-banner';
+  el.innerHTML = `<div class="nolink-text"><strong>${I18n.t(`form.link.banner.${k}.title`)}</strong> ${I18n.t(`form.link.banner.${k}.text`)}</div>
+    <button type="button" class="primary" id="nolink-go">${I18n.t(`form.link.banner.${k}.btn`)}</button>`;
+  setAddressAvailable(false);
+}
+
+// Le guide (publish-guide.js) en mode « rattachement » : il remplace l'éditeur le temps de publier et
+// de coller le lien, puis rend la main (« Retour au formulaire »). Aucune nouvelle copie n'est faite.
+async function openAttachGuide() {
+  if (state.options?.vsId == null || !state.currentFormSection) return;
+  $('editor').classList.add('hidden');
+  $('step1').classList.remove('hidden');
+  await startAttachGuide({
+    tableId: state.mainTableIdCache,
+    viewRef: state.currentFormSection.viewRef,
+    sectionId: state.options.vsId,
+    sourceVsId: state.options.sourceVsId,
+  });
+}
+$('nolink-banner').addEventListener('click', (e) => { if (e.target.closest('#nolink-go')) openAttachGuide(); });
+// « Terminer la publication » depuis l'aperçu (respond.js, renderFill sans lien) : retour à l'éditeur, guide
+// ouvert. Écouté sur le conteneur de l'application, pas sur la carte de réponse, que renderFill redessine.
+$('app').addEventListener('click', async (e) => {
+  if (!e.target.closest('#preview-finish')) return;
+  await showConfig();
+  await openAttachGuide();
+});
+// Retour sur l'onglet après avoir publié ou copié le lien dans Grist : le bandeau se met à jour seul.
+window.addEventListener('focus', () => {
+  if (!$('editor').classList.contains('hidden') && state.options?.vsId != null && !state.options?.formLink) refreshLinkBanner();
+});
+
+// Colle le lien d'un formulaire DÉJÀ construit (le bouton « Coller le lien » du guide en mode
+// rattachement). La clé est celle de la PAGE : n'importe quelle section publiée de cette page la donne,
+// mais le lien d'une autre page ne vaudrait rien ici. On l'essaie avant de l'enregistrer (la lecture
+// publique du formulaire doit répondre), puis on l'écrit comme generate() l'écrit après un collage :
+// lien, clé, adresse à diffuser. Rend vrai quand le lien est enregistré.
+export async function attachLink(raw, msg) {
+  const pasted = parseFormLink(raw);
+  if (!pasted) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.linkNotRecognized')}</span>`; return false; }
+  const vsId = state.options?.vsId;
+  if (vsId == null || !state.currentFormSection) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.sectionMissing')}</span>`; return false; }
+  const sourceVsId = state.options.sourceVsId ?? vsId;
+  let onThisPage = pasted.vsId === vsId || pasted.vsId === sourceVsId;
+  if (!onThisPage) {
+    try { onThisPage = (await findViewRefForSection(pasted.vsId)).formPage === state.currentFormSection.viewRef; }
+    catch (e) { onThisPage = false; }
+  }
+  if (!onThisPage) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.attach.wrongPage')}</span>`; return false; }
+  // Le lien est écrit avec la section que Form+ gère (la copie), quelle que soit celle dont la personne
+  // a copié le lien : la même clé les ouvre toutes, et c'est la copie qui contient les questions.
+  const link = { ...pasted, vsId, sourceVsId };
+  try { await fetchNativeForm(vsId, link); }
+  catch (e) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.attach.keyRefused', { message: esc(e.message) })}</span>`; return false; }
+  $('link').value = `${pasted.base}/forms/${pasted.key}/${vsId}`;
+  state.currentLink = link;
+  const publicUrl = buildPublicUrl(link);
+  const persisted = await saveConfig(publicUrl, state.options.viewRef);
+  $('public-url').textContent = publicUrl;
+  $('qrPanel').classList.add('hidden');
+  msg.innerHTML = persisted
+    ? `<span class="ok">${I18n.t('form.editor.configSavedDoc')}</span>`
+    : `<span class="err">${I18n.t('form.editor.configSessionOnly')}</span>`;
+  return true;
 }
 
 $('generate').addEventListener('click', generate);
@@ -306,7 +444,7 @@ $('copy').addEventListener('click', async () => {
   catch (e) { await Dialogs.prompt({ title: I18n.t('form.settings.copyBtn'), message: I18n.t('form.editor.copyFallbackMsg'), value: url }); }
 });
 $('open').addEventListener('click', () => window.open($('public-url').textContent, '_blank', 'noopener'));
-$('done').addEventListener('click', () => { state.stayOnConfig = false; if (state.options?.formLink) renderFill(); });
+$('done').addEventListener('click', () => { state.stayOnConfig = false; if (state.options?.formLink || state.options?.vsId != null) renderFill(); });
 $('qrToggle').addEventListener('click', () => {
   const panel = $('qrPanel');
   const opening = panel.classList.contains('hidden');
@@ -373,6 +511,24 @@ $('scratchCreate').addEventListener('click', createEmptyForm);
 initPublishGuide({
   show: showStartView,
   onLink: (link, msgEl) => { $('link').value = link; return generate({ msgEl }); },
+  // Mode rattachement (formulaire déjà construit) : le lien complète le formulaire, il n'en recrée pas.
+  onAttach: (link, msgEl) => attachLink(link, msgEl),
+  onBuild: (args) => buildWithoutLink(args),
+  // Ce que la publication ouvrira EN PLUS de la table du formulaire (questions construites avant la
+  // publication) : les tables où elles écrivent, et celles dont elles lisent la liste de choix.
+  onExtraTables: () => {
+    const qs = state.cfgQuestions || [];
+    const main = state.mainTableIdCache;
+    const writes = [...new Set(qs.filter(q => !LAYOUT_KINDS.has(q.kind) && q.writeTable && q.writeTable !== main).map(q => q.writeTable))];
+    const reads = [...new Set(qs.filter(q => TABLE_SOURCED_KINDS.has(q.kind) && q.sourceTable).map(q => q.sourceTable))];
+    return { writes, reads };
+  },
+  // Retour à l'éditeur (guide quitté, ou lien enregistré : `linked`).
+  onBack: ({ linked } = {}) => {
+    $('step1').classList.add('hidden');
+    $('editor').classList.remove('hidden');
+    refreshLinkBanner({ justLinked: !!linked });
+  },
 });
 
 export async function createEmptyForm() {
@@ -1456,12 +1612,10 @@ function nativeFieldCardHtml(fieldId, fl) {
 // une section sans formulaire natif lié, ou un aller-retour réseau lent, ne doit jamais retarder
 // ni casser l'affichage des questions elles-mêmes (même tolérance que chaque carte individuelle).
 async function renderNativeFieldCards(list) {
-  if (!state.currentLink?.api || state.currentLink.vsId == null) return;
+  if (state.currentLink?.vsId == null) return;
   let rows = '';
   try {
-    const r = await fetch(`${state.currentLink.api}/forms/${state.currentLink.vsId}`);
-    if (!r.ok) return;
-    const form = await r.json();
+    const form = await fetchNativeForm(state.currentLink.vsId, state.currentLink);
     rows = layoutOrder(form)
       .map(id => [id, form.formFieldsById[id]])
       .filter(([, fl]) => fl && !(fl.options || {}).formIsHidden)
@@ -1483,9 +1637,7 @@ async function renderNativeFieldCards(list) {
 export async function customizeNativeField(fieldId) {
   const msg = $('import-msg');
   try {
-    const r = await fetch(`${state.currentLink.api}/forms/${state.currentLink.vsId}`);
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const form = await r.json();
+    const form = await fetchNativeForm(state.currentLink.vsId, state.currentLink);
     const fl = form.formFieldsById[fieldId];
     if (!fl) return; // aperçu périmé (champ déjà traité entre-temps ailleurs) : rien à faire
     const kind = nativeFieldKind(fl);
@@ -1626,7 +1778,10 @@ export async function showConfig() {
   // y bascule déjà via le gestionnaire ci-dessus, qui pose ce drapeau — sans lui, le forçage final
   // écrasait silencieusement ce choix en revenant sur "Questions".
   state.editorTabPicked = false;
-  const configured = !!state.options?.formLink;
+  // Configuré = un lien collé, OU un formulaire construit avant son lien (vsId sans formLink : celui
+  // d'« Construire d'abord », ou la copie faite par GFS, consigne 021, qui naît sans lien ni publication).
+  const linked = !!state.options?.formLink;
+  const configured = linked || state.options?.vsId != null;
   $('step1').classList.toggle('hidden', configured);
   // Consigne GFS 012, point 4 : repart caché à chaque appel - sans ça, « Nouveau » (configured
   // devenu faux) laissait l'éditeur du formulaire précédent affiché SOUS l'écran de départ qu'on
@@ -1634,15 +1789,17 @@ export async function showConfig() {
   // réellement liée à ce lien existe encore dans le document.
   $('editor').classList.add('hidden');
   if (configured) {
-    $('link').value = state.options.formLink;
+    $('link').value = linked ? state.options.formLink : '';
     // state.options.vsId est la section que FormPlus gère réellement (sa copie, voir generate()
     // dans grist-meta.js) : jamais ré-déduite du lien collé, qui pointe vers le formulaire
     // d'origine du concepteur et peut différer du vsId depuis l'ajout de la duplication.
-    const parsed = parseFormLink(state.options.formLink);
-    state.currentLink = parsed ? { ...parsed, vsId: state.options.vsId, sourceVsId: state.options.sourceVsId ?? state.options.vsId } : null;
+    const parsed = linked ? parseFormLink(state.options.formLink) : null;
+    const sourceVsId = state.options.sourceVsId ?? state.options.vsId;
+    state.currentLink = parsed ? { ...parsed, vsId: state.options.vsId, sourceVsId }
+      : (linked ? null : { key: null, api: null, base: null, vsId: state.options.vsId, sourceVsId, noLink: true });
     state.cfgQuestions = migrateLegacy(state.options);
     fillAppearanceFields(state.options);
-    if (state.options.publicUrl) { $('public-url').textContent = state.options.publicUrl; }
+    $('public-url').textContent = state.options.publicUrl || '';
     if (state.currentLink?.vsId != null) {
       const sections = await fetchMeta('_grist_Views_section');
       const idx = sections.id.indexOf(state.currentLink.vsId);
@@ -1652,6 +1809,9 @@ export async function showConfig() {
         $('editor').classList.remove('hidden');
         renderQuestionList();
         if (!state.editorTabPicked) showEditorTab('questions');
+        refreshLinkBanner();
+      } else if (!linked) {
+        $('step1').classList.remove('hidden'); // section disparue, jamais liée : on repart de l'écran de départ, pas d'un écran vide
       }
     }
   } else {

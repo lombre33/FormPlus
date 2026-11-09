@@ -111,6 +111,14 @@
   @keyframes guide-pulse { 50% { opacity: .25; transform: scale(.8); } }
   @media (prefers-reduced-motion: reduce) { .guide-dot { animation: none; } .guide-progress i { transition: none; } }
   /* Petits pictogrammes : on montre l'endroit plutôt que d'écrire un chemin dans Grist. */
+  /* « Construire d'abord » : une porte de sortie, discrète mais lisible, sous les étapes. */
+  .guide-later { margin-top: 14px; padding: 12px; border: var(--bw, 1px) dashed var(--border); border-radius: var(--radius); display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+  .guide-later p { margin: 0; flex: 1 1 260px; color: var(--text-muted); font-size: .88rem; }
+  /* Bandeau de rappel en haut de l'éditeur (formulaire pas publié / lien pas collé) et note d'aperçu. */
+  .nolink-banner { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin: 0 0 12px; padding: 10px 12px; border: var(--bw, 1px) solid var(--accent-soft-border); background: var(--accent-soft); border-radius: var(--radius); }
+  .nolink-banner.ok { border-color: var(--good-soft-border); background: var(--good-soft); }
+  .nolink-text { flex: 1 1 280px; min-width: 0; font-size: .9rem; line-height: 1.4; }
+  .pv-preview-note { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin: 0 0 12px; padding: 8px 12px; border: var(--bw, 1px) solid var(--accent-soft-border); background: var(--accent-soft); border-radius: var(--radius); font-size: .88rem; }
   .guide-pic { align-self: flex-start; background: var(--surface); border: var(--bw, 1px) solid var(--border); border-radius: var(--radius-sm, 7px); padding: 8px; font-size: .78rem; }
   .guide-side { display: flex; flex-direction: column; gap: 4px; width: 100%; max-width: 340px; }
   .guide-side .sk { height: 8px; border-radius: 4px; background: var(--surface-sunken); }

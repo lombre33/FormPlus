@@ -17,6 +17,14 @@
 // grille), ni qu'il fallait 4 clics (Publier, confirmer, Partager, Copier le lien) au lieu de 2. Le
 // même jour, Antoine a choisi que Form+ publie lui-même (il en reste 2 dans Grist).
 //
+// Le guide n'est pas une porte à passer pour avancer (demande d'Antoine, 9 nov 2026 : « construire sans
+// avoir collé le lien, avec un rappel qu'il n'est pas publié ») : « Construire le formulaire d'abord »
+// ouvre l'éditeur tout de suite, publié ou non, lien collé ou non (buildNow, config-editor.js :
+// buildWithoutLink). Le bandeau de l'éditeur rappelle ce qu'il reste à faire et rouvre ce guide en mode
+// RATTACHEMENT (startAttachGuide) : mêmes étapes, sur la copie déjà construite ; publier marque la copie ET
+// la section d'origine de la page (Grist n'affiche « Partager » que sur une section publiée), le lien collé
+// s'ajoute au formulaire sans rien recréer (attachLink). La clé reste, elle, à copier dans Grist.
+//
 // Le parcours survit à un rechargement (la personne qui clique la page dans la barre latérale de
 // Grist, au lieu du bouton, fait recharger le widget) : il est noté sous PENDING_KEY (GfsLink.
 // storageSet : chez GFS, ou dans le navigateur seul) avec le document, la table, la page et la
@@ -27,7 +35,7 @@ import { GfsLink } from '../../kit/js/gfs-link.js';
 import { Dialogs } from '../../kit/js/dialogs.js';
 import './strings.js'; // enregistre form.* avant tout usage de I18n.t() au chargement de ce module (voir strings.js)
 import { parseFormLink } from './links.js';
-import { fetchMeta, tableIdOfRef, gristPageUrl, nameFormPage, isSectionPublished, publishFormSection } from './grist-meta.js';
+import { fetchMeta, tableIdOfRef, gristPageUrl, nameFormPage, isSectionPublished, publishFormSection, completeSectionPublication } from './grist-meta.js';
 import { diag } from './diag.js';
 
 export const PENDING_KEY = 'formplus_pending_guide';
@@ -37,10 +45,13 @@ export const POLL_MS = 2500;
 // départ (showStartView), onLink(lien, élémentMessage) prépare le formulaire (generate).
 // hosted() dit si GFS héberge l'app : sa fenêtre d'ouverture hérite alors du bac à sable (origine nulle,
 // stockage refusé), donc une page de Grist ouverte depuis ce cadre ne fonctionnerait pas.
-const hooks = { show: () => {}, onLink: async () => {}, hosted: () => GfsLink.hosted };
+// onAttach(lien, élémentMessage) -> vrai quand le lien est enregistré (mode rattachement, ci-dessous) ;
+// onBuild({ sourceVsId, published, msgEl }) prépare le formulaire SANS lien (« Construire d'abord ») ;
+// onBack({ linked }) rend la main à l'éditeur.
+const hooks = { show: () => {}, onLink: async () => {}, onAttach: async () => false, onBuild: async () => {}, onBack: () => {}, onExtraTables: () => ({ writes: [], reads: [] }), hosted: () => GfsLink.hosted };
 export function initPublishGuide(h) { Object.assign(hooks, h); wire(); }
 
-let G = null;        // le parcours en cours : { tableId, viewRef, sectionId, pageName, pageUrl, opened, published, publishing, refused, busy }
+let G = null;        // le parcours en cours : { tableId, viewRef, sectionId, attach, sourceVsId, pageName, pageUrl, opened, published, publishing, refused, busy }
 let timer = null;
 let listening = false;
 
@@ -66,6 +77,23 @@ export async function startPublishGuide({ tableId, viewRef, sectionId }) {
   const hosted = !!hooks.hosted();
   G = { tableId, viewRef, sectionId, pageName: name, hosted, pageUrl: await gristPageUrl(viewRef, hosted), opened: false, published: false, publishing: false, refused: false, busy: false };
   await remember();
+  showGuide();
+}
+
+// Mode « rattachement » : le formulaire est DÉJÀ construit (config-editor.js, buildWithoutLink), il lui
+// manque d'être publié et/ou son lien. `sectionId` est la section que Form+ gère (sa copie), `sourceVsId`
+// la section native d'origine, sur la même page : si la personne publie celle-ci à la main, la copie
+// suit toute seule (refreshPublication). Rien n'est créé ni renommé, rien n'est noté pour un
+// rechargement (le bandeau de l'éditeur ramène ici). « Retour au formulaire » quitte sans rien changer.
+export async function startAttachGuide({ tableId, viewRef, sectionId, sourceVsId }) {
+  let pageName = '';
+  try {
+    const views = await fetchMeta('_grist_Views');
+    const i = views.id.indexOf(viewRef);
+    if (i >= 0) pageName = String(views.name[i] || '');
+  } catch (e) { /* nom illisible (GFS sans cette lecture) : le guide s'en passe */ }
+  const hosted = !!hooks.hosted();
+  G = { tableId, viewRef, sectionId, attach: true, sourceVsId: sourceVsId ?? null, pageName, hosted, pageUrl: await gristPageUrl(viewRef, hosted), opened: false, published: false, publishing: false, refused: false, busy: false };
   showGuide();
 }
 
@@ -108,7 +136,19 @@ function showGuide() {
 export async function refreshPublication() {
   if (!G || G.published) return;
   try {
-    const published = await isSectionPublished(G.sectionId);
+    let published = await isSectionPublished(G.sectionId);
+    // Mode rattachement : la page porte DEUX sections de formulaire, la copie que Form+ gère et la section
+    // d'origine (vide), côte à côte. Grist n'affiche « Partager » que sur une section publiée : si la
+    // personne en publie une à la main (celle d'origine est la première qu'elle voit), Form+ marque
+    // lui-même l'autre. Le partage de la page existe alors, la clé aussi, rien d'autre à écrire ; et
+    // rien de plus n'est exposé (même table, même clé, une section d'origine sans aucun champ).
+    if (G.attach && G.sourceVsId != null && G.sourceVsId !== G.sectionId) {
+      try {
+        const sourcePublished = await isSectionPublished(G.sourceVsId);
+        if (published === false && sourcePublished) { await completeSectionPublication(G.sectionId); published = true; }
+        else if (published && sourcePublished === false) await completeSectionPublication(G.sourceVsId);
+      } catch (e) { diag({ event: 'completePublicationFailed', message: e && e.message }); }
+    }
     if (published === null) { // la section n'existe plus : la page a été supprimée dans Grist
       stopWatching();
       $('guide-msg').innerHTML = `<span class="err">${I18n.t('form.guide.pageGone', { page: esc(G.pageName) })}</span>`;
@@ -152,7 +192,13 @@ export function renderGuide() {
     : G.hosted ? `<button type="button" class="primary" id="guide-copy" data-guide="copy">${t('form.guide.s2.copy')}</button>`
     : `<a class="guide-open" id="guide-open" data-guide="open" href="${esc(G.pageUrl)}" target="_blank" rel="noopener">${t('form.guide.s2.open')} ↗</a>`;
   const side = `<div class="guide-pic guide-side" aria-hidden="true"><span class="sk"></span><span class="sk"></span><span class="sk short"></span><span class="you-row"><span class="you">${page}</span><em>${t('form.guide.s2.here')}</em></span></div>`;
-  const access = `<p class="muted">${t('form.guide.s1.access', { table })}</p>`;
+  // Un formulaire construit avant sa publication peut avoir des questions qui écrivent dans d'autres tables ou
+  // lisent d'autres listes : la publication ouvre aussi celles-là (même clé), la phrase le dit avant le clic.
+  const extra = G.attach ? hooks.onExtraTables() : { writes: [], reads: [] };
+  const list = (a) => a.map(x => `« ${esc(x)} »`).join(', ');
+  const access = `<p class="muted">${t('form.guide.s1.access', { table })}</p>`
+    + (extra.writes.length ? `<p class="muted">${t('form.guide.s1.accessWrites', { tables: list(extra.writes) })}</p>` : '')
+    + (extra.reads.length ? `<p class="muted">${t('form.guide.s1.accessReads', { tables: list(extra.reads) })}</p>` : '');
 
   // Étape 1 : le bouton qui publie. Si Grist (ou GFS) le refuse, la publication à la main, avec la
   // page à ouvrir et l'attente qui se coche toute seule.
@@ -193,7 +239,14 @@ export function renderGuide() {
       <span class="guide-num" aria-hidden="true">${mark(n)}</span>
       <span class="guide-title">${n < current ? doneTitle : title}</span>${body}</li>`;
 
-  root.innerHTML = `<button type="button" class="qf-link start-back" data-guide="cancel">${t('form.guide.cancel')}</button>
+  // « Construire d'abord » : on n'est pas obligé de finir ici pour avancer. Le formulaire se construit
+  // tout de suite, publié ou non, lien collé ou non ; l'éditeur rappelle ce qu'il reste à faire (bandeau
+  // en haut) et rouvre ce guide d'un clic. Pas en mode rattachement, où « Retour au formulaire » suffit.
+  const later = G.attach ? '' : `<div class="guide-later">
+      <p>${t('form.guide.build.text')}</p>
+      <button type="button" id="guide-build" data-guide="build"${G.busy ? ' disabled' : ''}>${t('form.guide.build.btn')}</button>
+    </div>`;
+  root.innerHTML = `<button type="button" class="qf-link start-back" data-guide="cancel">${t(G.attach ? 'form.guide.attach.back' : 'form.guide.cancel')}</button>
     <div class="guide-head"><h2>${t('form.guide.title')}</h2><span class="muted">${t('form.guide.stepOf', { n: current })}</span></div>
     <p class="muted">${t('form.guide.intro', { table })}</p>
     <div class="guide-progress" aria-hidden="true"><i style="width:${pct}%"></i></div>
@@ -202,6 +255,7 @@ export function renderGuide() {
       ${li(2, t('form.guide.s2.title'), t('form.guide.s2.titleDone'), s2)}
       ${li(3, t('form.guide.s3.title'), t('form.guide.s3.title'), s3)}
     </ol>
+    ${later}
     <p id="guide-msg" class="muted" role="status" aria-live="polite"></p>`;
 }
 
@@ -214,6 +268,11 @@ export async function publishNow() {
   renderGuide();
   try {
     await publishFormSection(G.viewRef, G.sectionId);
+    // Mode rattachement : la section d'origine, sur la même page, l'est aussi (voir refreshPublication) -
+    // sinon Grist y montre « Publier » au lieu de « Partager » et la personne ne sait plus quoi cliquer.
+    if (G && G.attach && G.sourceVsId != null && G.sourceVsId !== G.sectionId) {
+      try { await completeSectionPublication(G.sourceVsId); } catch (e) { diag({ event: 'completePublicationFailed', message: e && e.message }); }
+    }
     if (!G) return;
     G.publishing = false; G.published = true; stopWatching();
   } catch (e) {
@@ -234,7 +293,22 @@ export async function submitGuideLink(raw) {
   if (!parseFormLink(value)) { msg.innerHTML = `<span class="err">${I18n.t('form.editor.linkNotRecognized')}</span>`; return; }
   G.busy = true;
   msg.textContent = I18n.t('form.guide.s3.working');
-  try { await hooks.onLink(value, msg); } finally { if (G) G.busy = false; }
+  try {
+    if (G.attach) {
+      if (await hooks.onAttach(value, msg)) { forgetPublishGuide(); hooks.onBack({ linked: true }); }
+    } else await hooks.onLink(value, msg);
+  } finally { if (G) G.busy = false; }
+}
+
+// « Construire le formulaire d'abord » : on quitte le guide pour l'éditeur, sans lien.
+export async function buildNow() {
+  if (!G || G.attach || G.busy) return;
+  G.busy = true;
+  const btn = $('guide-build');
+  if (btn) btn.disabled = true;
+  const args = { sourceVsId: G.sectionId, published: G.published, msgEl: $('guide-msg') };
+  // Pas de renderGuide() ensuite : il effacerait le message d'erreur que la préparation vient d'écrire.
+  try { await hooks.onBuild(args); } finally { if (G) G.busy = false; const b = $('guide-build'); if (b) b.disabled = false; }
 }
 
 function wire() {
@@ -245,7 +319,12 @@ function wire() {
     const el = e.target.closest('[data-guide]');
     if (!el || !G) return;
     const what = el.dataset.guide;
-    if (what === 'cancel') { forgetPublishGuide(); hooks.show('choices'); }
+    if (what === 'cancel') {
+      const back = G.attach;
+      forgetPublishGuide();
+      if (back) hooks.onBack(); else hooks.show('choices');
+    }
+    else if (what === 'build') buildNow();
     else if (what === 'copy') {
       try { await navigator.clipboard.writeText(G.pageUrl); el.textContent = I18n.t('form.guide.s2.copied'); $('guide-msg').textContent = I18n.t('form.guide.s2.pasteInTab'); }
       catch (err) { await Dialogs.prompt({ title: I18n.t('form.guide.s2.copy'), message: I18n.t('form.editor.copyFallbackMsg'), value: G.pageUrl }); }

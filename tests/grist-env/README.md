@@ -127,6 +127,25 @@ Mesures prises avec ce banc le 9 nov 2026, qui fondent le guide :
   (origine nulle, stockage refusé, `contrats.md` 1.3 de GFS) : Grist n'y
   marcherait pas, d'où l'adresse à copier à la place du lien.
 
+## Construire un formulaire AVANT d'avoir son lien (9 nov 2026)
+
+`e2e-build-first.js` rejoue la demande d'Antoine « avancer sans coller le lien, avec un rappel qu'il n'est
+pas publié », contre CE Grist : « Construire le formulaire d'abord » (rien n'est publié : aucune section
+créée ne porte `publish`), éditeur en brouillon avec son bandeau, une question ajoutée et enregistrée
+sans lien, onglet Paramètres sans adresse, aperçu (route du document), « Terminer la publication » puis
+« Retour au formulaire », publication par le bandeau (la copie ET la section d'origine de la page, sinon
+Grist y montre « Publier » au lieu de « Partager »), Partager > Copier le lien, collage dans le guide en
+mode rattachement (aucune section de plus), puis **un visiteur anonyme** (autre contexte de navigateur)
+répond par l'adresse à diffuser et sa réponse arrive dans la table ; enfin la variante « publier d'abord,
+construire ensuite » (bandeau « il manque le lien »). 34 contrôles. Comme `e2e-onboarding.js`, il change le
+document de test (`FormPlus_Formulaires` vidé au départ). Deux points de ce banc :
+- **Lire le formulaire sans la clé** : `GET /api/docs/<doc>/forms/<section>` (même code côté Grist que la
+  route de partage `/api/s/<clé>/forms/<section>`, mesuré identique) répond au widget avec le jeton de
+  `getAccessToken` (`?auth=`). C'est ce qui permet de construire et de prévisualiser sans lien ; ce qui ne
+  s'en passe pas : l'adresse à diffuser et l'envoi par un visiteur.
+- **`bypassCSP: true`** pour les contextes Playwright (point 5 plus haut) : sans lui, la CSP du widget
+  (`connect-src 'self' https:`) bloque ses appels au Grist de test en HTTP nu, y compris cette route.
+
 ## Peut-on se passer de faire copier le lien du formulaire publié ? Non (sonde du 9 nov 2026)
 
 `probe-share-key.js` essaie, contre CE Grist (1.7.22), tout ce qu'un widget à accès complet pourrait tenter

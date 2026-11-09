@@ -25,7 +25,8 @@ sans cette étape : c'est le compromis retenu ici.
   affiche les champs natifs puis les questions supplémentaires, valide et envoie.
 
 Le mode dépend de la Definition déjà enregistrée (`formLink` présent ou non, voir plus bas « Où vit
-la configuration ») et du fragment d'URL : `#test` (suite de tests), `#form=` (secours hors
+la configuration ») ; un formulaire sans `formLink` mais avec `vsId` est un formulaire **construit avant son lien** :
+éditeur ouvert, bandeau de rappel, aperçu par la route du document (`fetchNativeForm`), adresse à diffuser éteinte jusqu'au collage et du fragment d'URL : `#test` (suite de tests), `#form=` (secours hors
 iframe). Voir `poc/README-poc.md` pour le détail de chaque mode.
 
 ## Modules (`poc/js/`)
@@ -43,7 +44,7 @@ Un rôle par fichier, chargé depuis `main.js` (le seul `<script type="module">`
 | `state.js` | État mutable partagé entre l'écran de configuration et le rendu répondant (un seul objet, voir plus bas) |
 | `grist-meta.js` | Lecture des métadonnées du document (`_grist_Views_section`…), table `FormPlus_Formulaires` (`ensureFormulairesTable`, `saveFormDefinition`, `resolveMyDefinition`, `fetchManagedVsIds`), `ensureTableGate`, `ensureChoiceField`, `probeCanEdit` |
 | `config-editor.js` | Tout l'écran de configuration : questions, apparence, import des champs natifs |
-| `publish-guide.js` | Guide de publication en 3 étapes affiché après « Créer le formulaire » : (1) un bouton qui publie à la place de la personne (`publishFormSection`, `grist-meta.js` : les actions du bouton Publier de Grist ; refusé, il laisse le geste à la main, détecté toute seule par `shareOptions` de la section) ; (2) copier le lien dans Grist (page renommée et ouverte par un lien direct, ou adresse à copier dans GFS) ; (3) collage du lien, qui lance `generate()`. Seule la clé de partage est hors de portée d'un widget (`tests/grist-env/probe-share-key.js`). Noté dans `GfsLink.storage` pour survivre à un rechargement |
+| `publish-guide.js` | Guide de publication en 3 étapes affiché après « Créer le formulaire » : (1) un bouton qui publie à la place de la personne (`publishFormSection`, `grist-meta.js` : les actions du bouton Publier de Grist ; refusé, il laisse le geste à la main, détecté toute seule par `shareOptions` de la section) ; (2) copier le lien dans Grist (page renommée et ouverte par un lien direct, ou adresse à copier dans GFS) ; (3) collage du lien, qui lance `generate()`. Seule la clé de partage est hors de portée d'un widget (`tests/grist-env/probe-share-key.js`). Noté dans `GfsLink.storage` pour survivre à un rechargement. **« Construire le formulaire d'abord »** (`buildNow` → `buildWithoutLink`, `config-editor.js`) en sort sans lien : la copie gérée existe, publiée ou non, l'éditeur s'ouvre avec son bandeau de rappel (`refreshLinkBanner`). **Mode rattachement** (`startAttachGuide`) : le bandeau rouvre ce guide sur la copie existante pour publier (la copie ET la section d'origine de la page, sinon Grist y montre « Publier » au lieu de « Partager ») puis coller le lien (`attachLink` : même page, clé essayée avant d'être enregistrée) |
 | `respond.js` | Tout le rendu répondant : champs natifs et questions supplémentaires, soumission |
 | `plugin-loader.js` | Charge `grist-plugin-api.js` depuis l'origine qui héberge le widget |
 | `tests.js` | Suite de non-régression (`#test`), voir plus bas |

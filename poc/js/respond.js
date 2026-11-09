@@ -5,7 +5,7 @@ import './strings.js'; // enregistre form.* avant tout usage de I18n.t() au char
 import { LAYOUT_KINDS, SINGLE_CHOICE_KINDS, mapFeatureEnabled, LEAFLET_CDN_URL, LEAFLET_CDN_CSS } from './kinds.js';
 import { parseFormLink, migrateLegacy, normalizeCondition } from './links.js';
 import { applyBranding } from './theme.js';
-import { probeCanEdit, probeRespondentIdentity, definitionFieldColId } from './grist-meta.js';
+import { probeCanEdit, probeRespondentIdentity, definitionFieldColId, fetchNativeForm } from './grist-meta.js';
 import { diag, fragmentFormLink } from './diag.js';
 import { state } from './state.js';
 import { imageBlockHtml } from './image-block.js';
@@ -614,14 +614,19 @@ export async function renderFill() {
   $('progress').classList.add('hidden');
 
   const formLink = state.options?.formLink || fragmentFormLink;
-  const link = parseFormLink(formLink);
+  let link = parseFormLink(formLink);
+  // Aperçu SANS lien : un formulaire construit avant d'en avoir collé le lien (config-editor.js,
+  // buildWithoutLink) a sa section (state.options.vsId) mais pas encore la clé de partage. Le
+  // concepteur, dans Grist, le voit quand même en entier (fetchNativeForm lit alors le document avec
+  // son jeton) ; mais personne ne peut y répondre tant que la clé manque : l'envoi est refusé plus bas,
+  // avec un bandeau qui le dit. Jamais pour un visiteur (pas de window.grist) : sans lien, rien à lui montrer.
+  const preview = !link && !!window.grist && state.options?.vsId != null;
+  if (preview) link = { vsId: state.options.vsId, api: null };
   if (!link) { card.innerHTML = `<h1>${I18n.t('form.respond.formUnavailable')}</h1><p class="muted">${I18n.t('form.respond.linkUnreadable')}</p>`; return; }
 
   let form;
   try {
-    const r = await fetch(`${link.api}/forms/${link.vsId}`);
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    form = await r.json();
+    form = await fetchNativeForm(link.vsId, link);
   } catch (e) {
     card.innerHTML = `<h1>${I18n.t('form.respond.formUnavailable')}</h1><p class="muted">${esc(e.message)}</p>`;
     return;
@@ -641,7 +646,7 @@ export async function renderFill() {
   // formulaires du document - refValues ne peut donc plus jamais rendre la Definition d'un AUTRE
   // formulaire, mesuré sur un vrai Grist (tests/grist-env/) : plus besoin de filtrer par vsId
   // parmi plusieurs lignes, il n'y en a qu'une.
-  if (state.options?.formLink !== formLink) {
+  if (!preview && state.options?.formLink !== formLink) {
     const defCol = definitionFieldColId(link.vsId);
     const field = Object.values(form.formFieldsById || {}).find(f => f.colId === defCol);
     const [, value] = (field?.refValues || [])[0] || [];
@@ -663,7 +668,7 @@ export async function renderFill() {
     ? await probeRespondentIdentity() : null;
   diag({ event: 'internalIdentity', internalMode: !!state.options?.internalMode, resolved: !!state.internalIdentity });
 
-  const extraQuestions = (state.options?.formLink === formLink) ? migrateLegacy(state.options) : [];
+  const extraQuestions = (preview || state.options?.formLink === formLink) ? migrateLegacy(state.options) : [];
 
   const prefillParams = new URLSearchParams(location.search);
   const nativeRows = layoutOrder(form).map(id => renderNativeField(id, form.formFieldsById[id], prefillParams)).join('');
@@ -700,6 +705,7 @@ export async function renderFill() {
       ${description ? `<p class="muted">${esc(description)}</p>` : ''}
     </div>
     <div class="respond-body">
+      ${preview ? `<div class="pv-preview-note" role="note"><span>${I18n.t('form.respond.previewNote')}</span><button type="button" class="primary" id="preview-finish">${I18n.t('form.respond.previewFinishBtn')}</button></div>` : ''}
       <p class="muted">${I18n.t('form.respond.requiredFieldsNote')}</p>
       <form id="f" novalidate>
         ${paginated ? '' : nativeRows}
@@ -849,7 +855,9 @@ export async function renderFill() {
     updateProgress($('f'));
   }
 
-  $('f').addEventListener('submit', (ev) => onSubmit(ev, form, link, extraQuestions));
+  $('f').addEventListener('submit', preview
+    ? (ev) => { ev.preventDefault(); $('fill-status').textContent = I18n.t('form.respond.previewNoSubmit'); }
+    : (ev) => onSubmit(ev, form, link, extraQuestions));
 }
 
 // Convertit le canvas de signature en fichier image, pour l'envoyer par le même circuit que les

@@ -249,6 +249,14 @@ export const STRINGS = {
     fr: 'Dès la publication, toute personne qui aura le lien pourra envoyer des réponses dans « {table} » (dans toutes ses colonnes, même celles que le formulaire ne montre pas). Elle ne pourra jamais en lire, modifier ni supprimer.',
     en: 'Once published, anyone with the link will be able to send answers into "{table}" (in all its columns, even ones the form does not show). They will never be able to read, change or delete any.',
   },
+  'form.guide.s1.accessWrites': {
+    fr: 'Les questions que vous avez ajoutées écrivent aussi dans {tables} : ces tables s\'ouvrent de la même façon (envoi seul, jamais de lecture).',
+    en: 'The questions you added also write into {tables}: those tables open the same way (sending only, never reading).',
+  },
+  'form.guide.s1.accessReads': {
+    fr: 'Les listes de choix lues dans {tables} seront visibles de toute personne qui aura le lien (la colonne choisie, rien d\'autre).',
+    en: 'The choice lists read from {tables} will be visible to anyone with the link (the chosen column, nothing else).',
+  },
   'form.guide.s1.btn': { fr: 'Publier le formulaire', en: 'Publish the form' },
   'form.guide.s1.working': { fr: 'Publication…', en: 'Publishing…' },
   'form.guide.manual.text': {
@@ -292,6 +300,51 @@ export const STRINGS = {
   'form.guide.btn.publish': { fr: 'Publier', en: 'Publish' },
   'form.guide.btn.share': { fr: 'Partager', en: 'Share' },
   'form.guide.btn.copyLink': { fr: 'Copier le lien', en: 'Copy link' },
+
+  // « Construire d'abord » : avancer sans attendre le lien, avec un rappel tant qu'il manque
+  'form.guide.build.text': {
+    fr: "Pas envie d'attendre ? Construisez le formulaire dès maintenant. Vous publierez et collerez le lien plus tard : Form+ vous le rappellera en haut de l'éditeur.",
+    en: "Don't want to wait? Build the form right now. You can publish and paste the link later: Form+ will remind you at the top of the editor.",
+  },
+  'form.guide.build.btn': { fr: 'Construire le formulaire d’abord', en: 'Build the form first' },
+  'form.guide.attach.back': { fr: '‹ Retour au formulaire', en: '‹ Back to the form' },
+  'form.link.banner.draft.title': { fr: 'Pas encore publié.', en: 'Not published yet.' },
+  'form.link.banner.draft.text': {
+    fr: 'Vous pouvez construire le formulaire dès maintenant, mais personne ne peut y répondre tant qu’il n’est pas publié.',
+    en: 'You can build the form right now, but nobody can answer it until it is published.',
+  },
+  'form.link.banner.draft.btn': { fr: 'Publier le formulaire', en: 'Publish the form' },
+  'form.link.banner.nolink.title': { fr: 'Presque prêt : il manque le lien.', en: 'Almost ready: the link is missing.' },
+  'form.link.banner.nolink.text': {
+    fr: 'Le formulaire est publié dans Grist, mais Form+ ne peut pas encore vous donner l’adresse à diffuser. Copiez son lien dans Grist (Partager › Copier le lien) et collez-le ici.',
+    en: 'The form is published in Grist, but Form+ cannot give you the address to share yet. Copy its link in Grist (Share › Copy link) and paste it here.',
+  },
+  'form.link.banner.nolink.btn': { fr: 'Coller le lien', en: 'Paste the link' },
+  'form.link.banner.linked': {
+    fr: 'Lien enregistré : le formulaire est prêt à être diffusé. L’adresse est dans l’onglet Paramètres.',
+    en: 'Link saved: the form is ready to be shared. The address is in the Settings tab.',
+  },
+  'form.settings.urlPending': {
+    fr: 'L’adresse à diffuser apparaîtra ici dès que le lien du formulaire publié sera collé (voir le bandeau en haut).',
+    en: 'The address to share will appear here as soon as the published form’s link is pasted (see the banner at the top).',
+  },
+  'form.editor.attach.wrongPage': {
+    fr: 'Ce lien ne vient pas de la page de ce formulaire. Ouvrez cette page dans Grist, puis Partager › Copier le lien.',
+    en: 'This link does not come from this form’s page. Open that page in Grist, then Share › Copy link.',
+  },
+  'form.editor.attach.keyRefused': {
+    fr: 'Grist n’a pas accepté ce lien ({message}). Vérifiez que le formulaire est bien publié, puis copiez-le à nouveau.',
+    en: 'Grist did not accept this link ({message}). Check that the form is published, then copy it again.',
+  },
+  'form.respond.previewNote': {
+    fr: 'Aperçu : le lien n’est pas encore collé, personne ne peut répondre pour l’instant.',
+    en: 'Preview: the link is not pasted yet, nobody can answer for now.',
+  },
+  'form.respond.previewFinishBtn': { fr: 'Terminer la publication', en: 'Finish publishing' },
+  'form.respond.previewNoSubmit': {
+    fr: 'Aperçu : l’envoi est désactivé tant que le lien n’est pas collé.',
+    en: 'Preview: sending is disabled until the link is pasted.',
+  },
 
   // Onglet Réponses
   'form.editor.noFormLinkedYet': { fr: "Aucun formulaire lié pour l'instant.", en: 'No form linked yet.' },

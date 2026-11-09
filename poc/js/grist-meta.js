@@ -197,6 +197,36 @@ export async function publishFormSection(viewRef, sectionId) {
   await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section', sectionId, { shareOptions: JSON.stringify({ publish: true, form: true }) }]]);
 }
 
+// Publie la section `sectionId` sur une page qui a DÉJÀ un partage publié (une autre section de cette
+// page l'a été : à la main dans Grist, par exemple la section d'origine d'un formulaire construit avant
+// son lien) : seule la section est à marquer, le partage de la page existe et sa clé aussi. Une seule
+// écriture, sur _grist_Views_section.shareOptions, que GFS laisse déjà passer (duplicateFormSection,
+// ensureTableGate l'utilisent) - contrairement à publishFormSection qui touche aussi au partage.
+export async function completeSectionPublication(sectionId) {
+  await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section', sectionId, { shareOptions: JSON.stringify({ publish: true, form: true }) }]]);
+}
+
+// Lit le formulaire natif `vsId` (champs, listes de choix, mise en page) tel que /forms/ le sert.
+// Avec un lien collé (link.api = <hôte>/api/s/<clé>), par la route PUBLIQUE de partage : c'est ce que
+// verra le répondant. SANS lien, par la route du DOCUMENT (<hôte>/api/docs/<doc>/forms/<section>) avec
+// le jeton d'accès du widget - la voie prévue pour qu'un widget lise le document de la personne qui
+// l'utilise (même jeton que le téléchargement des pièces jointes, plus haut). Même réponse : c'est le
+// même code côté Grist (DocApi, `/api/docs/:docId/forms/:vsId`), seul l'accès diffère. Ce qui s'en
+// passe : construire et prévisualiser le formulaire avant d'avoir copié son lien. Ce qui ne s'en
+// passe pas : l'adresse à diffuser et l'envoi d'une réponse par un visiteur (il faut la clé).
+export async function fetchNativeForm(vsId, link) {
+  let url;
+  if (link && link.api) {
+    url = `${link.api}/forms/${vsId}`;
+  } else {
+    const { token, baseUrl } = await grist.docApi.getAccessToken({ readOnly: true });
+    url = `${baseUrl}/forms/${vsId}?auth=${encodeURIComponent(token)}`;
+  }
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
 // CreateViewSection peuple automatiquement la nouvelle section avec un champ par colonne de la
 // table (comportement natif de Grist, vérifié sur un vrai document, voir duplicateFormSection
 // plus bas) : retire ces champs auto-créés pour qu'une section censée rester vide (portillon
@@ -354,7 +384,12 @@ export async function ensureFreeColumn(tableId, desiredLabel, kind) {
 // colonnes, même ordre (parentPos) : les réponses continuent d'atterrir exactement là où le
 // concepteur les attendait déjà. Le formulaire source n'est JAMAIS modifié : uniquement des
 // lectures dessus, toute écriture vise la section nouvellement créée.
-export async function duplicateFormSection(sourceVsId) {
+//
+// `publish: false` (formulaire pas encore publié, construit avant son lien : voir buildWithoutLink,
+// config-editor.js) laisse la copie NON publiée : poser shareOptions sur une page qui n'a pas encore de
+// partage laisserait l'interface de Grist dans un état incohérent (copie « publiée » sans clé). La
+// copie sera publiée plus tard, par publishFormSection, comme n'importe quel formulaire.
+export async function duplicateFormSection(sourceVsId, { publish = true } = {}) {
   const sections = await fetchMeta('_grist_Views_section');
   const srcIdx = sections.id.indexOf(sourceVsId);
   if (srcIdx < 0) throw new Error('Formulaire source introuvable dans ce document.');
@@ -393,9 +428,11 @@ export async function duplicateFormSection(sourceVsId) {
   // possible (table FormPlus_Formulaires, voir plus bas) : populateFormPicker reconnaît maintenant
   // une copie gérée par FormPlus en comparant son id aux Definition.vsId déjà enregistrés, et
   // Definition.sourceVsId (saveFormDefinition) garde la même information que formplusSource.
-  await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section', newVsId, {
-    shareOptions: JSON.stringify({ publish: true, form: true }),
-  }]]);
+  if (publish) {
+    await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section', newVsId, {
+      shareOptions: JSON.stringify({ publish: true, form: true }),
+    }]]);
+  }
 
   return newVsId;
 }

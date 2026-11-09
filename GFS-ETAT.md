@@ -412,6 +412,30 @@ Mis à jour le 2026-11-07, au commit `886c550` (dernier commit de code que cette
     consentement que pour un document qui n'a encore aucun formulaire FormPlus.
 
 ## Changements qui touchent GFS
+- 2026-11-09 · lot « construire avant le lien » (demande d'Antoine : avancer sur le formulaire sans
+  coller le lien, avec un rappel qu'il n'est pas publié). Un formulaire peut maintenant exister **sans
+  `formLink`, `shareKey` ni `publicUrl`** (Définition enregistrée avec `vsId` seul) : bouton
+  « Construire le formulaire d'abord » du guide, puis bandeau de rappel en haut de l'éditeur
+  (« Pas encore publié » ou « Presque prêt : il manque le lien ») qui rouvre le guide pour publier et
+  coller le lien plus tard. **Rien de nouveau n'est déclaré dans le manifeste** : la copie reste
+  un `duplicateFormSection` (le brouillon ne publie rien : aucune écriture de `shareOptions` avant le
+  geste « Publier »). Ce qui s'ajoute côté courtier : (1) **lecture du formulaire par la route du
+  document**, `GET <baseUrl du jeton>/forms/<section>?auth=<jeton>` (`fetchNativeForm`,
+  `grist-meta.js`) à la place de la route de partage, tant que la clé manque - même jeton
+  (`getAccessToken({ readOnly: true })`, « jeton », déjà déclaré) et même réponse (mesuré sur un vrai
+  Grist : c'est le même code côté Grist) ; **non vérifié dans un vrai GFS** (cadre sans
+  `allow-same-origin` : le `fetch` vers Grist y suit la même règle que celui des pièces jointes) ;
+  (2) en publiant depuis le bandeau, Form+ marque aussi la section d'origine (vide) de la page, par la
+  seule écriture `UpdateRecord _grist_Views_section {shareOptions}` (déjà permise) : Grist n'affiche
+  « Partager » que sur une section publiée, et la page en porte deux côte à côte. **Aucune fenêtre
+  « ceci va devenir public »** dans ce chemin (consigne 013, points 3-4) : un brouillon ne publie rien,
+  et une section publiée juste avant par le geste explicite du guide (qui dit lui-même ce que ça ouvre,
+  avant le clic) rend la copie, même table et même clé, sans exposition de plus. Les écritures
+  `_grist_Shares` / `_grist_Pages.shareRef` demandées plus bas restent la seule chose qui rende la
+  publication par Form+ possible dans GFS ; sans elles, le bandeau mène au geste à la main (la
+  publication est vue toute seule). Effet de bord utile pour GFS : la copie faite par « Dupliquer »
+  (consigne 021) naît sans lien ni publication ; elle s'ouvre maintenant dans l'éditeur avec le
+  bandeau « Pas encore publié » et son bouton, au lieu de retomber sur l'écran de départ.
 - 2026-11-09 · lot suivant le guide ci-dessous · Form+ **publie lui-même** le formulaire (bouton
   « Publier le formulaire » du guide, `publishFormSection`, `poc/js/grist-meta.js`) : les trois actions
   du bouton Publier de Grist, mesurées sur un vrai Grist (1.7.22). Côté GFS, ce que ça écrit en plus :
