@@ -100,11 +100,12 @@ sections).
 ## Parcours de création d'un formulaire, de bout en bout
 
 `e2e-onboarding.js` rejoue, contre CE Grist, ce qu'une personne fait pour créer
-un formulaire : « Partir de zéro », le guide de publication, « Ouvrir la page »
-(nouvel onglet), Publier + confirmer, Partager > Copier le lien, Ctrl+V dans le
+un formulaire : « Partir de zéro », le guide de publication, « Publier le
+formulaire » (Form+ publie lui-même, Grist montre ensuite la page publiée),
+« Ouvrir la page » (nouvel onglet), Partager > Copier le lien, Ctrl+V dans le
 widget (le lien vient du bouton de Grist lui-même, lu dans le presse-papiers),
 fenêtre d'accord du kit, éditeur ; puis la variante « page cliquée dans la barre
-latérale » (le widget se recharge, le guide est repris à l'étape 3). 17 contrôles,
+latérale » (le widget se recharge, le guide est repris à l'étape 2, déjà publié). 21 contrôles,
 code de sortie non nul au premier échec, captures dans le dossier donné en
 argument. Le script retire lui-même les lignes de `FormPlus_Formulaires` pour la
 variante (un widget qui a déjà un formulaire rouvre celui-ci) : le document de

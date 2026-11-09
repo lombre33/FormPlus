@@ -169,6 +169,34 @@ export async function isSectionPublished(vsId) {
   return !!(opt.publish && opt.form);
 }
 
+// Publie le formulaire natif `sectionId` de la page `viewRef` à la place de la personne : les mêmes
+// actions que le bouton Publier de Grist (FormView._handleClickPublish, Grist 1.7). Mesuré sur un
+// vrai Grist (tests/grist-env/probe-share-key.js, 9 nov 2026) : le serveur tire alors la clé de
+// partage au hasard, le formulaire répond en anonyme tout de suite et l'interface de Grist le montre
+// publié (Partager, plus de Publier). Seule la CLÉ reste hors de portée d'un widget : il faut que la
+// personne la copie dans Grist (« Copier le lien »). Les actions se font l'une après l'autre : la
+// ligne de partage créée donne l'identifiant dont la page a besoin. Une page qui a déjà un partage le
+// garde (un seul par page : c'est lui qui donne la clé de toutes ses sections publiées, voir
+// otherManagedFormOnPage). Lève une erreur au premier refus (GFS tant que son manifeste ne déclare
+// pas ces écritures) : l'appelant retombe alors sur le geste à la main.
+export async function publishFormSection(viewRef, sectionId) {
+  const pages = await fetchMeta('_grist_Pages');
+  const pi = (pages.viewRef || []).indexOf(viewRef);
+  if (pi < 0) throw new Error('page du formulaire introuvable');
+  const pageRef = pages.id[pi];
+  let shareRef = pages.shareRef ? pages.shareRef[pi] : 0;
+  if (!shareRef) {
+    const linkId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `fp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const res = await grist.docApi.applyUserActions([['AddRecord', '_grist_Shares', null, { linkId, options: JSON.stringify({ publish: true }) }]]);
+    shareRef = res.retValues?.[0];
+    if (!Number.isInteger(shareRef)) throw new Error('AddRecord _grist_Shares : identifiant du partage absent de la réponse');
+    await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Pages', pageRef, { shareRef }]]);
+  } else {
+    await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Shares', shareRef, { options: JSON.stringify({ publish: true }) }]]);
+  }
+  await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section', sectionId, { shareOptions: JSON.stringify({ publish: true, form: true }) }]]);
+}
+
 // CreateViewSection peuple automatiquement la nouvelle section avec un champ par colonne de la
 // table (comportement natif de Grist, vérifié sur un vrai document, voir duplicateFormSection
 // plus bas) : retire ces champs auto-créés pour qu'une section censée rester vide (portillon

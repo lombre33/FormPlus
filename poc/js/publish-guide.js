@@ -1,16 +1,21 @@
 // Guide de publication : l'assistant en 3 étapes qui s'affiche juste après « Créer le formulaire »
-// (config-editor.js, createEmptyForm). Le formulaire natif vide vit sur une page neuve de Grist ;
-// il reste à la personne trois gestes que le widget ne peut pas faire à sa place - aucune méthode
-// de l'API plugin n'expose la clé de partage que génère « Publier » (voir createEmptyForm) :
-//   1. ouvrir cette page (bouton « Ouvrir la page », lien direct quand l'adresse est sûre, sinon
-//      son nom et sa place dans la liste) ;
-//   2. cliquer Publier, puis confirmer - l'étape se coche toute seule, Form+ relit shareOptions de
-//      la section toutes les 2,5 s et au retour sur l'onglet ;
-//   3. Partager > Copier le lien, puis coller ici : le formulaire se prépare dès que le lien est
-//      reconnu, sans autre clic.
+// (config-editor.js, createEmptyForm). Le formulaire natif vide vit sur une page neuve de Grist.
+// Aucune méthode de l'API plugin n'expose la clé de partage que génère « Publier » (mesuré sur un
+// vrai Grist, tests/grist-env/probe-share-key.js : ni l'API plugin, ni le REST, ni le presse-papiers,
+// ni la page qui affiche le lien), donc la personne doit la copier elle-même dans Grist. Tout le
+// reste, Form+ le fait :
+//   1. publier : un bouton ici (publishFormSection, grist-meta.js) fait ce que fait « Publier » dans
+//      Grist, sans la page à ouvrir ni la confirmation. Refusé (GFS, tant que son manifeste ne déclare
+//      pas ces écritures), il laisse la place au geste à la main : ouvrir la page, Publier, confirmer,
+//      l'étape se coche alors toute seule (Form+ relit shareOptions de la section toutes les 2,5 s et
+//      au retour sur l'onglet, ce qui vaut aussi pour une publication faite à la main d'emblée) ;
+//   2. copier le lien : ouvrir la page (bouton « Ouvrir la page », lien direct quand l'adresse est
+//      sûre, sinon son nom et sa place dans la liste), Partager > Copier le lien ;
+//   3. le coller ici : le formulaire se prépare dès que le lien est reconnu, sans autre clic.
 // Avant ce guide (retour d'Antoine, 9 nov 2026) tout tenait dans un paragraphe qui ne disait ni où
 // était la page (« New page », tout en bas de la liste, sous une autre page « <table> » qui est la
-// grille), ni qu'il fallait 4 clics (Publier, confirmer, Partager, Copier le lien) au lieu de 2.
+// grille), ni qu'il fallait 4 clics (Publier, confirmer, Partager, Copier le lien) au lieu de 2. Le
+// même jour, Antoine a choisi que Form+ publie lui-même (il en reste 2 dans Grist).
 //
 // Le parcours survit à un rechargement (la personne qui clique la page dans la barre latérale de
 // Grist, au lieu du bouton, fait recharger le widget) : il est noté sous PENDING_KEY (GfsLink.
@@ -22,7 +27,8 @@ import { GfsLink } from '../../kit/js/gfs-link.js';
 import { Dialogs } from '../../kit/js/dialogs.js';
 import './strings.js'; // enregistre form.* avant tout usage de I18n.t() au chargement de ce module (voir strings.js)
 import { parseFormLink } from './links.js';
-import { fetchMeta, tableIdOfRef, gristPageUrl, nameFormPage, isSectionPublished } from './grist-meta.js';
+import { fetchMeta, tableIdOfRef, gristPageUrl, nameFormPage, isSectionPublished, publishFormSection } from './grist-meta.js';
+import { diag } from './diag.js';
 
 export const PENDING_KEY = 'formplus_pending_guide';
 export const POLL_MS = 2500;
@@ -34,7 +40,7 @@ export const POLL_MS = 2500;
 const hooks = { show: () => {}, onLink: async () => {}, hosted: () => GfsLink.hosted };
 export function initPublishGuide(h) { Object.assign(hooks, h); wire(); }
 
-let G = null;        // le parcours en cours : { tableId, viewRef, sectionId, pageName, pageUrl, opened, published, busy }
+let G = null;        // le parcours en cours : { tableId, viewRef, sectionId, pageName, pageUrl, opened, published, publishing, refused, busy }
 let timer = null;
 let listening = false;
 
@@ -43,7 +49,9 @@ export function currentPublishGuide() { return G; }
 async function docName() {
   try { return String(await grist.docApi.getDocName()); } catch (e) { return ''; }
 }
-function stepNumber() { return G.published ? 3 : G.opened ? 2 : 1; }
+// 1 tant que le formulaire n'est pas publié ; 2 une fois publié (copier le lien dans Grist) ; 3 quand la
+// personne dit avoir le lien (ou a ouvert la page) : le champ de collage.
+function stepNumber() { return !G.published ? 1 : G.opened ? 3 : 2; }
 
 async function remember() {
   const doc = await docName();
@@ -56,7 +64,7 @@ async function remember() {
 export async function startPublishGuide({ tableId, viewRef, sectionId }) {
   const { name } = await nameFormPage(viewRef, I18n.t('form.guide.pageName', { table: tableId }));
   const hosted = !!hooks.hosted();
-  G = { tableId, viewRef, sectionId, pageName: name, hosted, pageUrl: await gristPageUrl(viewRef, hosted), opened: false, published: false, busy: false };
+  G = { tableId, viewRef, sectionId, pageName: name, hosted, pageUrl: await gristPageUrl(viewRef, hosted), opened: false, published: false, publishing: false, refused: false, busy: false };
   await remember();
   showGuide();
 }
@@ -76,7 +84,7 @@ export async function resumePublishGuide() {
     && await tableIdOfRef(sections.tableRef[idx]) === rec.tableId;
   if (!stillThere) { GfsLink.storageSet(PENDING_KEY, null); return false; }
   const hosted = !!hooks.hosted();
-  G = { tableId: rec.tableId, viewRef: rec.viewRef, sectionId: rec.sectionId, pageName: rec.pageName || '', hosted, pageUrl: await gristPageUrl(rec.viewRef, hosted), opened: false, published: false, busy: false };
+  G = { tableId: rec.tableId, viewRef: rec.viewRef, sectionId: rec.sectionId, pageName: rec.pageName || '', hosted, pageUrl: await gristPageUrl(rec.viewRef, hosted), opened: false, published: false, publishing: false, refused: false, busy: false };
   showGuide();
   return true;
 }
@@ -106,7 +114,7 @@ export async function refreshPublication() {
       $('guide-msg').innerHTML = `<span class="err">${I18n.t('form.guide.pageGone', { page: esc(G.pageName) })}</span>`;
       return;
     }
-    if (published && G && !G.published) { G.published = true; stopWatching(); renderGuide(); focusPaste(); }
+    if (published && G && !G.published) { G.published = true; G.publishing = false; stopWatching(); renderGuide(); }
   } catch (e) { /* lecture momentanément impossible : le prochain tour réessaie */ }
 }
 function onWake() { if (document.visibilityState !== 'hidden') refreshPublication(); }
@@ -140,26 +148,39 @@ export function renderGuide() {
   // Hébergé par GFS, un lien s'ouvrirait dans un onglet qui hérite du bac à sable de GFS : Grist n'y
   // marcherait pas. On donne alors l'adresse à copier (le presse-papiers, lui, s'écrit), à coller
   // dans un onglet ordinaire - cet onglet-ci, avec le guide, reste ouvert.
-  const open = !G.pageUrl ? `<p class="muted guide-noLink">${t('form.guide.s1.noLink')}</p>`
-    : G.hosted ? `<button type="button" class="primary" id="guide-copy" data-guide="copy">${t('form.guide.s1.copy')}</button>`
-    : `<a class="guide-open" id="guide-open" data-guide="open" href="${esc(G.pageUrl)}" target="_blank" rel="noopener">${t('form.guide.s1.open')} ↗</a>`;
-  const side = `<div class="guide-pic guide-side" aria-hidden="true"><span class="sk"></span><span class="sk"></span><span class="sk short"></span><span class="you-row"><span class="you">${page}</span><em>${t('form.guide.s1.here')}</em></span></div>`;
-  const s1 = current > 1 ? '' : `<div class="guide-body">
-      <p>${t('form.guide.s1.text', { page })}</p>
-      <div class="guide-row">${open}<button type="button" class="qf-link" data-guide="opened">${G.pageUrl && !G.hosted ? t('form.guide.s1.already') : t('form.guide.s1.openedBtn')}</button></div>
+  const open = !G.pageUrl ? `<p class="muted guide-noLink">${t('form.guide.s2.noLink')}</p>`
+    : G.hosted ? `<button type="button" class="primary" id="guide-copy" data-guide="copy">${t('form.guide.s2.copy')}</button>`
+    : `<a class="guide-open" id="guide-open" data-guide="open" href="${esc(G.pageUrl)}" target="_blank" rel="noopener">${t('form.guide.s2.open')} ↗</a>`;
+  const side = `<div class="guide-pic guide-side" aria-hidden="true"><span class="sk"></span><span class="sk"></span><span class="sk short"></span><span class="you-row"><span class="you">${page}</span><em>${t('form.guide.s2.here')}</em></span></div>`;
+  const access = `<p class="muted">${t('form.guide.s1.access', { table })}</p>`;
+
+  // Étape 1 : le bouton qui publie. Si Grist (ou GFS) le refuse, la publication à la main, avec la
+  // page à ouvrir et l'attente qui se coche toute seule.
+  const publishBody = G.refused
+    ? `<div class="guide-body">
+      <p>${t('form.guide.manual.text', { page })}</p>
+      <div class="guide-row">${open}</div>
       ${side}
+      <div class="guide-pic guide-bar" aria-hidden="true"><span>${t('form.guide.btn.preview')}</span><span class="hl">${t('form.guide.btn.publish')}</span></div>
+      ${access}
+      <p class="guide-wait muted" role="status"><span class="guide-dot" aria-hidden="true"></span>${t('form.guide.manual.waiting')}</p>
+    </div>`
+    : `<div class="guide-body">
+      <p>${t('form.guide.s1.text', { table })}</p>
+      ${access}
+      <div class="guide-row"><button type="button" class="primary" id="guide-publish" data-guide="publish"${G.publishing ? ' disabled' : ''}>${G.publishing ? t('form.guide.s1.working') : t('form.guide.s1.btn')}</button></div>
     </div>`;
+  const s1 = current !== 1 ? '' : publishBody;
 
   const s2 = current !== 2 ? '' : `<div class="guide-body">
-      <p>${t('form.guide.s2.text')}</p>
-      <div class="guide-pic guide-bar" aria-hidden="true"><span>${t('form.guide.btn.preview')}</span><span class="hl">${t('form.guide.btn.publish')}</span></div>
-      <p class="muted">${t('form.guide.s2.access', { table })}</p>
-      <p class="guide-wait muted" role="status"><span class="guide-dot" aria-hidden="true"></span>${t('form.guide.s2.waiting')}</p>
+      <p>${t('form.guide.s2.text', { page })}</p>
+      <div class="guide-row">${open}<button type="button" class="qf-link" data-guide="opened">${t('form.guide.s2.copiedBtn')}</button></div>
+      ${side}
+      <div class="guide-pic guide-bar" aria-hidden="true"><span class="hl">${t('form.guide.btn.share')}</span><i>›</i><span class="hl">${t('form.guide.btn.copyLink')}</span></div>
     </div>`;
 
   const s3 = current !== 3 ? '' : `<div class="guide-body">
       <p>${t('form.guide.s3.text')}</p>
-      <div class="guide-pic guide-bar" aria-hidden="true"><span class="hl">${t('form.guide.btn.share')}</span><i>›</i><span class="hl">${t('form.guide.btn.copyLink')}</span></div>
       <div class="guide-paste">
         <input id="guide-link" type="url" autocomplete="off" spellcheck="false" placeholder="${esc(t('form.guide.s3.placeholder'))}" aria-label="${esc(t('form.guide.s3.aria'))}">
         <button type="button" id="guide-clip" data-guide="clip">${t('form.link.pasteBtn')}</button>
@@ -182,6 +203,25 @@ export function renderGuide() {
       ${li(3, t('form.guide.s3.title'), t('form.guide.s3.title'), s3)}
     </ol>
     <p id="guide-msg" class="muted" role="status" aria-live="polite"></p>`;
+}
+
+// Le bouton « Publier le formulaire ». Un refus (GFS, ou Grist qui ne reconnaît pas l'une des
+// écritures) n'est jamais une erreur pour la personne : le guide passe au geste à la main, et la
+// lecture de shareOptions continue de guetter la publication, de quelque façon qu'elle vienne.
+export async function publishNow() {
+  if (!G || G.published || G.publishing) return;
+  G.publishing = true;
+  renderGuide();
+  try {
+    await publishFormSection(G.viewRef, G.sectionId);
+    if (!G) return;
+    G.publishing = false; G.published = true; stopWatching();
+  } catch (e) {
+    diag({ event: 'publishFormRefused', message: e && e.message });
+    if (!G) return;
+    G.publishing = false; G.refused = true;
+  }
+  renderGuide();
 }
 
 // ───────────────────────── Gestes ─────────────────────────
@@ -207,13 +247,15 @@ function wire() {
     const what = el.dataset.guide;
     if (what === 'cancel') { forgetPublishGuide(); hooks.show('choices'); }
     else if (what === 'copy') {
-      try { await navigator.clipboard.writeText(G.pageUrl); el.textContent = I18n.t('form.guide.s1.copied'); $('guide-msg').textContent = I18n.t('form.guide.s1.pasteInTab'); }
-      catch (err) { await Dialogs.prompt({ title: I18n.t('form.guide.s1.copy'), message: I18n.t('form.editor.copyFallbackMsg'), value: G.pageUrl }); }
+      try { await navigator.clipboard.writeText(G.pageUrl); el.textContent = I18n.t('form.guide.s2.copied'); $('guide-msg').textContent = I18n.t('form.guide.s2.pasteInTab'); }
+      catch (err) { await Dialogs.prompt({ title: I18n.t('form.guide.s2.copy'), message: I18n.t('form.editor.copyFallbackMsg'), value: G.pageUrl }); }
     }
+    else if (what === 'publish') publishNow();
     else if (what === 'open' || what === 'opened') {
       // Le lien s'ouvre d'abord (action par défaut du clic) : on ne redessine qu'après, sinon
-      // l'ancre disparaît avant d'avoir navigué.
-      setTimeout(() => { if (G && !G.opened) { G.opened = true; renderGuide(); } }, 0);
+      // l'ancre disparaît avant d'avoir navigué. Avant la publication (geste à la main), ouvrir la
+      // page ne fait pas avancer le guide : il reste à publier.
+      setTimeout(() => { if (G && G.published && !G.opened) { G.opened = true; renderGuide(); focusPaste(); } }, 0);
     } else if (what === 'go') submitGuideLink($('guide-link')?.value);
     else if (what === 'clip') {
       try { const text = await navigator.clipboard.readText(); $('guide-link').value = text.trim(); submitGuideLink(text); }

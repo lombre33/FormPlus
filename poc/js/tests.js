@@ -20,9 +20,9 @@ import {
   ensureRespondentProbeTable, probeRespondentIdentity,
   getAttachmentColumns, parseAttachmentList, fetchAttachmentFileNames, downloadAttachmentAsDataUrl,
   closeManagedFormPublicLink, duplicateManagedForm,
-  gristPageUrl, nameFormPage, DEFAULT_NEW_PAGE_NAME,
+  gristPageUrl, nameFormPage, DEFAULT_NEW_PAGE_NAME, publishFormSection,
 } from './grist-meta.js';
-import { PENDING_KEY, forgetPublishGuide, resumePublishGuide, refreshPublication, submitGuideLink, initPublishGuide } from './publish-guide.js';
+import { PENDING_KEY, forgetPublishGuide, resumePublishGuide, refreshPublication, submitGuideLink, initPublishGuide, publishNow } from './publish-guide.js';
 import { GfsLink } from '../../kit/js/gfs-link.js';
 import { loadPluginApi, isPluginApiReady } from './plugin-loader.js';
 import { state } from './state.js';
@@ -2154,36 +2154,118 @@ export async function runTests() {
       if (t === '_grist_Tables') return { tableId: ['Departements'], id: [1] };
       if (t === '_grist_Views_section') return { id: [50], parentId: [124], parentKey: ['form'], tableRef: [1], shareOptions: [shareOptions()] };
       if (t === '_grist_Views_section_field') return { id: [], parentId: [] };
+      if (t === '_grist_Pages') return { id: [3], viewRef: [124], shareRef: [0] };
       return {};
     },
-    onAction: (a) => (a[0] === 'CreateViewSection' ? { sectionRef: 50, viewRef: 124 } : undefined),
+    onAction: (a) => (a[0] === 'CreateViewSection' ? { sectionRef: 50, viewRef: 124 } : (a[0] === 'AddRecord' && a[1] === '_grist_Shares') ? 9 : undefined),
     extra: { getDocName: async () => 'docTest' },
   });
+  // Le même document, où la publication écrite par Form+ se relit ensuite (comme dans un vrai Grist).
+  const guideDocLive = () => {
+    const live = { share: '{}' };
+    const stub = guideDoc(() => live.share);
+    const apply = stub.grist.docApi.applyUserActions;
+    stub.grist.docApi.applyUserActions = async (actions) => {
+      for (const a of actions) if (a[0] === 'UpdateRecord' && a[1] === '_grist_Views_section' && a[3] && a[3].shareOptions) live.share = a[3].shareOptions;
+      return apply(actions);
+    };
+    return { ...stub, live };
+  };
+  const stepNow = () => $('start-panel-guide').querySelector('[aria-current="step"] .guide-num').textContent;
 
-  await group('guide de publication : étape 1 avec lien direct, étape 2 au clic, étape 3 dès que Grist enregistre la publication', async () => {
-    let share = '{}';
-    window.grist = guideDoc(() => share).grist;
+  await group('publishFormSection : les trois actions du bouton Publier de Grist, dans l’ordre ; un partage déjà posé est gardé', async () => {
+    const st = makeGristStub({
+      fetchTable: { _grist_Pages: { id: [3, 4], viewRef: [124, 130], shareRef: [0, 5] } },
+      onAction: (a) => (a[0] === 'AddRecord' ? 9 : undefined),
+    });
+    window.grist = st.grist;
+    await publishFormSection(124, 50);
+    assertEqual('page sans partage : un partage est créé, posé sur la page, puis la section est publiée', st.calls.map(c => [c[0][0], c[0][1], c[0][2]]), [['AddRecord', '_grist_Shares', null], ['UpdateRecord', '_grist_Pages', 3], ['UpdateRecord', '_grist_Views_section', 50]]);
+    const added = st.calls[0][0][3];
+    assert('le partage porte un identifiant et publish:true', typeof added.linkId === 'string' && added.linkId.length >= 8 && added.options === '{"publish":true}');
+    assertEqual('la page reçoit la ligne de partage créée (9)', st.calls[1][0][3], { shareRef: 9 });
+    assertEqual('la section est publiée comme par le bouton de Grist', st.calls[2][0][3], { shareOptions: '{"publish":true,"form":true}' });
+    const st2 = makeGristStub({ fetchTable: { _grist_Pages: { id: [3, 4], viewRef: [124, 130], shareRef: [0, 5] } } });
+    window.grist = st2.grist;
+    await publishFormSection(130, 51);
+    assertEqual('page qui a déjà un partage (5) : réutilisé, jamais un second', st2.calls.map(c => [c[0][0], c[0][1], c[0][2]]), [['UpdateRecord', '_grist_Shares', 5], ['UpdateRecord', '_grist_Views_section', 51]]);
+    let err = null;
+    try { await publishFormSection(999, 50); } catch (e) { err = e; }
+    assert('page inconnue : une erreur, rien d’écrit', !!err && st2.calls.length === 2);
+    window.grist = makeGristStub({ fetchTable: { _grist_Pages: { id: [3], viewRef: [124], shareRef: [0] } }, onAction: () => undefined }).grist;
+    err = null;
+    try { await publishFormSection(124, 50); } catch (e) { err = e; }
+    assert('réponse sans identifiant de partage : une erreur, la page n’est pas touchée', !!err);
+  });
+
+  await group('guide de publication : étape 1 = un bouton qui publie, étape 2 = copier le lien dans Grist, étape 3 = coller', async () => {
+    const { grist, calls, live } = guideDocLive();
+    window.grist = grist;
     Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
-    $('scratchTable').value = 'Departements';
     state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
     await createEmptyForm();
+    assertEqual('étape 1 sur 3', stepNow(), '1');
+    assert('le bouton « Publier le formulaire » est là', !!$('guide-publish') && $('guide-publish').textContent === I18n.t('form.guide.s1.btn'));
+    assert('la phrase qui dit ce que la publication ouvre est affichée AVANT le clic', guideText().includes(I18n.t('form.guide.s1.access', { table: 'Departements' })));
+    assert('rien à ouvrir à cette étape', !$('guide-open'));
+    assert('la page est retenue pour un rechargement', !!JSON.parse(GfsLink.storageGet(PENDING_KEY) || 'null'));
+    const before = calls.length;
+    $('guide-publish').click();
+    await new Promise(r => setTimeout(r, 40));
+    const written = calls.slice(before).map(c => c[0][0] + ' ' + c[0][1]);
+    assertEqual('Form+ a écrit le partage, la page et la section', written, ['AddRecord _grist_Shares', 'UpdateRecord _grist_Pages', 'UpdateRecord _grist_Views_section']);
+    assertEqual('la publication est relue de la section', live.share, '{"publish":true,"form":true}');
+    assertEqual('étape 2 aussitôt, sans attendre le minuteur', stepNow(), '2');
     const open = $('guide-open');
     assert('le bouton « Ouvrir la page » est un vrai lien, dans un nouvel onglet', open && open.target === '_blank' && open.rel.includes('noopener'));
     assertEqual('…vers la page neuve (124) du même document', open.getAttribute('href'), 'https://grist.example.com/o/team/docs/abc/p/124');
     assert('le guide dit le nom de la page', guideText().includes(I18n.t('form.guide.pageName', { table: 'Departements' })));
-    assertEqual('étape 1 sur 3', $('start-panel-guide').querySelector('[aria-current="step"] .guide-num').textContent, '1');
-    assert('la page est retenue pour un rechargement', !!JSON.parse(GfsLink.storageGet(PENDING_KEY) || 'null'));
+    assert('…et le geste dans Grist : Partager puis Copier le lien', guideText().includes(I18n.t('form.guide.btn.share')) && guideText().includes(I18n.t('form.guide.btn.copyLink')));
+    assert('l’étape 1 est cochée', $('start-panel-guide').querySelectorAll('.guide-step.done').length === 1);
+    assert('pas encore de champ de collage', !$('guide-link'));
     open.addEventListener('click', (e) => e.preventDefault(), { once: true }); // un vrai clic ouvrirait un onglet : on n'essaie que le gestionnaire du guide
     open.click();
     await new Promise(r => setTimeout(r, 20));
-    assertEqual('après le clic, étape 2', $('start-panel-guide').querySelector('[aria-current="step"] .guide-num').textContent, '2');
-    await refreshPublication();
-    assertEqual('formulaire pas encore publié : toujours l’étape 2', $('start-panel-guide').querySelector('[aria-current="step"] .guide-num').textContent, '2');
-    share = '{"publish":true,"form":true}';
-    await refreshPublication();
-    assertEqual('publication détectée : étape 3', $('start-panel-guide').querySelector('[aria-current="step"] .guide-num').textContent, '3');
+    assertEqual('après avoir ouvert la page, étape 3', stepNow(), '3');
     assert('les étapes 1 et 2 sont cochées', $('start-panel-guide').querySelectorAll('.guide-step.done').length === 2);
     assert('le champ de collage est là', !!$('guide-link'));
+    closeGuide();
+  });
+
+  await group('guide de publication : « Publier le formulaire » refusé (GFS) -> la publication à la main, qui se coche toute seule', async () => {
+    const { grist, live } = guideDocLive();
+    const apply = grist.docApi.applyUserActions;
+    grist.docApi.applyUserActions = async (actions) => {
+      if (actions[0][1] === '_grist_Shares') throw new Error('GFS_REFUSE : _grist_Shares ne s’écrit pas');
+      return apply(actions);
+    };
+    window.grist = grist;
+    Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
+    state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
+    await createEmptyForm();
+    $('guide-publish').click();
+    await new Promise(r => setTimeout(r, 40));
+    assertEqual('toujours l’étape 1', stepNow(), '1');
+    assert('le bouton qui publie a laissé la place au geste à la main', !$('guide-publish') && guideText().includes(I18n.t('form.guide.manual.text', { page: I18n.t('form.guide.pageName', { table: 'Departements' }) }).replace(/<[^>]+>/g, '')));
+    assert('avec le lien pour ouvrir la page', !!$('guide-open'));
+    assert('et l’attente de la publication', guideText().includes(I18n.t('form.guide.manual.waiting')));
+    assertEqual('rien n’a été publié', live.share, '{}');
+    live.share = '{"publish":true,"form":true}'; // la personne clique Publier dans Grist
+    await refreshPublication();
+    assertEqual('publication à la main détectée : étape 2', stepNow(), '2');
+    closeGuide();
+  });
+
+  await group('guide de publication : un double clic sur « Publier le formulaire » n’écrit qu’une fois', async () => {
+    const { grist, calls } = guideDocLive();
+    window.grist = grist;
+    Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
+    state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
+    await createEmptyForm();
+    const before = calls.length;
+    const first = publishNow(), second = publishNow();
+    await Promise.all([first, second]);
+    assertEqual('trois écritures, pas six', calls.length - before, 3);
     closeGuide();
   });
 
@@ -2192,8 +2274,10 @@ export async function runTests() {
     Object.defineProperty(document, 'referrer', { value: 'https://grist.example.com/o/team/s/CLE/p/9', configurable: true });
     state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
     await createEmptyForm();
+    await publishNow();
+    assertEqual('publié : étape 2', stepNow(), '2');
     assert('aucun lien « Ouvrir la page »', !$('guide-open'));
-    assert('la place de la page est dite', guideText().includes(I18n.t('form.guide.s1.noLink')));
+    assert('la place de la page est dite', guideText().includes(I18n.t('form.guide.s2.noLink')));
     assert('un bouton pour passer à l’étape suivante', !!$('start-panel-guide').querySelector('[data-guide="opened"]'));
     closeGuide();
   });
@@ -2210,17 +2294,19 @@ export async function runTests() {
     state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
     await createEmptyForm();
     assert('la création a réussi malgré le refus', !$('start-panel-guide').classList.contains('hidden'));
+    await publishNow();
     assert('le guide cite le nom réel de la page', guideText().includes('New page'));
     closeGuide();
   });
 
-  await group('guide de publication : un formulaire déjà publié au chargement -> directement l’étape 3', async () => {
+  await group('guide de publication : un formulaire déjà publié au chargement -> directement l’étape 2 (rien à publier)', async () => {
     window.grist = guideDoc(() => '{"publish":true,"form":true}').grist;
     Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
     state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
     await createEmptyForm();
     await refreshPublication(); // (le guide a déjà lancé cette lecture lui-même à son affichage : on s'assure seulement qu'elle est finie)
-    assertEqual('dès la première lecture, l’étape 3', $('start-panel-guide').querySelector('[aria-current="step"] .guide-num').textContent, '3');
+    assertEqual('dès la première lecture, l’étape 2', stepNow(), '2');
+    assert('…sans bouton Publier', !$('guide-publish'));
     closeGuide();
   });
 
@@ -2268,6 +2354,9 @@ export async function runTests() {
     state.scratchMode = 'new'; $('scratchTable').value = 'Reponses';
     await createEmptyForm();
     await refreshPublication();
+    assertEqual('formulaire déjà publié : étape 2', stepNow(), '2');
+    $('start-panel-guide').querySelector('[data-guide="opened"]').click();
+    await new Promise(r => setTimeout(r, 20));
     assert('étape 3 atteinte', !!$('guide-link'));
     await submitGuideLink('https://grist.example.com/o/team/n-importe-quoi');
     assertEqual('un lien qui n’en est pas un : refus clair, dans le guide', $('guide-msg').innerHTML, `<span class="err">${I18n.t('form.editor.linkNotRecognized')}</span>`);
@@ -2285,7 +2374,7 @@ export async function runTests() {
   });
 
   await group('guide de publication : repris après un rechargement, abandonné si la page a disparu, ignoré dans un autre document', async () => {
-    const section = () => ({ id: [50], parentId: [124], parentKey: ['form'], tableRef: [1], shareOptions: ['{}'] });
+    const section = () => ({ id: [50], parentId: [124], parentKey: ['form'], tableRef: [1], shareOptions: ['{"publish":true,"form":true}'] });
     const doc = (docId, sections) => makeGristStub({
       fetchTable: (t) => (t === '_grist_Tables' ? { tableId: ['Departements'], id: [1] } : t === '_grist_Views_section' ? sections : {}),
       extra: { getDocName: async () => docId },
@@ -2295,6 +2384,7 @@ export async function runTests() {
 
     note(); window.grist = doc('docA', section());
     assertEqual('rechargement du même document : guide repris', await resumePublishGuide(), true);
+    await refreshPublication(); // déjà publié : l'étape 2 dit la page
     assert('…avec le nom de la page noté', guideText().includes('Formulaire Departements'));
     assert('…affiché à la place de l’écran de départ', !$('start-panel-guide').classList.contains('hidden'));
     closeGuide();
@@ -2349,14 +2439,16 @@ export async function runTests() {
       Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (t) => { written = t; } }, configurable: true });
       $('scratchTable').value = 'Departements'; state.scratchMode = 'new';
       await createEmptyForm();
+      await publishNow();
+      assertEqual('publié : étape 2', stepNow(), '2');
       assert('aucun lien « Ouvrir la page » hébergé', !$('guide-open'));
       assert('un bouton pour copier l’adresse', !!$('guide-copy'));
-      assert('le bouton passe à l’étape suivante par « J’ai ouvert la page »', guideText().includes(I18n.t('form.guide.s1.openedBtn')));
+      assert('le bouton passe à l’étape suivante par « J’ai copié le lien »', guideText().includes(I18n.t('form.guide.s2.copiedBtn')));
       $('guide-copy').click();
       await new Promise(r => setTimeout(r, 20));
       assertEqual('l’adresse de la page neuve est copiée', written, 'https://grist.example.com/o/team/doc/abc/p/124');
-      assertEqual('le bouton dit que c’est fait', $('guide-copy').textContent, I18n.t('form.guide.s1.copied'));
-      assert('et dit où la coller', $('guide-msg').textContent.includes(I18n.t('form.guide.s1.pasteInTab')));
+      assertEqual('le bouton dit que c’est fait', $('guide-copy').textContent, I18n.t('form.guide.s2.copied'));
+      assert('et dit où la coller', $('guide-msg').textContent.includes(I18n.t('form.guide.s2.pasteInTab')));
       if (realClipboard) Object.defineProperty(navigator, 'clipboard', realClipboard); else delete navigator.clipboard;
     } finally {
       initPublishGuide({ hosted: () => GfsLink.hosted });

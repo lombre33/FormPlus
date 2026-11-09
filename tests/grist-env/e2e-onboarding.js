@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Parcours de création d'un formulaire contre un VRAI Grist (celui de start-grist-test.sh) :
-// « Partir de zéro » -> guide de publication -> « Ouvrir la page » -> Publier -> Partager ->
-// Copier le lien -> Ctrl+V dans le widget -> éditeur. Tout est réel : la page créée par Grist, son
-// nom, l'adresse directe, la détection de la publication par le widget, le lien copié par le
-// bouton de Grist lui-même et collé au vrai clavier.
+// « Partir de zéro » -> guide de publication -> « Publier le formulaire » (Form+ publie lui-même) ->
+// « Ouvrir la page » -> Partager -> Copier le lien -> Ctrl+V dans le widget -> éditeur. Tout est
+// réel : la page créée par Grist, son nom, la publication faite par le widget et reconnue par
+// l'interface de Grist, l'adresse directe, le lien copié par le bouton de Grist lui-même et collé au
+// vrai clavier.
 //
 // Usage : tests/grist-env/start-grist-test.sh   (une fois, démarre Grist et sert le widget)
 //         NODE_PATH=$(npm root -g) node tests/grist-env/e2e-onboarding.js [dossier_captures]
@@ -89,30 +90,34 @@ const get = (url) => new Promise((resolve, reject) => http.get(url, (r) => { let
   const guideText = () => w.locator('#start-panel-guide').innerText();
   check('le guide remplace le panneau de création', (await w.locator('#start-panel-scratch:visible').count()) === 0 && (await w.locator('#start-panel-guide:visible').count()) === 1);
   check('étape 1 sur 3', (await w.locator('[aria-current="step"] .guide-num').innerText()) === '1');
-  check('le guide nomme la page créée', (await guideText()).includes(pageName), await guideText());
-  const href = await w.getAttribute('#guide-open', 'href');
-  check('« Ouvrir la page » a une adresse directe vers une page du document', new RegExp(`^${GRIST}/o/${info.org}/doc/[^/]+/p/\\d+$`).test(String(href)), String(href));
+  check('étape 1 : un bouton « Publier le formulaire », et ce que la publication ouvre est dit avant le clic', (await w.locator('#guide-publish').count()) === 1 && (await guideText()).includes(table));
+  check('rien à ouvrir à cette étape', (await w.locator('#guide-open').count()) === 0);
   await w.locator('body').screenshot({ path: path.join(SHOTS, '1-guide-etape1.png') });
   await page.screenshot({ path: path.join(SHOTS, '1-grist-sidebar.png') });
   check('la page porte son nom dans la barre latérale de Grist', await page.getByText(pageName, { exact: true }).count() > 0);
 
-  // ─── 2. Ouvrir la page (nouvel onglet) ───
+  // ─── 2. Form+ publie lui-même ───
+  await w.click('#guide-publish');
+  await w.locator('[aria-current="step"] .guide-num').filter({ hasText: '2' }).waitFor({ timeout: 15000 }).catch(async (e) => {
+    await w.locator('body').screenshot({ path: path.join(SHOTS, 'ECHEC-publication.png') });
+    throw new Error(`${e.message.split('\n')[0]} (étape : ${await w.locator('[aria-current="step"] .guide-num').innerText()} ; guide : ${JSON.stringify((await guideText()).slice(0, 300))})`);
+  });
+  check('publié par le widget : étape 2 sans autre clic', true);
+  check('le guide nomme la page créée', (await guideText()).includes(pageName), await guideText());
+  const href = await w.getAttribute('#guide-open', 'href');
+  check('« Ouvrir la page » a une adresse directe vers une page du document', new RegExp(`^${GRIST}/o/${info.org}/doc/[^/]+/p/\\d+$`).test(String(href)), String(href));
+  await w.locator('body').screenshot({ path: path.join(SHOTS, '2-guide-etape2.png') });
+
+  // ─── 3. Ouvrir la page (nouvel onglet) : Grist la montre déjà publiée ───
   const [grist2] = await Promise.all([ctx.waitForEvent('page'), w.click('#guide-open')]);
   await grist2.waitForLoadState();
-  await grist2.getByText('Publier', { exact: true }).waitFor({ timeout: 30000 });
+  await grist2.getByText('Partager', { exact: true }).first().waitFor({ timeout: 30000 });
   check('l’onglet ouvert est bien la page du formulaire (adresse complétée par Grist)', new RegExp(`/${info.docId.slice(0, 12)}[^/]*/[^/]+/p/${href.split('/p/')[1]}$`).test(grist2.url()), grist2.url());
-  await grist2.screenshot({ path: path.join(SHOTS, '2-page-formulaire.png') });
+  check('Grist montre le formulaire comme publié par Form+ : Partager présent, plus de bouton Publier', (await grist2.getByText('Publier', { exact: true }).count()) === 0);
+  await grist2.screenshot({ path: path.join(SHOTS, '3-page-formulaire-publiee.png') });
   await page.bringToFront();
   await page.waitForTimeout(400);
-  check('après le clic, étape 2', (await w.locator('[aria-current="step"] .guide-num').innerText()) === '2');
-
-  // ─── 3. Publier : le widget doit s'en apercevoir tout seul ───
-  await grist2.getByText('Publier', { exact: true }).click();
-  await grist2.locator('button:has-text("Publier")').last().click();
-  await grist2.getByText('Partager', { exact: true }).first().waitFor();
-  let step = '2';
-  for (let i = 0; i < 20 && step !== '3'; i++) { await page.waitForTimeout(500); step = await w.locator('[aria-current="step"] .guide-num').innerText(); }
-  check('publication détectée sans aucun clic dans le widget : étape 3', step === '3');
+  check('après avoir ouvert la page, étape 3', (await w.locator('[aria-current="step"] .guide-num').innerText()) === '3');
   await w.locator('body').screenshot({ path: path.join(SHOTS, '3-guide-etape3.png') });
 
   // ─── 4. Partager > Copier le lien, puis Ctrl+V dans le widget ───
@@ -163,11 +168,11 @@ const get = (url) => new Promise((resolve, reject) => http.get(url, (r) => { let
     throw new Error(`${e.message.split('\n')[0]} (message de création : ${JSON.stringify(await w3.locator('#scratch-msg').innerText().catch(() => '?'))})`);
   });
   const pageName2 = `Formulaire ${table2[0].toUpperCase()}${table2.slice(1)}`;
+  await w3.click('#guide-publish'); // Form+ publie ; la personne passe ensuite par la barre latérale plutôt que par le bouton
+  await w3.locator('[aria-current="step"] .guide-num').filter({ hasText: '2' }).waitFor({ timeout: 15000 });
   await page.getByText(pageName2, { exact: true }).click(); // même onglet : le cadre du widget disparaît
-  await page.getByText('Publier', { exact: true }).waitFor({ timeout: 30000 });
-  await page.getByText('Publier', { exact: true }).click();
-  await page.locator('button:has-text("Publier")').last().click();
-  await page.getByText('Partager', { exact: true }).first().waitFor();
+  await page.getByText('Partager', { exact: true }).first().waitFor({ timeout: 30000 });
+  check('(variante) la page cliquée dans la barre latérale est déjà publiée', (await page.getByText('Publier', { exact: true }).count()) === 0);
   await page.getByText('FormPlus', { exact: true }).first().click(); // retour sur la page du widget : il se recharge
   const w4 = await widget();
   await w4.locator('#start-panel-guide:visible').waitFor({ timeout: 20000 }).catch(async (e) => {
@@ -176,8 +181,8 @@ const get = (url) => new Promise((resolve, reject) => http.get(url, (r) => { let
   });
   check('après rechargement, le guide est repris (pas l’écran de départ)', (await w4.locator('#start-choices:visible').count()) === 0);
   check('…pour la même table', (await w4.locator('#start-panel-guide').innerText()).includes(`« ${pageName2.replace('Formulaire ', '')} »`));
-  await w4.locator('[aria-current="step"] .guide-num').filter({ hasText: '3' }).waitFor({ timeout: 10000 }).catch(() => {});
-  check('…et déjà à l’étape 3 : la publication faite pendant l’absence est vue tout de suite', (await w4.locator('[aria-current="step"] .guide-num').innerText()) === '3');
+  await w4.locator('[aria-current="step"] .guide-num').filter({ hasText: '2' }).waitFor({ timeout: 10000 }).catch(() => {});
+  check('…déjà à l’étape 2 : la publication est vue tout de suite, sans republier', (await w4.locator('[aria-current="step"] .guide-num').innerText()) === '2' && (await w4.locator('#guide-publish').count()) === 0);
   await w4.locator('body').screenshot({ path: path.join(SHOTS, '6-guide-repris.png') });
   await w4.click('[data-guide="cancel"]');
   check('« Choisir une autre méthode » ramène les tuiles de départ', (await w4.locator('#start-choices:visible').count()) === 1);

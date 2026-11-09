@@ -412,6 +412,16 @@ Mis à jour le 2026-11-07, au commit `886c550` (dernier commit de code que cette
     consentement que pour un document qui n'a encore aucun formulaire FormPlus.
 
 ## Changements qui touchent GFS
+- 2026-11-09 · lot suivant le guide ci-dessous · Form+ **publie lui-même** le formulaire (bouton
+  « Publier le formulaire » du guide, `publishFormSection`, `poc/js/grist-meta.js`) : les trois actions
+  du bouton Publier de Grist, mesurées sur un vrai Grist (1.7.22). Côté GFS, ce que ça écrit en plus :
+  `AddRecord _grist_Shares {linkId, options}` (un uuid et `{"publish":true}`), `UpdateRecord _grist_Pages
+  {shareRef}`, `UpdateRecord _grist_Views_section {shareOptions}` (celle-ci déjà utilisée, voir 020).
+  Chaque action est un appel à part (la ligne de partage créée donne l'identifiant dont la page a
+  besoin). **Refusé, rien ne casse** : le guide montre alors le geste à la main (ouvrir la page, Publier,
+  confirmer), la publication est vue toute seule comme avant. Ce qu'aucun widget ne peut faire, GFS pas
+  plus : lire la clé de partage (sonde `tests/grist-env/probe-share-key.js`) ; la personne la copie
+  donc toujours dans Grist (Partager > Copier le lien) et la colle dans Form+.
 - 2026-11-09 · `c32ae54` · guide de publication après « Nouveau > Formulaire > Partir de zéro »
   (`poc/js/publish-guide.js`, demande d'Antoine : un message très long qui ne disait pas où était la
   page créée). Mesuré sur un vrai Grist : la page que `CreateViewSection(…, 0, 'form')` pose s'appelle
@@ -482,6 +492,11 @@ Mis à jour le 2026-11-07, au commit `886c550` (dernier commit de code que cette
 (aucune en attente)
 
 ## Demandes à GFS
+- manifeste · `gristInterne` · `_grist_Shares` · `lit: false`, `ecrit: ["linkId", "options"]` (verbes
+  `AddRecord` puis `UpdateRecord`) et `_grist_Pages` · `ecrit: ["shareRef"]` (`UpdateRecord`) · pour que
+  Form+ publie le formulaire à la place de la personne (deux clics de moins dans Grist, la confirmation
+  de Grist en moins). `_grist_Views_section.shareOptions` en écriture est déjà déclarée. Sans ces
+  entrées, rien ne casse : le courtier refuse, Form+ propose le geste à la main.
 - manifeste · `gristInterne` · `_grist_Views` · `lit: true`, `ecrit: ["name"]` · pour nommer la page
   du formulaire créé « Formulaire <table> » au lieu de « New page » (que le moteur de Grist pose,
   en anglais, tout en bas de la liste des pages, et que la personne ne retrouve pas). Un seul
