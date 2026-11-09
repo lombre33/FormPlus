@@ -126,6 +126,34 @@ Mesures prises avec ce banc le 9 nov 2026, qui fondent le guide :
   (origine nulle, stockage refusé, `contrats.md` 1.3 de GFS) : Grist n'y
   marcherait pas, d'où l'adresse à copier à la place du lien.
 
+## Peut-on se passer de faire copier le lien du formulaire publié ? Non (sonde du 9 nov 2026)
+
+`probe-share-key.js` essaie, contre CE Grist (1.7.22), tout ce qu'un widget à accès complet pourrait tenter
+pour lire lui-même la clé de partage, avec comme témoin les vraies clés de `home.sqlite3`
+(`NODE_PATH=$(npm root -g) node tests/grist-env/probe-share-key.js`, code de sortie non nul si une piste s'ouvre) :
+
+- **D'où vient la clé** (code de Grist, `HomeDBManager.syncShares`) : `makeId()`, tirée au hasard par le serveur à la
+  première synchronisation du partage, jamais dérivée de rien que le document connaisse. Le document ne porte que
+  `linkId` (un uuid posé par le client) et `options`.
+- **Qui peut la lire** : une seule méthode, `getShare(linkId)`, exposée par la WebSocket du serveur de documents
+  au rôle propriétaire seulement. C'est elle qu'utilise le bouton « Copier le lien » (`FormView._getFormUrl`). Aucune
+  route REST ne la rend ; l'API plugin n'a aucune méthode de partage ; le canal RPC du widget ne relaie que les 5
+  méthodes de `GristDocAPI` (`getShare` & co. : « is not a function »).
+- **Essayé pour de vrai** : les 65 tables du document lues comme le fait le widget (aucune clé hors des tables
+  `FormPlus_*`, qui ne l'ont que parce que la personne l'a collée) ; 19 routes REST avec la clé d’API du
+  propriétaire dont `/sql`, `/download` et la base entière (aucune clé) ; le jeton `getAccessToken` (ne donne ni la
+  clé ni l'accès public du document : 403) ; la WebSocket ouverte depuis une autre origine (refusée, code 1006,
+  alors que la même adresse ouverte depuis la page Grist s'ouvre).
+- **Ce qui marche en revanche** : un widget peut **publier à la place de la personne**. Les trois actions du bouton
+  Publier (`AddRecord _grist_Shares {linkId, options}`, `UpdateRecord _grist_Pages {shareRef}`,
+  `UpdateRecord _grist_Views_section {shareOptions}`) créent la clé côté serveur, le formulaire répond en anonyme tout
+  de suite, et l'interface de Grist le montre comme publié (Partager, plus de bouton Publier). La clé, elle, reste
+  invisible au widget qui vient de la faire naître : seul « Copier le lien » la donne.
+- **Limite de cette certitude** : c'est vrai pour cette version et pour un widget servi depuis un autre site que
+  Grist. Le contrôle d'origine de la WebSocket (`trustOrigin`/`allowHost`) ne compare que le domaine de base :
+  un widget servi depuis le même domaine que Grist le passerait avec les cookies de la personne. Ce n'est pas le
+  cas de GitHub Pages, ni de GFS tant qu'il n'est pas hébergé sous le domaine de Grist.
+
 ## Tester avec Playwright
 
 Pour piloter le widget EN IFRAME dans ce Grist (écran concepteur ou
