@@ -1,8 +1,30 @@
 # GFS-ETAT : Form+
 
-Mis à jour le 2026-11-07, au commit `886c550` (dernier commit de code que cette page décrit).
+Mis à jour le 2026-11-10, au commit `74f31ac` (dernier commit de code que cette page décrit).
 
 ## Consignes
+- 029 · lue · faite · `74f31ac` · `tests.js` ne se charge plus à l'ouverture : `poc/js/main.js`
+  n'importe plus rien de `tests.js` en début de fichier, la branche `#test` fait
+  `const { runTests } = await import('./tests.js')` (une ligne, rien d'autre ne change). Aucun effet
+  de bord à signaler : au chargement, `tests.js` ne définit que `runTests` (et deux petits utilitaires
+  d'essai) ; tout ce qu'il importe est déjà dans le graphe de `main.js`, donc le gain est ce seul fichier.
+  Mesure (Chromium, cache vide à chaque passe, 3 passes identiques, serveur local sans compression,
+  code `9437bdc`, kit `cb1f8cd`) :
+  - dans un vrai Grist (celui de `tests/grist-env/`), au premier affichage de l'éditeur (écran de
+    départ) : **avant 35 requêtes et 1 733 194 o, après 34 requêtes et 1 439 488 o** (dont
+    `grist-plugin-api.js`, 880 781 o, dans les deux cas) ;
+  - app seule (`widget.html` ouvert hors de Grist) : **avant 34 requêtes et 852 413 o** (les mêmes 34
+    requêtes que la mesure de GFS), **après 33 requêtes et 558 707 o** ;
+  - écart : une requête et 293 706 o de moins (les 293 859 o de `tests.js`, qui pesait 264 657 o à
+    `2faf93b`, moins 153 o de commentaire ajoutés à `main.js`). Compressé (ce que sert GitHub Pages),
+    `tests.js` pèse environ 65 Ko et l'app seule passe d'environ 242 Ko à 178 Ko (gzip niveau 9 calculé
+    sur les fichiers : estimation, pas une mesure réseau).
+  Ce que la mesure ne dit pas : le temps d'affichage (serveur local, pas l'ADSL simulé de GFS). Vérifié :
+  suite `#test` en CI locale (`run-widget-tests.js`) 1 032 / 1 032 en FR et en EN, aucun avertissement
+  console ; dans le vrai Grist, `e2e-onboarding.js` et `e2e-build-first.js` verts avec le changement.
+  Les deux premiers passages, juste après le démarrage à froid du Grist de test, se sont arrêtés sur
+  « Recherche de la page du formulaire… » ; non reproduit ensuite (trois passages verts avec le
+  changement, un sans), cause non élucidée, sans lien visible avec la 029.
 - 027 · lue · aucun code à changer. Form+ n'écrit, ne lit et n'a jamais écrit aucune colonne
   `Auteur`, `Visibilite`, `Personnes` ni `Espace` (vérifié : aucune occurrence dans `poc/js/`) -
   `GFS_Auteur` et les autres colonnes `GFS_…` restent tolérées sans y toucher. Pour le refus
