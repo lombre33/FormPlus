@@ -16,7 +16,6 @@ import { resolveMyDefinition, loadDefinitionByRowId, closeManagedFormPublicLink,
 import { state } from './state.js';
 import { showConfig } from './config-editor.js';
 import { renderFill, hasPendingFillAnswers } from './respond.js';
-import { runTests } from './tests.js';
 import { loadPluginApi } from './plugin-loader.js';
 
 // La ligne de FormPlus_Formulaires ouverte, gardée chez GFS (consigne GFS 010, point 4) : un
@@ -133,8 +132,9 @@ $('themeToggle').addEventListener('click', () => {
 
 (async () => {
   // Suite de non-régression, hors ligne, indépendante de Grist : mêmes conditions qu'un vrai
-  // document (grist.docApi simulé) sans jamais y toucher.
-  if (hashParams.has('test')) { await runTests(); return; }
+  // document (grist.docApi simulé) sans jamais y toucher. Chargée à la demande (consigne GFS 029) :
+  // tests.js pèse près de 300 Ko et ne sert qu'avec #test, il ne doit pas alourdir l'ouverture.
+  if (hashParams.has('test')) { const { runTests } = await import('./tests.js'); await runTests(); return; }
   const inIframe = window.self !== window.top;
   const ok = inIframe && await loadPluginApi();
   if (!ok) {
