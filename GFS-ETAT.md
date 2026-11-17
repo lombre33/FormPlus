@@ -1,8 +1,65 @@
 # GFS-ETAT : Form+
 
-Mis à jour le 2026-11-10, au commit `74f31ac` (dernier commit de code que cette page décrit).
+Mis à jour le 2026-11-17, au commit `700798a` (dernier commit que cette page décrit).
 
 ## Consignes
+- 031 · lue · faite · `700798a` · `vitrine/` à la racine : `vitrine.json` (description de 182 caractères en
+  français et 166 en anglais, trois légendes de 53 caractères au plus, aucune promesse de sécurité) et
+  `1.webp`, `2.webp`, `3.webp` (960 × 600, de 23 à 34 Ko, relus avec Pillow). Aucun code de l'app ni
+  manifeste changé. Les trois images viennent de la vraie app dans un vrai Grist 1.7.22 (celui de
+  `tests/grist-env/`), en clair, en français, avec six réponses fictives sans nom de personne :
+  1 le formulaire tel que le voit la personne qui répond (celle qui illustre ta carte : le titre et les deux
+  premières questions sont au centre), 2 l'éditeur d'une question, 3 l'onglet Réponses. Le formulaire
+  d'exemple se bâtit par l'éditeur lui-même (« Construire le formulaire d'abord », questions ajoutées à la
+  souris, publication par Form+, lien copié par le bouton de Grist), et `tests/grist-env/vitrine-captures.js`
+  vérifie que les questions enregistrées sont celles saisies avant de prendre quoi que ce soit : une commande
+  régénère les trois images. Pas mesuré : le rendu dans la vitrine de GFS elle-même (le rognage d'un dixième en
+  haut et en bas est jugé sur l'image : l'essentiel de chacune tient dans les 80 % du milieu).
+  Prises après les correctifs de deux défauts de Form+ vus pendant les premières captures et corrigés par
+  un autre fil avant ce commit : la première pastille de chaque groupe de choix, 12 px trop haute
+  (`be136b9`, `cc17cfa`), et la page publique du parcours « Partir de zéro » qui s'ouvrait sans aucune
+  question pour un visiteur anonyme (`9caaa2f`, `e2e-guided-visitor.js`). Un troisième reste ouvert, hors
+  de cette consigne : « Envoyer une autre réponse » (`respond.js`) est écrit avec un `onclick` en ligne,
+  donc sans effet sous ta consigne 018 ; signalé à Antoine pour un fil à part. Si l'apparence change, les
+  images se régénèrent en une commande et la ligne « vitrine » est à redire avec le nouveau commit.
+- 030 · lue · faite · `2173843` · bouton « Publier » (partie 1), refus de la personne (partie 2), case
+  « Même lien que… » (partie 3).
+  1. Rien à changer pour que ton bouton passe : `publishFormSection` écrit déjà dans la forme que tu autorises
+     (`linkId` = `crypto.randomUUID()`, `options` = `{"publish":true}`, `shareRef` seule dans son
+     `UpdateRecord`, branche « page déjà partagée » par `UpdateRecord _grist_Shares { options }`). Je ne lis
+     toujours pas `_grist_Shares` : le partage d'une page se lit dans `_grist_Pages.shareRef`.
+  2. `GFS_ANNULE` n'est plus un échec : `publishNow` (`poc/js/publish-guide.js`, `isCancelled`) dit « Vous avez
+     refusé : le formulaire n'est pas publié. », garde le bouton de l'étape 1 pour recommencer et ne passe pas
+     au geste à la main ; `GFS_REFUSE` ou une erreur de Grist gardent leur repli. Au clic suivant, la recette
+     reprend sa branche « page déjà partagée ».
+  3. La case « Même lien que « <nom du premier> » : rien à copier. » est décochée, n'apparaît que si le
+     document a déjà un formulaire de Form+ publié dont la clé est connue (`findPublishedSiblingForm`,
+     jamais d'exception), et dit son prix : une seule adresse ouvre les deux formulaires, si elle fuit elle
+     les ouvre tous les deux, **dépublier l'un dans Grist ferme aussi le lien de l'autre** (mesuré, voir
+     plus bas). Cochée : `UpdateRecord _grist_Pages { shareRef }` avec celui du premier (seul dans son
+     lot), puis `shareOptions` ; l'adresse du second est bâtie avec la clé du premier, après une seule
+     vérification que cette clé ouvre bien CE formulaire (sinon la personne copie le lien comme d'habitude),
+     et le collage est franchi par Form+. `GFS_ANNULE` sur la fenêtre « Un seul lien pour deux formulaires ? »
+     retombe sans bruit sur un lien à part (partie 1). Décochée : rien ne change.
+  Mesuré dans un vrai Grist 1.7.22 (`tests/grist-env/e2e-same-link.js`, trois passages verts) : la seconde page
+  prend le `shareRef` de la première et aucun partage de plus n'est créé ; la clé du premier ouvre les deux
+  formulaires et un visiteur anonyme écrit dans la table de chacun ; « Dépublier » sur l'une ou l'autre des
+  deux pages passe le partage commun à `publish: false` et les deux formulaires répondent 404, republier le
+  partage les rouvre tous les deux (c'est ce que ta consigne demandait de ne dire que mesuré). Tests : suite
+  `#test` 1 093 / 1 093 (rejet `GFS_ANNULE`, rejet `GFS_REFUSE`, case, mode rattachement, clé qui n'ouvre pas
+  le formulaire) ; dans le vrai Grist, rejoués sur le code de `700798a` : `e2e-onboarding.js` 21 / 21,
+  `e2e-build-first.js` 34 / 34, `e2e-same-link.js` 34 / 34, `e2e-guided-visitor.js` 12 / 12. Un piège du banc,
+  qui éclaire aussi le passage de la 029 resté « non élucidé » : sur un document de test tout neuf, Form+
+  demande d'abord l'accord de créer `FormPlus_Formulaires` (« Créer la table ») et `e2e-onboarding.js` /
+  `e2e-build-first.js` ne cliquent pas cette fenêtre : ils s'arrêtent sur « Recherche de la page du
+  formulaire… », avec mon code comme avec celui de `3b9ac0c` (essayé), et passent dès que la table existe.
+  Ce que je n'ai pas mesuré : Firefox ; une autre version de Grist que la 1.7.22 ; tes deux fenêtres elles-mêmes
+  (« Ouvrir au public ? » et « Un seul lien pour deux formulaires ? ») : le refus est simulé en faisant rejeter
+  l'appel avec `error.code = 'GFS_ANNULE'`, tel que tu dis qu'il arrive. À rejouer chez toi avec ma vraie app.
+  À savoir : le lanceur de la suite `#test` du Chromium de cette session sort en erreur à cause de douze
+  messages de politique de sécurité (`respond.js`, bouton « Envoyer une autre réponse » écrit avec un
+  `onclick` en ligne, donc sans effet sous ta consigne 018) ; la CI à `3b9ac0c` était verte et le nombre est
+  le même avant et après mon changement. Signalé à Antoine pour un fil à part.
 - 029 · lue · faite · `74f31ac` · `tests.js` ne se charge plus à l'ouverture : `poc/js/main.js`
   n'importe plus rien de `tests.js` en début de fichier, la branche `#test` fait
   `const { runTests } = await import('./tests.js')` (une ligne, rien d'autre ne change). Aucun effet
@@ -25,6 +82,14 @@ Mis à jour le 2026-11-10, au commit `74f31ac` (dernier commit de code que cette
   Les deux premiers passages, juste après le démarrage à froid du Grist de test, se sont arrêtés sur
   « Recherche de la page du formulaire… » ; non reproduit ensuite (trois passages verts avec le
   changement, un sans), cause non élucidée, sans lien visible avec la 029.
+- 028 · lue · aucun code à changer. (1) `_grist_Views.name` : `nameFormPage` écrit déjà `name` seul, dans son
+  propre lot, avec le repli « New page » dit tel quel (`poc/js/grist-meta.js`) : rien à toucher. (2)
+  `navigator.clipboard.readText` refusé dans un cadre de GFS : le bouton « Coller » retombe déjà sur le
+  collage dans le champ du guide. L'adresse de la page à copier (`pageUrlFromBaseUrl`) a été mesurée **hors
+  GFS**, dans un vrai Grist 1.7.22 (`e2e-onboarding.js` : l'onglet ouvert est bien la page du formulaire) ;
+  pas mesurée avec l'adresse du jeton et l'`instance` de GFS, ni dans Firefox. (3) Tes deux autres demandes
+  (ouvrir une page hors du cadre, Leaflet) attendent le porteur : je garde « Copier l'adresse de la page »
+  dans GFS et le chargement autonome de Leaflet hors GFS, sans rien changer d'ici là.
 - 027 · lue · aucun code à changer. Form+ n'écrit, ne lit et n'a jamais écrit aucune colonne
   `Auteur`, `Visibilite`, `Personnes` ni `Espace` (vérifié : aucune occurrence dans `poc/js/`) -
   `GFS_Auteur` et les autres colonnes `GFS_…` restent tolérées sans y toucher. Pour le refus
@@ -556,3 +621,4 @@ Mis à jour le 2026-11-10, au commit `74f31ac` (dernier commit de code que cette
 - leaflet · 1.9.4 · type de question « Lieu sur carte » (`poc/js/kinds.js`, `poc/js/respond.js`) ·
   en attente de l'entrée de Form+ dans GFS (décision du porteur, consigne 006) ; d'ici là, le
   chargement autonome (`window.FORMPLUS_ENABLE_MAP`, unpkg) reste le mécanisme hors GFS
+- vitrine · `700798a` · `vitrine/vitrine.json` · description et trois captures pour la carte et la fiche
