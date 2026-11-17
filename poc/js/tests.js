@@ -3020,6 +3020,67 @@ export async function runTests() {
     window.fetch = fetchAvantSansLien;
   });
 
+  // Bug du parcours guidé (« Partir de zéro » -> Publier -> Copier le lien -> coller), relevé sur un vrai Grist
+  // (tests/grist-env/e2e-guided-visitor.js) : la Definition garde le lien COLLÉ (section de départ, 50) alors
+  // que l'adresse à diffuser porte la COPIE que Form+ gère (51, même clé). Un visiteur lisait bien la
+  // Definition de la copie par son champ caché, mais n'en gardait les questions que si formLink égalait
+  // l'adresse : jamais ici, donc titre et bouton « Envoyer » sans AUCUNE question.
+  await group('renderFill, visiteur sur l’adresse à diffuser : la Definition lue PAR le lien donne ses questions, même si formLink est celui de la section de départ', async () => {
+    resetEditeur();
+    const g = window.grist; delete window.grist; // un visiteur : pas de Grist autour de la page
+    const LIEN_COPIE = 'https://grist.example.com/o/team/forms/CLE/51';
+    const questions = [
+      { id: 'vq1', kind: 'text', label: 'Votre prénom' },
+      { id: 'vq2', kind: 'text', label: 'Votre ville', required: true },
+    ];
+    const definition = { vsId: 51, sourceVsId: 50, formLink: 'https://grist.example.com/o/team/forms/CLE/50', shareKey: 'CLE', publicUrl: 'https://x/#form=y', formTitle: 'Inscription', questions };
+    const formAvecDefinition = (def) => ({
+      formFieldsById: {
+        7: { colId: 'Nom', question: 'Nom', description: '', type: 'Text', options: {}, refValues: null },
+        8: { colId: 'FormPlusDef_51', question: 'Definition', description: '', type: 'Ref:FormPlus_Pub_51', options: { formIsHidden: true }, refValues: def ? [[1, JSON.stringify(def)]] : [] },
+      },
+      formLayoutSpec: '', formTableId: 'Departements', formTitle: 'Departements',
+    });
+    const dessin = async (fragmentLink) => { await renderFill({ fragmentLink }); await tick(); return $('fill-card'); };
+    try {
+      // 1. Le cas du bug : aucune option en mémoire (visiteur), adresse = la copie, Definition = lien de départ.
+      window.fetch = async () => ({ ok: true, json: async () => formAvecDefinition(definition) });
+      state.options = null;
+      let card = await dessin(LIEN_COPIE);
+      assertEqual('les deux liens diffèrent bien (la condition du bug)', definition.formLink === LIEN_COPIE, false);
+      assertEqual('les 2 questions de la Definition sont dessinées', card.querySelectorAll('#f [data-extra]').length, 2);
+      assert('…avec leur libellé', card.textContent.includes('Votre prénom') && card.textContent.includes('Votre ville'));
+      assert('…le titre de la Definition aussi', card.textContent.includes('Inscription'));
+      assert('…et le bouton d’envoi', !!card.querySelector('#pv-submit-btn'));
+      assertEqual('state.options est la Definition lue par le lien', state.options && state.options.vsId, 51);
+
+      // 2. Même Definition, mais son formLink égale l'adresse (parcours « Construire d'abord », collage d'un
+      // lien existant) : rien ne change pour ce cas déjà couvert.
+      window.fetch = async () => ({ ok: true, json: async () => formAvecDefinition({ ...definition, formLink: LIEN_COPIE }) });
+      state.options = null;
+      card = await dessin(LIEN_COPIE);
+      assertEqual('formLink identique à l’adresse : toujours 2 questions', card.querySelectorAll('#f [data-extra]').length, 2);
+
+      // 3. Garde-fou d'origine : une Definition INTROUVABLE sur ce lien ne doit jamais laisser passer les
+      // questions d'un AUTRE formulaire qui traînait dans state.options (ici celui d'une autre section).
+      window.fetch = async () => ({ ok: true, json: async () => formAvecDefinition(null) });
+      state.options = { vsId: 99, formLink: null, questions: [{ id: 'x1', kind: 'text', label: 'Question d’un autre formulaire' }] };
+      card = await dessin(LIEN_COPIE);
+      assertEqual('sans Definition lisible : aucune question d’un autre formulaire', card.querySelectorAll('#f [data-extra]').length, 0);
+      assert('…son libellé n’apparaît pas', !card.textContent.includes('Question d’un autre formulaire'));
+
+      // 4. Concepteur dans Grist : options propres à CE widget (formLink = adresse), aucune relecture de Definition.
+      window.fetch = async () => ({ ok: true, json: async () => formAvecDefinition(null) });
+      state.options = { vsId: 51, formLink: LIEN_COPIE, questions };
+      card = await dessin(undefined);
+      assertEqual('options du widget sur son propre lien : ses questions', card.querySelectorAll('#f [data-extra]').length, 2);
+    } finally {
+      window.grist = g; window.fetch = fetchAvantSansLien; resetEditeur();
+      // La carte dessinée garde des #eq-<id> que d'autres essais (onSubmit) retrouveraient avant les leurs, par $().
+      $('fill-card').innerHTML = '';
+    }
+  });
+
   await group('showConfig : un formulaire sans lien (« Construire d’abord », ou la copie faite par GFS) rouvre l’éditeur avec son bandeau', async () => {
     resetEditeur();
     const d = sansLienDoc(); window.grist = d.grist;

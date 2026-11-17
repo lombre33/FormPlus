@@ -606,14 +606,17 @@ export function resolveFormTitle(options, form) {
   return options?.formTitle || nativeTitle || I18n.t('form.respond.untitledForm');
 }
 
-export async function renderFill() {
+// `fragmentLink` : le lien du formulaire porté par l'adresse (#form=, diag.js). Paramètre seulement pour
+// que la suite de tests puisse rejouer un visiteur sans changer l'adresse de la page ; tous les appelants
+// de l'application l'omettent.
+export async function renderFill({ fragmentLink = fragmentFormLink } = {}) {
   show('fill');
   const card = $('fill-card');
   card.classList.remove('respond-card-shell');
   card.innerHTML = `<p class="muted">${I18n.t('form.loadingGeneric')}</p>`;
   $('progress').classList.add('hidden');
 
-  const formLink = state.options?.formLink || fragmentFormLink;
+  const formLink = state.options?.formLink || fragmentLink;
   let link = parseFormLink(formLink);
   // Aperçu SANS lien : un formulaire construit avant d'en avoir collé le lien (config-editor.js,
   // buildWithoutLink) a sa section (state.options.vsId) mais pas encore la clé de partage. Le
@@ -646,12 +649,19 @@ export async function renderFill() {
   // formulaires du document - refValues ne peut donc plus jamais rendre la Definition d'un AUTRE
   // formulaire, mesuré sur un vrai Grist (tests/grist-env/) : plus besoin de filtrer par vsId
   // parmi plusieurs lignes, il n'y en a qu'une.
+  // `optionsFromLink` : state.options est la Definition lue PAR le lien (donc celle de CE formulaire,
+  // posée sur la section que ce lien désigne). Elle ne se compare pas au lien par `formLink` : dans le
+  // parcours guidé (« Partir de zéro » -> Publier -> Copier le lien -> coller), la Definition garde le
+  // lien COLLÉ (celui de la section de départ) alors que l'adresse à diffuser porte la COPIE que Form+
+  // gère (même clé, autre numéro de section) - jamais égaux, et le visiteur ne voyait alors AUCUNE
+  // question, juste le titre et le bouton « Envoyer » (relevé sur Grist 1.7.22, tests/grist-env).
+  let optionsFromLink = false;
   if (!preview && state.options?.formLink !== formLink) {
     const defCol = definitionFieldColId(link.vsId);
     const field = Object.values(form.formFieldsById || {}).find(f => f.colId === defCol);
     const [, value] = (field?.refValues || [])[0] || [];
     let def = null; try { def = JSON.parse(value || 'null'); } catch (e) { /* ignore */ }
-    if (def) state.options = def;
+    if (def) { state.options = def; optionsFromLink = true; }
   }
 
   applyBranding(state.options);
@@ -668,7 +678,9 @@ export async function renderFill() {
     ? await probeRespondentIdentity() : null;
   diag({ event: 'internalIdentity', internalMode: !!state.options?.internalMode, resolved: !!state.internalIdentity });
 
-  const extraQuestions = (preview || state.options?.formLink === formLink) ? migrateLegacy(state.options) : [];
+  // Jamais les questions d'un AUTRE formulaire : state.options ne vaut pour ce lien que s'il vient d'être lu par
+  // lui (optionsFromLink), s'il en est l'aperçu sans lien, ou si c'est celui de ce widget (même lien).
+  const extraQuestions = (preview || optionsFromLink || state.options?.formLink === formLink) ? migrateLegacy(state.options) : [];
 
   const prefillParams = new URLSearchParams(location.search);
   const nativeRows = layoutOrder(form).map(id => renderNativeField(id, form.formFieldsById[id], prefillParams)).join('');

@@ -165,6 +165,17 @@ points de ce banc : `bypassCSP: true` (même raison que `e2e-build-first.js`) ; 
 s'ouvre par `/o/<site>/doc/<id>/p/<n>` (la forme `/<id>/p/<n>` sans nom de document ne marche pas).
 Comme les autres, il change le document de test (`FormPlus_Formulaires` vidé au départ).
 
+## Un visiteur anonyme sur l'adresse à diffuser du parcours guidé (17 nov 2026)
+
+`e2e-guided-visitor.js` rejoue le parcours guidé complet (« Partir de zéro », Publier, Copier le lien, Ctrl+V), ajoute
+deux questions à la main, puis ouvre l'adresse à diffuser (`publicUrl`) dans un contexte vierge sans cookie : le
+visiteur doit y voir **les deux questions** et le bouton « Envoyer », répondre, et sa réponse arrive dans la table ;
+le concepteur connecté voit la même chose sur cette adresse. Le test vérifie d'abord la condition qui causait le bug :
+la Definition garde le lien COLLÉ (section de départ) alors que `publicUrl` porte la COPIE gérée par Form+ (même clé,
+autre numéro de section) — jamais égaux, d'où un formulaire public sans aucune question avant le correctif
+(`optionsFromLink`, `respond.js`). Mesuré sur Grist 1.7.22 : rouge sans le correctif (« 0 questions affichées pour 2 »),
+vert avec. `bypassCSP: true` comme les autres ; il vide `FormPlus_Formulaires` au départ.
+
 ## Peut-on se passer de faire copier le lien du formulaire publié ? Non (sonde du 9 nov 2026)
 
 `probe-share-key.js` essaie, contre CE Grist (1.7.22), tout ce qu'un widget à accès complet pourrait tenter
