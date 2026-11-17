@@ -879,6 +879,13 @@ function canvasToFile(canvas, filename) {
   return new Promise((resolve) => canvas.toBlob((blob) => resolve(new File([blob], filename, { type: 'image/png' })), 'image/png'));
 }
 
+// Actions de l'écran de succès, isolées pour qu'un test puisse les remplacer : `location.reload`
+// est infalsifiable dans un navigateur (on ne peut pas le simuler), et le recharger pour de bon
+// emporterait la page de test avec lui.
+export const successActions = {
+  restart: () => location.reload(),
+};
+
 export async function onSubmit(ev, form, link, extraQuestions) {
   ev.preventDefault();
   const formEl = ev.target;
@@ -1095,7 +1102,12 @@ export async function onSubmit(ev, form, link, extraQuestions) {
       <p class="muted">${I18n.t('form.respond.recordId', { id: esc(j.records?.[0]?.id) })}</p>
       ${warning}
       ${redirectUrl ? `<p class="muted" id="redirect-msg">${I18n.t('form.respond.redirectPrefix')}<span id="redirect-count">3</span>${I18n.t('form.respond.redirectSuffix')}<a href="${esc(redirectUrl)}">${I18n.t('form.respond.continueNowLink')}</a></p>` : ''}
-      <p><button class="primary" onclick="location.reload()">${I18n.t('form.respond.sendAnotherBtn')}</button></p></div>`;
+      <p><button type="button" class="primary" id="send-another-btn">${I18n.t('form.respond.sendAnotherBtn')}</button></p></div>`;
+    // addEventListener plutôt qu'un attribut `onclick` : un gestionnaire d'événement inline est
+    // bloqué par la CSP de widget.html (`script-src` sans `'unsafe-inline'`), et ce bouton, généré
+    // après coup, ne ferait alors plus rien (mesuré dans Chromium : « Executing inline event handler
+    // violates the following Content Security Policy directive »). Même correctif que public-form.js.
+    $('send-another-btn').addEventListener('click', () => successActions.restart());
     if (redirectUrl) {
       let n = 3;
       const t = setInterval(() => {

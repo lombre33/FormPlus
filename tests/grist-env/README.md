@@ -197,6 +197,25 @@ NODE_PATH=$(npm root -g) node tests/grist-env/vitrine-captures.js vitrine
 images après un changement d'apparence, relancer la commande puis redire la ligne « vitrine » à GFS (nouveau
 commit dans `GFS-ETAT.md`).
 
+## « Envoyer une autre réponse » sous la CSP réelle (17 nov 2026)
+
+`e2e-send-another.js` : un visiteur anonyme ouvre un formulaire publié du document de test (`#form=` vers
+`/forms/<clé>/<section Reponses>`), répond, clique sur « Envoyer une autre réponse » de l'écran de succès et doit
+retrouver un formulaire vierge, qu'il peut renvoyer (deux réponses dans la table). Bug visé : le bouton portait
+`onclick="location.reload()"`, un gestionnaire inline que `script-src` de widget.html (sans `'unsafe-inline'`) bloque ;
+le clic ne faisait rien et le répondant ne voyait aucune erreur. Corrigé par un `addEventListener` (`respond.js`,
+comme `public-form.js` le faisait déjà). Mesuré sur Grist 1.7.22 : rouge sur l'ancien code (le bouton a un attribut
+`onclick`, le clic ne recharge rien, deux violations `script-src-attr : inline`), vert avec le correctif.
+
+**Seul test du dossier SANS `bypassCSP: true`** : ce bug n'existe que sous la CSP, la contourner le rendait invisible
+(les tests précédents passaient tous alors que le bouton était mort). Le point 5 plus haut (HTTP nu, `connect-src`
+qui bloque l'appel vers ce Grist) est traité autrement : le script sert lui-même la racine du dépôt sur son propre port
+(`SERVER_PORT`, 8013) et n'ajoute que l'origine de CE Grist au `connect-src` de widget.html ; `script-src` reste celui
+du dépôt, et le test vérifie qu'il n'a ni `'unsafe-inline'` ni `'unsafe-hashes'`. Un `route.fulfill` sur widget.html
+ne convient pas : la page perd son adresse réseau réelle et Chromium refuse alors ses appels vers localhost
+(« Permission was denied … `loopback` address space »). La clé de partage est la vraie, lue en lecture seule dans
+`home.sqlite3` (table `shares`, voir « Écart constaté »). Ce test n'écrit que dans `Reponses` (2 lignes de plus).
+
 ## Peut-on se passer de faire copier le lien du formulaire publié ? Non (sonde du 9 nov 2026)
 
 `probe-share-key.js` essaie, contre CE Grist (1.7.22), tout ce qu'un widget à accès complet pourrait tenter

@@ -7,7 +7,7 @@ import { paintAmbiance } from '../../kit/js/ambiance-pose.js';
 import { hostContract } from '../../kit/js/host.js';
 import { STRINGS } from './strings.js';
 import { KINDS, LAYOUT_KINDS, TABLE_SOURCED_KINDS, FIXED_LIST_KINDS, mapFeatureEnabled } from './kinds.js';
-import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet, reservationOk, splitIntoPages, wirePages, wireConditions, resolveFormTitle, hasPendingFillAnswers, renderFill } from './respond.js';
+import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet, reservationOk, splitIntoPages, wirePages, wireConditions, resolveFormTitle, hasPendingFillAnswers, renderFill, successActions } from './respond.js';
 import {
   questionSummary, conditionSourceCandidates, renderCardBody, saveQuestionFromCard,
   customizeNativeField, resetQuestions, createEmptyForm, populateFormPicker, generate, saveConfig,
@@ -4478,6 +4478,42 @@ export async function runTests() {
     await tick();
     const cardHtml = $('fill-card').innerHTML;
     assert('un schéma javascript: est neutralisé, jamais de redirection automatique proposée', !cardHtml.includes('redirect-msg') && !cardHtml.includes('javascript:'));
+  });
+
+  await group('onSubmit : l’écran de succès, « Envoyer une autre réponse » marche sous la CSP (pas de gestionnaire inline)', async () => {
+    // Bug du 17 nov : le bouton portait `onclick="location.reload()"`, bloqué par la CSP de widget.html
+    // (script-src sans 'unsafe-inline') — le clic ne faisait rien, aucune erreur visible pour le répondant.
+    // Le gestionnaire doit être posé en JS (addEventListener), jamais en attribut.
+    const form = { formTableId: 'Reponses', formFieldsById: {} };
+    const link = { api: 'https://fake/api/s/KEY' };
+    const formEl = mount(document.createElement('form'));
+    formEl.innerHTML = `<input type="text" name="_website" value="" style="display:none"><span id="fill-status"></span><button type="submit"></button>`;
+    window.fetch = async (url) => {
+      if (String(url).includes('/tables/Reponses/records')) return { ok: true, json: async () => ({ records: [{ id: 1 }] }) };
+      return { ok: true, json: async () => ({}) };
+    };
+    const violations = [];
+    const onViolation = (e) => violations.push(`${e.violatedDirective} : ${e.blockedURI}`);
+    document.addEventListener('securitypolicyviolation', onViolation);
+    const savedRestart = successActions.restart;
+    let restarts = 0;
+    successActions.restart = () => { restarts++; };
+    try {
+      state.options = {};
+      await onSubmit({ preventDefault() {}, target: formEl }, form, link, []);
+      await tick();
+      const card = $('fill-card');
+      const btn = card.querySelector('#send-another-btn');
+      assert('le bouton « Envoyer une autre réponse » est affiché', !!btn && btn.textContent.trim() === I18n.t('form.respond.sendAnotherBtn'));
+      assert('…sans aucun attribut onclick/on* (la CSP du widget les bloque)', card.querySelectorAll('*').length > 0 && ![...card.querySelectorAll('*')].some((el) => [...el.attributes].some((a) => /^on/i.test(a.name))));
+      btn.click();
+      assertEqual('un clic relance bien le formulaire, une seule fois', restarts, 1);
+      await tick();
+      assertEqual('aucune violation de la CSP pendant l’affichage ni le clic', violations.length, 0);
+    } finally {
+      successActions.restart = savedRestart;
+      document.removeEventListener('securitypolicyviolation', onViolation);
+    }
   });
 
   await group('onSubmit : obligatoire refuse un texte fait uniquement d’espaces et un oui/non non cochée', async () => {
