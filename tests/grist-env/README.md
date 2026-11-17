@@ -176,6 +176,27 @@ autre numéro de section) — jamais égaux, d'où un formulaire public sans auc
 (`optionsFromLink`, `respond.js`). Mesuré sur Grist 1.7.22 : rouge sans le correctif (« 0 questions affichées pour 2 »),
 vert avec. `bypassCSP: true` comme les autres ; il vide `FormPlus_Formulaires` au départ.
 
+## Les captures de la vitrine de GFS (consigne GFS 031, 17 nov 2026)
+
+`vitrine/` (à la racine du dépôt) porte la description et les trois captures que GFS affiche sur la carte et la
+fiche de Form+. Les images ne sont pas retouchées : `vitrine-captures.js` bâtit le formulaire d'exemple (« Retour
+sur l'atelier », 5 questions) avec la vraie app dans un vrai Grist (Construire le formulaire d'abord, chaque
+question ajoutée à la souris, publication par Form+, lien copié par le bouton de Grist, puis collé), pose six
+réponses fictives sans nom de personne, et prend : 1 le formulaire tel que le voit un visiteur anonyme (celle qui
+illustre la carte), 2 l'éditeur, 3 l'onglet Réponses. Chaque image est prise à deux fois la taille (la page de Grist
+autour est masquée, dont sa bannière « Authentication is not enforced »), ramenée à 960 x 600 et écrite en WebP,
+qualité baissée jusqu'à 60 Ko au plus (Pillow est requis). Le script vérifie que les questions enregistrées sont
+celles saisies (libellé, type, obligatoire) avant de prendre quoi que ce soit.
+
+```bash
+# document NEUF (la table « Retours » ne doit pas exister) : grist_test_doc.py le supprime et le recrée
+NODE_PATH=$(npm root -g) node tests/grist-env/vitrine-captures.js vitrine
+```
+
+`vitrine.json` (description, légendes, FR et EN) s'écrit à la main : le script ne le touche pas. Pour régénérer les
+images après un changement d'apparence, relancer la commande puis redire la ligne « vitrine » à GFS (nouveau
+commit dans `GFS-ETAT.md`).
+
 ## Peut-on se passer de faire copier le lien du formulaire publié ? Non (sonde du 9 nov 2026)
 
 `probe-share-key.js` essaie, contre CE Grist (1.7.22), tout ce qu'un widget à accès complet pourrait tenter
@@ -323,6 +344,7 @@ tester la suite du transport 1 en anonyme.
 
 ## Fichiers
 
+- `vitrine-captures.js` — les trois captures de la vitrine de GFS (voir plus haut).
 - `start-grist-test.sh` — le script de démarrage.
 - `grist_test_doc.py` — crée/recrée le document de test (appelé par le
   script ci-dessus, utilisable seul avec `GRIST_URL`, `GRIST_API_KEY`,
