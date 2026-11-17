@@ -21,9 +21,9 @@ import {
   ensureRespondentProbeTable, probeRespondentIdentity,
   getAttachmentColumns, parseAttachmentList, fetchAttachmentFileNames, downloadAttachmentAsDataUrl,
   closeManagedFormPublicLink, duplicateManagedForm,
-  gristPageUrl, nameFormPage, DEFAULT_NEW_PAGE_NAME, publishFormSection, fetchNativeForm, duplicateFormSection,
+  gristPageUrl, nameFormPage, DEFAULT_NEW_PAGE_NAME, publishFormSection, fetchNativeForm, duplicateFormSection, findPublishedSiblingForm,
 } from './grist-meta.js';
-import { PENDING_KEY, forgetPublishGuide, resumePublishGuide, refreshPublication, submitGuideLink, initPublishGuide, publishNow } from './publish-guide.js';
+import { PENDING_KEY, forgetPublishGuide, resumePublishGuide, refreshPublication, submitGuideLink, initPublishGuide, publishNow, isCancelled } from './publish-guide.js';
 import { GfsLink } from '../../kit/js/gfs-link.js';
 import { loadPluginApi, isPluginApiReady } from './plugin-loader.js';
 import { state } from './state.js';
@@ -2492,7 +2492,7 @@ export async function runTests() {
           const arr = [...doc.sections.shareOptions]; arr[i] = a[3].shareOptions; doc.sections.shareOptions = arr;
         }
         if (a[0] === 'AddRecord' && a[1] === '_grist_Shares') return 9;
-        if (a[0] === 'UpdateRecord' && a[1] === '_grist_Pages') doc.pages = { ...doc.pages, shareRef: [a[3].shareRef] };
+        if (a[0] === 'UpdateRecord' && a[1] === '_grist_Pages') doc.pages = { ...doc.pages, shareRef: doc.pages.shareRef.map((r, i) => (doc.pages.id[i] === a[2] ? a[3].shareRef : r)) };
         return undefined;
       },
       extra: {
@@ -2686,6 +2686,300 @@ export async function runTests() {
     $('start-panel-guide').querySelector('[data-guide="cancel"]').click();
     await tick();
     assert('retour à l’éditeur', !$('editor').classList.contains('hidden') && $('step1').classList.contains('hidden'));
+    window.fetch = fetchAvantSansLien;
+  });
+
+  // ───────────────────────── Consigne GFS 030 : refus de la personne, « Même lien que… » ─────────────────────────
+  const annule = (msg = 'GFS_ANNULE : la personne a refusé') => Object.assign(new Error(msg), { code: 'GFS_ANNULE' });
+  const SIBLING_KEY = 'https://grist.example.com/o/team/forms/KEY1/30';
+  // Un premier formulaire de Form+ (section 30 sur la page 200, partage 5), publié sous la clé KEY1.
+  const avecPremierFormulaire = (d, { published = true, formLink = SIBLING_KEY } = {}) => {
+    d.doc.pages = { id: [3, 4], viewRef: [124, 200], shareRef: [0, 5] };
+    d.doc.sections = { id: [30], parentId: [200], parentKey: ['form'], tableRef: [1], shareOptions: [published ? '{"publish":true,"form":true}' : '{}'], options: ['{}'] };
+    const base = d.grist.docApi.fetchTable;
+    d.grist.docApi.fetchTable = async (t) => (t === FORMULAIRES_TABLE
+      ? { id: [1], Nom: ['Inscriptions'], Definition: [JSON.stringify({ vsId: 30, formTitle: 'Inscriptions', formLink })] }
+      : base(t));
+  };
+  const pagesEtShares = (calls, from = 0) => ecritures(calls, from).filter(a => a[1] === '_grist_Pages' || a[1] === '_grist_Shares').map(a => `${a[0]} ${a[1]} ${a[2]}${a[3] && a[3].shareRef !== undefined ? ' shareRef=' + a[3].shareRef : ''}`);
+
+  await group('isCancelled : le code GFS_ANNULE de GFS, ou son nom en tête du message ; jamais un autre refus', () => {
+    assert('code GFS_ANNULE', isCancelled(annule()));
+    assert('message qui commence par le code (code recopié sans la propriété)', isCancelled(new Error('GFS_ANNULE : refusé')));
+    assert('GFS_REFUSE n’est pas un refus de la personne', !isCancelled(new Error('GFS_REFUSE : _grist_Shares ne s’écrit pas')));
+    assert('une erreur de Grist non plus', !isCancelled(new Error('Blocked by table update access rules')));
+    assert('ni rien du tout', !isCancelled(null) && !isCancelled(undefined));
+  });
+
+  await group('publishFormSection { shareWith } : la page reprend le partage du premier formulaire ; refus du lien commun distingué du refus de l’accord', async () => {
+    const pages = { id: [3, 4], viewRef: [124, 130], shareRef: [0, 5] };
+    const st = makeGristStub({ fetchTable: { _grist_Pages: pages }, onAction: (a) => (a[0] === 'AddRecord' ? 9 : undefined) });
+    window.grist = st.grist;
+    await publishFormSection(124, 50, { shareWith: 5 });
+    assertEqual('aucun partage créé : le shareRef du premier (5) est écrit seul sur la page, puis la section est publiée', st.calls.map(c => [c[0][0], c[0][1], c[0][2], c[0][3]]),
+      [['UpdateRecord', '_grist_Pages', 3, { shareRef: 5 }], ['UpdateRecord', '_grist_Views_section', 50, { shareOptions: '{"publish":true,"form":true}' }]]);
+    const deja = makeGristStub({ fetchTable: { _grist_Pages: { id: [3, 4], viewRef: [124, 130], shareRef: [5, 5] } } });
+    window.grist = deja.grist;
+    await publishFormSection(124, 50, { shareWith: 5 });
+    assertEqual('page déjà rattachée (un essai précédent) : le shareRef n’est pas réécrit, GFS ne repose pas sa fenêtre', deja.calls.map(c => c[0][1]), ['_grist_Views_section']);
+    const refusLien = makeGristStub({ fetchTable: { _grist_Pages: pages }, extra: { applyUserActions: async (actions) => { refusLien.calls.push(actions); throw annule(); } } });
+    window.grist = refusLien.grist;
+    let err = null;
+    try { await publishFormSection(124, 50, { shareWith: 5 }); } catch (e) { err = e; }
+    assert('refus de la fenêtre « Un seul lien » : GFS_ANNULE, marqué formplusStep « link »', isCancelled(err) && err.formplusStep === 'link');
+    assertEqual('…et rien d’autre n’est écrit', refusLien.calls.length, 1);
+    let first = true;
+    const refusAccord = makeGristStub({ fetchTable: { _grist_Pages: pages }, extra: { applyUserActions: async (actions) => { if (actions[0][1] === '_grist_Views_section') throw annule(); first = false; } } });
+    window.grist = refusAccord.grist;
+    err = null;
+    try { await publishFormSection(124, 50, { shareWith: 5 }); } catch (e) { err = e; }
+    assert('refus de l’accord de publication (3e écriture) : GFS_ANNULE SANS étape « link »', isCancelled(err) && err.formplusStep === undefined && first === false);
+    // Sans shareWith, une page qui ne garde un partage que parce qu'un « même lien » a été posé puis non publié
+    // n'en est pas propriétaire : elle reçoit le sien, jamais la clé d'un autre.
+    const partagee = makeGristStub({ fetchTable: { _grist_Pages: { id: [3, 4], viewRef: [124, 200], shareRef: [5, 5] } }, onAction: (a) => (a[0] === 'AddRecord' ? 9 : undefined) });
+    window.grist = partagee.grist;
+    await publishFormSection(124, 50);
+    assertEqual('case décochée ensuite : un partage neuf, posé sur cette page seule', partagee.calls.map(c => [c[0][0], c[0][1], c[0][2]]), [['AddRecord', '_grist_Shares', null], ['UpdateRecord', '_grist_Pages', 3], ['UpdateRecord', '_grist_Views_section', 50]]);
+    assertEqual('…la page reçoit le partage 9, pas le 5', partagee.calls[1][0][3], { shareRef: 9 });
+  });
+
+  await group('findPublishedSiblingForm : le premier formulaire de Form+ publié dont la clé est connue, sur une autre page et un autre partage', async () => {
+    const def = (extra) => JSON.stringify({ vsId: 30, formTitle: 'Titre', formLink: SIBLING_KEY, ...extra });
+    const doc = ({ rows, sections, pages }) => makeGristStub({
+      fetchTable: (t) => (t === FORMULAIRES_TABLE ? rows : t === '_grist_Views_section' ? sections : t === '_grist_Pages' ? pages : {}),
+    }).grist;
+    const publie = (n) => Array(n).fill('{"publish":true,"form":true}');
+    window.grist = doc({
+      rows: { id: [1], Nom: ['Inscriptions'], Definition: [def()] },
+      sections: { id: [30], parentId: [200], shareOptions: publie(1) },
+      pages: { id: [3, 4], viewRef: [124, 200], shareRef: [0, 5] },
+    });
+    const found = await findPublishedSiblingForm(124);
+    assertEqual('trouvé : son nom, sa page, son partage et son lien', found && [found.name, found.vsId, found.viewRef, found.shareRef, found.link.key, found.link.api],
+      ['Inscriptions', 30, 200, 5, 'KEY1', 'https://grist.example.com/o/team/api/s/KEY1']);
+    window.grist = doc({
+      rows: { id: [2, 1], Nom: ['Second', 'Premier'], Definition: [def({ vsId: 31, formLink: 'https://grist.example.com/o/team/forms/KEY2/31' }), def({ vsId: 30 })] },
+      sections: { id: [30, 31], parentId: [200, 201], shareOptions: publie(2) },
+      pages: { id: [3, 4, 5], viewRef: [124, 200, 201], shareRef: [0, 5, 6] },
+    });
+    assertEqual('le plus ancien (ligne 1) l’emporte, quel que soit l’ordre de lecture', (await findPublishedSiblingForm(124)).name, 'Premier');
+    window.grist = doc({
+      rows: { id: [1, 2], Nom: ['A', 'B'], Definition: [def(), def({ vsId: 31, formLink: 'https://grist.example.com/o/team/forms/KEY2/31' })] },
+      sections: { id: [30, 31], parentId: [200, 201], shareOptions: ['{}', '{"publish":true,"form":true}'] },
+      pages: { id: [3, 4, 5], viewRef: [124, 200, 201], shareRef: [0, 5, 6] },
+    });
+    assertEqual('un formulaire non publié est sauté : le suivant', (await findPublishedSiblingForm(124)).name, 'B');
+    const unique = (over) => doc({
+      rows: over.rows || { id: [1], Nom: ['A'], Definition: [def()] },
+      sections: over.sections || { id: [30], parentId: [200], shareOptions: publie(1) },
+      pages: over.pages || { id: [3, 4], viewRef: [124, 200], shareRef: [0, 5] },
+    });
+    window.grist = unique({ rows: { id: [1], Nom: ['A'], Definition: [def({ formLink: '' })] } });
+    assertEqual('sans lien retenu (formulaire construit avant son lien) : personne', await findPublishedSiblingForm(124), null);
+    window.grist = unique({ rows: { id: [1], Nom: ['A'], Definition: [def({ formLink: 'pas un lien' })] } });
+    assertEqual('lien illisible : personne', await findPublishedSiblingForm(124), null);
+    window.grist = unique({ pages: { id: [3, 4], viewRef: [124, 200], shareRef: [0, 0] } });
+    assertEqual('page sans partage : personne', await findPublishedSiblingForm(124), null);
+    window.grist = unique({ pages: { id: [3, 4], viewRef: [124, 200], shareRef: [5, 5] } });
+    assertEqual('déjà le même partage que cette page : rien à proposer', await findPublishedSiblingForm(124), null);
+    window.grist = unique({ sections: { id: [30], parentId: [124], shareOptions: publie(1) } });
+    assertEqual('formulaire sur la page même : personne', await findPublishedSiblingForm(124), null);
+    window.grist = unique({ rows: { id: [], Nom: [], Definition: [] } });
+    assertEqual('aucun formulaire géré : personne', await findPublishedSiblingForm(124), null);
+    window.grist = { docApi: { fetchTable: async () => { throw new Error('Table introuvable'); } } };
+    assertEqual('lecture impossible : null, jamais d’exception', await findPublishedSiblingForm(124), null);
+  });
+
+  await group('guide : « Publier » refusé PAR LA PERSONNE (GFS_ANNULE) -> elle le lit, le bouton reste, le geste à la main n’arrive jamais ; un second clic recommence', async () => {
+    resetEditeur();
+    const d = sansLienDoc();
+    const apply = d.grist.docApi.applyUserActions;
+    let refus = 1;
+    d.grist.docApi.applyUserActions = async (actions) => {
+      if (actions[0][1] === '_grist_Views_section' && refus-- > 0) throw annule();
+      return apply(actions);
+    };
+    window.grist = d.grist;
+    Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
+    state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
+    await createEmptyForm();
+    assert('aucune case « Même lien » sans autre formulaire publié', !$('guide-same'));
+    $('guide-publish').click();
+    await new Promise(r => setTimeout(r, 50));
+    assertEqual('toujours l’étape 1', stepNow(), '1');
+    assertEqual('la phrase dit que la personne a refusé', $('guide-declined') && $('guide-declined').textContent, I18n.t('form.guide.s1.declined'));
+    assert('le bouton de l’étape 1 est là pour recommencer', !!$('guide-publish') && !$('guide-publish').disabled && $('guide-publish').textContent === I18n.t('form.guide.s1.btn'));
+    assert('pas de geste à la main, ni « Form+ n’a pas pu publier »', !$('guide-open') && !guideText().includes(I18n.t('form.guide.manual.waiting')));
+    assertEqual('rien n’est publié', d.doc.sections.shareOptions[d.doc.sections.id.indexOf(50)], '{}');
+    assertEqual('le partage posé avant le refus reste sur la page', d.doc.pages.shareRef, [9]);
+    const avant = d.calls.length;
+    $('guide-publish').click();
+    await new Promise(r => setTimeout(r, 50));
+    assertEqual('second clic : branche « page déjà partagée » (aucun second partage créé), puis la publication', ecritures(d.calls, avant).map(a => `${a[0]} ${a[1]} ${a[2]}`), ['UpdateRecord _grist_Shares 9', 'UpdateRecord _grist_Views_section 50']);
+    assertEqual('cette fois publié : étape 2', stepNow(), '2');
+    assert('…et la phrase du refus a disparu', !$('guide-declined'));
+    closeGuide();
+    // Un refus sans la propriété `code` (le message commence par le code) est lu de la même façon.
+    resetEditeur();
+    const d2 = sansLienDoc();
+    const apply2 = d2.grist.docApi.applyUserActions;
+    d2.grist.docApi.applyUserActions = async (actions) => { if (actions[0][1] === '_grist_Shares') throw new Error('GFS_ANNULE : refusé'); return apply2(actions); };
+    window.grist = d2.grist;
+    state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
+    await createEmptyForm();
+    await publishNow();
+    assert('message seul : même lecture (refus de la personne, pas panne)', !!$('guide-declined') && !$('guide-open'));
+    closeGuide();
+  });
+
+  await group('guide : « Même lien que… » proposée seulement avec un autre formulaire publié, décochée, avec son prix ; cochée, rien à copier', async () => {
+    resetEditeur();
+    const d = sansLienDoc(); avecPremierFormulaire(d);
+    window.grist = d.grist;
+    const urls = [];
+    window.fetch = async (url) => { urls.push(String(url)); return String(url).includes('/api/s/KEY1/forms/50') ? { ok: true, json: async () => FORME } : { ok: false, status: 404 }; };
+    Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
+    state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
+    await createEmptyForm();
+    assertEqual('étape 1', stepNow(), '1');
+    const box = $('guide-same');
+    assert('la case est là, décochée', !!box && box.type === 'checkbox' && !box.checked);
+    const phrase = $('start-panel-guide').querySelector('.guide-same').textContent;
+    assert('elle nomme le premier formulaire', phrase.includes(I18n.t('form.guide.same.label', { name: 'Inscriptions' })));
+    assert('…dit ce que ça évite : rien à copier', phrase.includes('rien à copier') || phrase.includes('nothing to copy'));
+    assert('…et ce que ça coûte : une adresse pour les deux, qui les ouvre tous les deux si elle fuit', phrase.includes(I18n.t('form.guide.same.cost')));
+    assert('…et ce que Form+ a mesuré dans Grist : dépublier l’un ferme le lien des deux', /Dépublier l’un|Dépublier l'un|Unpublishing one/.test(phrase), phrase);
+    // Décochée (le défaut) : un lien par formulaire, comme avant.
+    const avantPlain = d.calls.length;
+    $('guide-publish').click();
+    await new Promise(r => setTimeout(r, 50));
+    assertEqual('décochée : un partage à lui, sans toucher à celui du premier', pagesEtShares(d.calls, avantPlain), ['AddRecord _grist_Shares null', 'UpdateRecord _grist_Pages 3 shareRef=9']);
+    assertEqual('…et l’étape 2 (copier le lien dans Grist)', stepNow(), '2');
+    closeGuide();
+    // Cochée : la page reprend le partage 5, le lien du second se bâtit avec la clé du premier, le collage est franchi.
+    resetEditeur();
+    const e = sansLienDoc(); avecPremierFormulaire(e);
+    window.grist = e.grist;
+    state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
+    await createEmptyForm();
+    const liens = [];
+    initPublishGuide({ onLink: async (lien) => { liens.push(lien); } });
+    try {
+      $('guide-same').checked = true; $('guide-same').dispatchEvent(new Event('change', { bubbles: true }));
+      const avant = e.calls.length;
+      $('guide-publish').click();
+      await new Promise(r => setTimeout(r, 80));
+      assertEqual('cochée : le shareRef du premier (5) seul sur la page, aucun partage créé', pagesEtShares(e.calls, avant), ['UpdateRecord _grist_Pages 3 shareRef=5']);
+      assertEqual('…puis la section est publiée', publicationsDeSection(e.calls, 50).map(x => x[3].shareOptions), ['{"publish":true,"form":true}']);
+      assert('la clé du premier ouvre bien ce second formulaire (vérifié avant de le dire prêt)', urls.includes('https://grist.example.com/o/team/api/s/KEY1/forms/50'));
+      assertEqual('le lien du second est bâti avec la clé du premier : aucun collage', liens, ['https://grist.example.com/o/team/forms/KEY1/50']);
+    } finally {
+      initPublishGuide({ onLink: (lien, msgEl) => { $('link').value = lien; return generate({ msgEl }); } });
+    }
+    closeGuide();
+    window.fetch = fetchAvantSansLien;
+  });
+
+  await group('guide : « Même lien » -> la personne refuse CE lien commun (GFS_ANNULE à l’écriture du shareRef) : un lien à elle, sans un mot d’erreur', async () => {
+    resetEditeur();
+    const d = sansLienDoc(); avecPremierFormulaire(d);
+    const apply = d.grist.docApi.applyUserActions;
+    d.grist.docApi.applyUserActions = async (actions) => {
+      if (actions[0][1] === '_grist_Pages' && actions[0][3].shareRef === 5) throw annule();
+      return apply(actions);
+    };
+    window.grist = d.grist;
+    Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
+    state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
+    await createEmptyForm();
+    $('guide-same').checked = true; $('guide-same').dispatchEvent(new Event('change', { bubbles: true }));
+    const avant = d.calls.length;
+    $('guide-publish').click();
+    await new Promise(r => setTimeout(r, 80));
+    assertEqual('retombé sur le chemin normal : un partage à lui (9)', pagesEtShares(d.calls, avant).filter(x => !x.includes('shareRef=5')), ['AddRecord _grist_Shares null', 'UpdateRecord _grist_Pages 3 shareRef=9']);
+    assertEqual('publié : étape 2, comme sans la case', stepNow(), '2');
+    assert('aucun mot d’erreur, aucun « vous avez refusé »', !$('guide-declined') && !guideText().includes(I18n.t('form.guide.s1.declined')) && !guideText().includes(I18n.t('form.guide.manual.waiting')));
+    closeGuide();
+  });
+
+  await group('guide : « Même lien » -> la personne accepte le lien commun puis REFUSE l’accord de publication : elle le lit, la page reprend un lien à elle si la case est décochée', async () => {
+    resetEditeur();
+    const d = sansLienDoc(); avecPremierFormulaire(d);
+    const apply = d.grist.docApi.applyUserActions;
+    let refus = 1;
+    d.grist.docApi.applyUserActions = async (actions) => {
+      if (actions[0][1] === '_grist_Views_section' && refus-- > 0) throw annule();
+      return apply(actions);
+    };
+    window.grist = d.grist;
+    Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
+    state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
+    await createEmptyForm();
+    $('guide-same').checked = true; $('guide-same').dispatchEvent(new Event('change', { bubbles: true }));
+    $('guide-publish').click();
+    await new Promise(r => setTimeout(r, 80));
+    assertEqual('étape 1, refus lu', [stepNow(), !!$('guide-declined')], ['1', true]);
+    assertEqual('la page porte le partage du premier (5), rien n’est publié', [d.doc.pages.shareRef[0], d.doc.sections.shareOptions[d.doc.sections.id.indexOf(50)]], [5, '{}']);
+    assert('la case reste cochée pour recommencer', $('guide-same').checked);
+    // La personne change d'avis : décochée, le formulaire repart avec un lien à lui, jamais celui d'un autre.
+    $('guide-same').checked = false; $('guide-same').dispatchEvent(new Event('change', { bubbles: true }));
+    const avant = d.calls.length;
+    $('guide-publish').click();
+    await new Promise(r => setTimeout(r, 80));
+    assertEqual('un partage neuf (9) pour cette page', pagesEtShares(d.calls, avant), ['AddRecord _grist_Shares null', 'UpdateRecord _grist_Pages 3 shareRef=9']);
+    assertEqual('publié : étape 2', stepNow(), '2');
+    closeGuide();
+  });
+
+  await group('guide en mode rattachement : « Même lien » publie la copie ET la section d’origine sous la clé du premier, le lien est enregistré sans collage', async () => {
+    resetEditeur();
+    const d = sansLienDoc(); avecPremierFormulaire(d);
+    window.grist = d.grist;
+    window.fetch = async () => ({ ok: true, json: async () => FORME });
+    Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
+    state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
+    await createEmptyForm();
+    $('guide-build').click();
+    for (let i = 0; i < 40 && $('editor').classList.contains('hidden'); i++) await tick();
+    await tick();
+    $('nolink-go').click();
+    for (let i = 0; i < 40 && $('start-panel-guide').classList.contains('hidden'); i++) await tick();
+    await tick();
+    assert('la case est proposée aussi en mode rattachement', !!$('guide-same') && !$('guide-same').checked);
+    $('guide-same').checked = true; $('guide-same').dispatchEvent(new Event('change', { bubbles: true }));
+    const avant = d.calls.length;
+    $('guide-publish').click();
+    for (let i = 0; i < 60 && $('editor').classList.contains('hidden'); i++) await new Promise(r => setTimeout(r, 20));
+    await tick();
+    assertEqual('la page reprend le partage du premier, rien n’est créé', pagesEtShares(d.calls, avant), ['UpdateRecord _grist_Pages 3 shareRef=5']);
+    assertEqual('la copie (51) et la section d’origine (50) sont publiées', [publicationsDeSection(d.calls, 51).length, publicationsDeSection(d.calls, 50).length], [1, 1]);
+    assertEqual('le lien enregistré porte la clé du premier et la section de Form+', state.options.formLink, 'https://grist.example.com/o/team/forms/KEY1/51');
+    assertEqual('…sa clé', state.options.shareKey, 'KEY1');
+    assert('retour à l’éditeur, guide oublié', !$('editor').classList.contains('hidden') && JSON.parse(GfsLink.storageGet(PENDING_KEY) || 'null') === null);
+    window.fetch = fetchAvantSansLien;
+  });
+
+  await group('guide : la clé du premier n’ouvre pas ce formulaire -> on le dit, étape 2, la personne copie son lien comme d’habitude', async () => {
+    resetEditeur();
+    const d = sansLienDoc(); avecPremierFormulaire(d);
+    window.grist = d.grist;
+    window.fetch = async () => ({ ok: false, status: 404 });
+    Object.defineProperty(document, 'referrer', { value: REFERRER_P7, configurable: true });
+    state.scratchMode = 'new'; $('scratchTable').value = 'Departements';
+    await createEmptyForm();
+    const liens = [];
+    initPublishGuide({ onLink: async (lien) => { liens.push(lien); } });
+    try {
+      $('guide-same').checked = true; $('guide-same').dispatchEvent(new Event('change', { bubbles: true }));
+      $('guide-publish').click();
+      await new Promise(r => setTimeout(r, 80));
+      await new Promise(r => setTimeout(r, 80));
+      assertEqual('publié : étape 2 (rien n’a été collé à sa place)', [stepNow(), liens.length], ['2', 0]);
+      assert('le message le dit', $('guide-msg').textContent.includes(I18n.t('form.guide.same.notOpen')));
+    } finally {
+      initPublishGuide({ onLink: (lien, msgEl) => { $('link').value = lien; return generate({ msgEl }); } });
+    }
+    closeGuide();
     window.fetch = fetchAvantSansLien;
   });
 

@@ -146,6 +146,25 @@ document de test (`FormPlus_Formulaires` vidé au départ). Deux points de ce ba
 - **`bypassCSP: true`** pour les contextes Playwright (point 5 plus haut) : sans lui, la CSP du widget
   (`connect-src 'self' https:`) bloque ses appels au Grist de test en HTTP nu, y compris cette route.
 
+## « Même lien que… » et le refus de la personne (consigne GFS 030, 17 nov 2026)
+
+`e2e-same-link.js` rejoue contre CE Grist : un premier formulaire de bout en bout (publication par Form+,
+Copier le lien, Ctrl+V), puis un second où la case « Même lien que… » est proposée **décochée** (avec son
+prix dit dans la phrase), **cochée** elle publie sans étape de collage et le lien du second s'enregistre avec
+la clé du premier. Mesuré ici (Grist 1.7.22) : la page du second reçoit le `shareRef` du premier (aucun
+partage de plus), la clé du premier **ouvre les deux formulaires** (`GET /api/s/<clé>/forms/<section>` 200
+pour chacun) et une réponse anonyme est écrite dans la table de chacun (jamais lue). Le refus de la
+personne dans la fenêtre d'accord de GFS (qui n'existe pas dans ce banc) est joué en faisant lever par
+l'API du widget l'erreur que GFS lève (`code: 'GFS_ANNULE'`) : le guide dit « Vous avez refusé », garde
+le bouton, et le second clic reprend le partage déjà posé (branche « page déjà partagée »). Dernier point
+mesuré : **« Dépublier » dans Grist, sur l'une ou l'autre des deux pages, passe l'unique partage à
+`{"publish":false}` et les deux formulaires répondent 404** (même si la section de l'autre est restée
+publiée) ; republier le partage (`_grist_Shares.options` = `{"publish":true}`) les rouvre. Une page de
+formulaire porte DEUX sections (l'originale et la copie de Form+) donc deux boutons « Dépublier ». Deux
+points de ce banc : `bypassCSP: true` (même raison que `e2e-build-first.js`) ; l'adresse d'une page
+s'ouvre par `/o/<site>/doc/<id>/p/<n>` (la forme `/<id>/p/<n>` sans nom de document ne marche pas).
+Comme les autres, il change le document de test (`FormPlus_Formulaires` vidé au départ).
+
 ## Peut-on se passer de faire copier le lien du formulaire publié ? Non (sonde du 9 nov 2026)
 
 `probe-share-key.js` essaie, contre CE Grist (1.7.22), tout ce qu'un widget à accès complet pourrait tenter

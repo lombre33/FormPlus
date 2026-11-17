@@ -17,6 +17,12 @@
 // grille), ni qu'il fallait 4 clics (Publier, confirmer, Partager, Copier le lien) au lieu de 2. Le
 // même jour, Antoine a choisi que Form+ publie lui-même (il en reste 2 dans Grist).
 //
+// Deux cas particuliers de l'étape 1 (consigne GFS 030) : (a) la personne qui REFUSE la fenêtre d'accord de
+// GFS (GFS_ANNULE) n'a pas vécu une panne : le guide le dit et garde le bouton, il ne passe pas au geste à la
+// main (réservé au refus de GFS ou de Grist, GFS_REFUSE) ; (b) quand un autre formulaire de Form+ est déjà
+// publié et que sa clé est connue, une case décochée « Même lien que… » rattache la page au partage du
+// premier : une seule adresse ouvre alors les deux formulaires, et le collage n'a plus lieu d'être.
+//
 // Le guide n'est pas une porte à passer pour avancer (demande d'Antoine, 9 nov 2026 : « construire sans
 // avoir collé le lien, avec un rappel qu'il n'est pas publié ») : « Construire le formulaire d'abord »
 // ouvre l'éditeur tout de suite, publié ou non, lien collé ou non (buildNow, config-editor.js :
@@ -35,7 +41,7 @@ import { GfsLink } from '../../kit/js/gfs-link.js';
 import { Dialogs } from '../../kit/js/dialogs.js';
 import './strings.js'; // enregistre form.* avant tout usage de I18n.t() au chargement de ce module (voir strings.js)
 import { parseFormLink } from './links.js';
-import { fetchMeta, tableIdOfRef, gristPageUrl, nameFormPage, isSectionPublished, publishFormSection, completeSectionPublication } from './grist-meta.js';
+import { fetchMeta, tableIdOfRef, gristPageUrl, nameFormPage, isSectionPublished, publishFormSection, completeSectionPublication, findPublishedSiblingForm, fetchNativeForm } from './grist-meta.js';
 import { diag } from './diag.js';
 
 export const PENDING_KEY = 'formplus_pending_guide';
@@ -51,7 +57,7 @@ export const POLL_MS = 2500;
 const hooks = { show: () => {}, onLink: async () => {}, onAttach: async () => false, onBuild: async () => {}, onBack: () => {}, onExtraTables: () => ({ writes: [], reads: [] }), hosted: () => GfsLink.hosted };
 export function initPublishGuide(h) { Object.assign(hooks, h); wire(); }
 
-let G = null;        // le parcours en cours : { tableId, viewRef, sectionId, attach, sourceVsId, pageName, pageUrl, opened, published, publishing, refused, busy }
+let G = null;        // le parcours en cours : { tableId, viewRef, sectionId, attach, sourceVsId, pageName, pageUrl, opened, published, publishing, refused, declined, busy, sibling, sameLink, prefill }
 let timer = null;
 let listening = false;
 
@@ -75,7 +81,7 @@ async function remember() {
 export async function startPublishGuide({ tableId, viewRef, sectionId }) {
   const { name } = await nameFormPage(viewRef, I18n.t('form.guide.pageName', { table: tableId }));
   const hosted = !!hooks.hosted();
-  G = { tableId, viewRef, sectionId, pageName: name, hosted, pageUrl: await gristPageUrl(viewRef, hosted), opened: false, published: false, publishing: false, refused: false, busy: false };
+  G = { tableId, viewRef, sectionId, pageName: name, hosted, pageUrl: await gristPageUrl(viewRef, hosted), opened: false, published: false, publishing: false, refused: false, declined: false, busy: false, sibling: await findPublishedSiblingForm(viewRef), sameLink: false };
   await remember();
   showGuide();
 }
@@ -93,7 +99,7 @@ export async function startAttachGuide({ tableId, viewRef, sectionId, sourceVsId
     if (i >= 0) pageName = String(views.name[i] || '');
   } catch (e) { /* nom illisible (GFS sans cette lecture) : le guide s'en passe */ }
   const hosted = !!hooks.hosted();
-  G = { tableId, viewRef, sectionId, attach: true, sourceVsId: sourceVsId ?? null, pageName, hosted, pageUrl: await gristPageUrl(viewRef, hosted), opened: false, published: false, publishing: false, refused: false, busy: false };
+  G = { tableId, viewRef, sectionId, attach: true, sourceVsId: sourceVsId ?? null, pageName, hosted, pageUrl: await gristPageUrl(viewRef, hosted), opened: false, published: false, publishing: false, refused: false, declined: false, busy: false, sibling: await findPublishedSiblingForm(viewRef), sameLink: false };
   showGuide();
 }
 
@@ -112,7 +118,7 @@ export async function resumePublishGuide() {
     && await tableIdOfRef(sections.tableRef[idx]) === rec.tableId;
   if (!stillThere) { GfsLink.storageSet(PENDING_KEY, null); return false; }
   const hosted = !!hooks.hosted();
-  G = { tableId: rec.tableId, viewRef: rec.viewRef, sectionId: rec.sectionId, pageName: rec.pageName || '', hosted, pageUrl: await gristPageUrl(rec.viewRef, hosted), opened: false, published: false, publishing: false, refused: false, busy: false };
+  G = { tableId: rec.tableId, viewRef: rec.viewRef, sectionId: rec.sectionId, pageName: rec.pageName || '', hosted, pageUrl: await gristPageUrl(rec.viewRef, hosted), opened: false, published: false, publishing: false, refused: false, declined: false, busy: false, sibling: await findPublishedSiblingForm(rec.viewRef), sameLink: false };
   showGuide();
   return true;
 }
@@ -200,6 +206,16 @@ export function renderGuide() {
     + (extra.writes.length ? `<p class="muted">${t('form.guide.s1.accessWrites', { tables: list(extra.writes) })}</p>` : '')
     + (extra.reads.length ? `<p class="muted">${t('form.guide.s1.accessReads', { tables: list(extra.reads) })}</p>` : '');
 
+  // « Même lien que… » (consigne GFS 030, point 3) : seulement quand un autre formulaire de Form+ est déjà
+  // publié et que sa clé est connue (G.sibling). Décochée par défaut ; la phrase dit ce que ça évite ET ce
+  // que ça coûte, car c'est la personne qui décide. « Dépublier l'un ferme le lien des deux » n'est écrit que
+  // parce que Form+ l'a mesuré (Grist 1.7.22, tests/grist-env/e2e-same-link.js) : « Dépublier » sur l'une
+  // ou l'autre des pages passe l'unique partage à {"publish":false}, donc les deux formulaires répondent 404.
+  const sameLinkBox = G.sibling
+    ? `<label class="guide-same"><input type="checkbox" id="guide-same"${G.sameLink ? ' checked' : ''}${G.publishing ? ' disabled' : ''}>
+        <span><strong>${t('form.guide.same.label', { name: esc(G.sibling.name || '') })}</strong> ${t('form.guide.same.cost')}</span></label>`
+    : '';
+
   // Étape 1 : le bouton qui publie. Si Grist (ou GFS) le refuse, la publication à la main, avec la
   // page à ouvrir et l'attente qui se coche toute seule.
   const publishBody = G.refused
@@ -214,7 +230,9 @@ export function renderGuide() {
     : `<div class="guide-body">
       <p>${t('form.guide.s1.text', { table })}</p>
       ${access}
+      ${sameLinkBox}
       <div class="guide-row"><button type="button" class="primary" id="guide-publish" data-guide="publish"${G.publishing ? ' disabled' : ''}>${G.publishing ? t('form.guide.s1.working') : t('form.guide.s1.btn')}</button></div>
+      ${G.declined ? `<p class="guide-declined" id="guide-declined" role="status">${t('form.guide.s1.declined')}</p>` : ''}
     </div>`;
   const s1 = current !== 1 ? '' : publishBody;
 
@@ -228,7 +246,7 @@ export function renderGuide() {
   const s3 = current !== 3 ? '' : `<div class="guide-body">
       <p>${t('form.guide.s3.text')}</p>
       <div class="guide-paste">
-        <input id="guide-link" type="url" autocomplete="off" spellcheck="false" placeholder="${esc(t('form.guide.s3.placeholder'))}" aria-label="${esc(t('form.guide.s3.aria'))}">
+        <input id="guide-link" type="url" autocomplete="off" spellcheck="false" placeholder="${esc(t('form.guide.s3.placeholder'))}" aria-label="${esc(t('form.guide.s3.aria'))}" value="${esc(G.prefill || '')}">
         <button type="button" id="guide-clip" data-guide="clip">${t('form.link.pasteBtn')}</button>
         <button type="button" id="guide-go" class="primary" data-guide="go">${t('form.guide.s3.goBtn')}</button>
       </div>
@@ -259,15 +277,43 @@ export function renderGuide() {
     <p id="guide-msg" class="muted" role="status" aria-live="polite"></p>`;
 }
 
-// Le bouton « Publier le formulaire ». Un refus (GFS, ou Grist qui ne reconnaît pas l'une des
-// écritures) n'est jamais une erreur pour la personne : le guide passe au geste à la main, et la
-// lecture de shareOptions continue de guetter la publication, de quelque façon qu'elle vienne.
+// Le refus de la PERSONNE (« Refuser » ou Échap dans la fenêtre d'accord de GFS) n'est pas une erreur : GFS
+// rejette alors l'appel avec error.code === 'GFS_ANNULE' (mesuré par GFS, le code arrive tel quel ; guide
+// des apps, point 14). Le message commence aussi par ce code : repli si une couche le recopie sans le `code`.
+export function isCancelled(e) {
+  return !!e && (e.code === 'GFS_ANNULE' || /^GFS_ANNULE\b/.test(String(e.message || '')));
+}
+
+// Le bouton « Publier le formulaire ». Un refus de GFS ou de Grist (GFS_REFUSE, une écriture que Grist ne
+// reconnaît pas) n'est jamais une erreur pour la personne : le guide passe au geste à la main, et la
+// lecture de shareOptions continue de guetter la publication, de quelque façon qu'elle vienne. Le refus
+// de la PERSONNE (GFS_ANNULE) est autre chose : elle a dit non, on le dit, le bouton reste là pour
+// recommencer, jamais le geste à la main. Le partage déjà posé reste sur la page (GFS ne le retire pas et
+// il n'ouvre rien tant qu'aucune section n'est publiée) : au clic suivant, publishFormSection prend sa
+// branche « page déjà partagée ».
+// Case « Même lien que… » cochée : la page reprend le partage du premier formulaire au lieu d'en créer un.
+// La personne qui refuse CE lien commun (GFS_ANNULE à l'écriture du shareRef, formplusStep 'link')
+// retombe sur un lien à elle, sans un mot d'erreur ; celle qui refuse ensuite l'accord de publication
+// dit simplement non (comme ci-dessus), et le partage commun posé reste, sans rien ouvrir.
 export async function publishNow() {
   if (!G || G.published || G.publishing) return;
-  G.publishing = true;
+  G.publishing = true; G.declined = false;
   renderGuide();
+  const sibling = G.sameLink ? G.sibling : null;
   try {
-    await publishFormSection(G.viewRef, G.sectionId);
+    let sharedWith = null;
+    if (sibling) {
+      try {
+        await publishFormSection(G.viewRef, G.sectionId, { shareWith: sibling.shareRef });
+        sharedWith = sibling;
+      } catch (e) {
+        if (!(isCancelled(e) && e.formplusStep === 'link')) throw e;
+        diag({ event: 'sameLinkDeclined' });
+        if (!G) return;
+        G.sameLink = false;
+      }
+    }
+    if (!sharedWith) await publishFormSection(G.viewRef, G.sectionId);
     // Mode rattachement : la section d'origine, sur la même page, l'est aussi (voir refreshPublication) -
     // sinon Grist y montre « Publier » au lieu de « Partager » et la personne ne sait plus quoi cliquer.
     if (G && G.attach && G.sourceVsId != null && G.sourceVsId !== G.sectionId) {
@@ -275,12 +321,36 @@ export async function publishNow() {
     }
     if (!G) return;
     G.publishing = false; G.published = true; stopWatching();
+    if (sharedWith) { await continueWithSharedLink(sharedWith); return; }
   } catch (e) {
-    diag({ event: 'publishFormRefused', message: e && e.message });
     if (!G) return;
-    G.publishing = false; G.refused = true;
+    G.publishing = false;
+    if (isCancelled(e)) { diag({ event: 'publishFormDeclined' }); G.declined = true; }
+    else { diag({ event: 'publishFormRefused', message: e && e.message }); G.refused = true; }
   }
   renderGuide();
+}
+
+// Le formulaire vient d'être publié sous le lien du premier : sa clé ouvre aussi ce formulaire-ci, donc
+// l'adresse se construit sans rien copier (…/forms/<clé du premier>/<section>) et l'étape de collage est
+// franchie par Form+ lui-même. On vérifie d'abord que cette clé ouvre bien CE formulaire : sinon, on le dit
+// et la personne copie le lien dans Grist comme d'habitude (étape 2). Si la préparation du formulaire
+// n'aboutit pas (la personne refuse la fenêtre d'accord de Form+, une erreur), l'étape 3 reste, le lien
+// déjà écrit dans son champ.
+async function continueWithSharedLink(sib) {
+  const link = `${sib.link.base}/forms/${sib.link.key}/${G.sectionId}`;
+  try { await fetchNativeForm(G.sectionId, { api: sib.link.api }); }
+  catch (e) {
+    diag({ event: 'sharedLinkNotOpen', message: e && e.message });
+    if (!G) return;
+    renderGuide();
+    $('guide-msg').innerHTML = `<span class="err">${I18n.t('form.guide.same.notOpen')}</span>`;
+    return;
+  }
+  if (!G) return;
+  G.opened = true; G.prefill = link;
+  renderGuide();
+  await submitGuideLink(link);
 }
 
 // ───────────────────────── Gestes ─────────────────────────
@@ -341,6 +411,7 @@ function wire() {
       catch (err) { $('guide-msg').textContent = I18n.t('form.editor.clipboardReadDenied'); focusPaste(); }
     }
   });
+  root.addEventListener('change', (e) => { if (e.target.id === 'guide-same' && G) G.sameLink = !!e.target.checked; });
   root.addEventListener('paste', (e) => { if (e.target.id === 'guide-link') setTimeout(() => submitGuideLink(e.target.value), 0); });
   root.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'guide-link') submitGuideLink(e.target.value); });
 }

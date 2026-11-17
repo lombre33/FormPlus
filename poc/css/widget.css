@@ -102,6 +102,11 @@
   .guide-body { grid-column: 2; margin-top: 8px; display: flex; flex-direction: column; gap: 10px; }
   .guide-body p { margin: 0; }
   .guide-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .guide-same { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: var(--bw, 1px) solid var(--border); border-radius: var(--radius-sm, 7px); background: var(--surface); font-size: .88rem; cursor: pointer; }
+  .guide-same input { margin: 3px 0 0; flex: none; }
+  .guide-same span { color: var(--text-muted); }
+  .guide-same strong { color: var(--text); }
+  .guide-declined { color: var(--text-muted); font-size: .9rem; }
   .guide-open { display: inline-block; padding: 9px 14px; border-radius: var(--radius-btn, 7px); background: var(--accent-solid); color: var(--on-accent); font-weight: 600; text-decoration: none; }
   .guide-open:hover { filter: brightness(1.08); }
   .guide-paste { display: flex; gap: 8px; flex-wrap: wrap; }

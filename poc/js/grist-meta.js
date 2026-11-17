@@ -1,5 +1,5 @@
 import { esc } from './dom.js';
-import { parseCustomView, myPageFromReferrer, pageUrlFromReferrer, pageUrlFromBaseUrl } from './links.js';
+import { parseCustomView, myPageFromReferrer, pageUrlFromReferrer, pageUrlFromBaseUrl, parseFormLink } from './links.js';
 import { GfsLink } from '../../kit/js/gfs-link.js';
 import { diag } from './diag.js';
 import { I18n } from '../../kit/js/i18n.js';
@@ -179,22 +179,78 @@ export async function isSectionPublished(vsId) {
 // garde (un seul par page : c'est lui qui donne la clé de toutes ses sections publiées, voir
 // otherManagedFormOnPage). Lève une erreur au premier refus (GFS tant que son manifeste ne déclare
 // pas ces écritures) : l'appelant retombe alors sur le geste à la main.
-export async function publishFormSection(viewRef, sectionId) {
+//
+// `shareWith` (consigne GFS 030, point 3) : le `shareRef` d'une AUTRE page déjà publiée, que cette page
+// reprend au lieu de créer le sien (« même lien que… ») : deux pages qui portent le même shareRef ouvrent
+// leurs deux formulaires avec la même clé (mesuré par GFS, faits vérifiés 91 et 95), donc rien à copier
+// pour le second. GFS ouvre alors sa fenêtre « Un seul lien pour deux formulaires ? » à l'écriture du
+// shareRef : sa réponse « Refuser » lève GFS_ANNULE avec `formplusStep = 'link'` (le refus du lien commun,
+// qui laisse la page sans partage), à distinguer du refus de l'accord de publication qui suit
+// (`formplusStep` absent : le partage commun est posé, la section n'est pas publiée).
+export async function publishFormSection(viewRef, sectionId, { shareWith = 0 } = {}) {
   const pages = await fetchMeta('_grist_Pages');
   const pi = (pages.viewRef || []).indexOf(viewRef);
   if (pi < 0) throw new Error('page du formulaire introuvable');
   const pageRef = pages.id[pi];
   let shareRef = pages.shareRef ? pages.shareRef[pi] : 0;
-  if (!shareRef) {
-    const linkId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `fp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const res = await grist.docApi.applyUserActions([['AddRecord', '_grist_Shares', null, { linkId, options: JSON.stringify({ publish: true }) }]]);
-    shareRef = res.retValues?.[0];
-    if (!Number.isInteger(shareRef)) throw new Error('AddRecord _grist_Shares : identifiant du partage absent de la réponse');
-    await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Pages', pageRef, { shareRef }]]);
+  if (shareWith) {
+    // Déjà rattachée (un essai précédent a posé le lien commun, l'accord de publication a été refusé) :
+    // on ne le réécrit pas, GFS poserait sa fenêtre une seconde fois pour rien.
+    if (shareRef !== shareWith) {
+      try { await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Pages', pageRef, { shareRef: shareWith }]]); }
+      catch (e) { try { e.formplusStep = 'link'; } catch (x) { /* erreur figée : l'étape reste inconnue */ } throw e; }
+    }
   } else {
-    await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Shares', shareRef, { options: JSON.stringify({ publish: true }) }]]);
+    // Un partage que cette page ne garde que parce qu'un « même lien » a été posé puis non publié (accord
+    // refusé, case décochée ensuite) n'est pas le sien : un formulaire qui demande son propre lien ne
+    // repart jamais avec la clé d'un autre.
+    if (shareRef && (pages.shareRef || []).some((r, i) => i !== pi && r === shareRef)) shareRef = 0;
+    if (!shareRef) {
+      const linkId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `fp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const res = await grist.docApi.applyUserActions([['AddRecord', '_grist_Shares', null, { linkId, options: JSON.stringify({ publish: true }) }]]);
+      shareRef = res.retValues?.[0];
+      if (!Number.isInteger(shareRef)) throw new Error('AddRecord _grist_Shares : identifiant du partage absent de la réponse');
+      await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Pages', pageRef, { shareRef }]]);
+    } else {
+      await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Shares', shareRef, { options: JSON.stringify({ publish: true }) }]]);
+    }
   }
   await grist.docApi.applyUserActions([['UpdateRecord', '_grist_Views_section', sectionId, { shareOptions: JSON.stringify({ publish: true, form: true }) }]]);
+}
+
+// Le premier formulaire géré par Form+ qui est publié et dont on connaît la clé, sur une AUTRE page que
+// `viewRef` et sous un autre partage : celui dont un nouveau formulaire peut reprendre le lien (consigne
+// GFS 030, point 3). La clé est celle que Form+ a retenue en enregistrant ce formulaire (formLink de sa
+// Definition) : aucun widget ne peut la lire dans Grist (probe-share-key.js), donc sans elle, pas de lien
+// commun. Rend { name, vsId, viewRef, shareRef, link } (link : parseFormLink du lien retenu) ou null.
+// Ne lève jamais : une lecture impossible (table absente, GFS qui la refuse) donne simplement null.
+export async function findPublishedSiblingForm(viewRef) {
+  try {
+    const rows = await fetchMeta(FORMULAIRES_TABLE);
+    if (!rows || !(rows.id || []).length) return null;
+    const sections = await fetchMeta('_grist_Views_section');
+    const pages = await fetchMeta('_grist_Pages');
+    const mine = (pages.viewRef || []).indexOf(viewRef);
+    const myShareRef = mine >= 0 && pages.shareRef ? pages.shareRef[mine] : 0;
+    const order = rows.id.map((id, i) => i).sort((a, b) => rows.id[a] - rows.id[b]); // le plus ancien d'abord : « le premier »
+    for (const i of order) {
+      let def = null; try { def = JSON.parse(rows.Definition?.[i] || 'null'); } catch (e) { continue; }
+      if (!def || def.vsId == null || !def.formLink) continue;
+      const link = parseFormLink(def.formLink);
+      if (!link) continue;
+      const si = sections.id.indexOf(def.vsId);
+      if (si < 0) continue;
+      let opt = {}; try { opt = JSON.parse(sections.shareOptions?.[si] || '{}') || {}; } catch (e) { /* illisible : non publié */ }
+      if (!(opt.publish && opt.form)) continue;
+      const theirPage = sections.parentId[si];
+      if (theirPage === viewRef) continue;
+      const pi = (pages.viewRef || []).indexOf(theirPage);
+      const shareRef = pi >= 0 && pages.shareRef ? pages.shareRef[pi] : 0;
+      if (!shareRef || shareRef === myShareRef) continue;
+      return { name: String(rows.Nom?.[i] || def.formTitle || ''), vsId: def.vsId, viewRef: theirPage, shareRef, link };
+    }
+  } catch (e) { diag({ event: 'siblingFormLookupFailed', message: e && e.message }); }
+  return null;
 }
 
 // Publie la section `sectionId` sur une page qui a DÉJÀ un partage publié (une autre section de cette

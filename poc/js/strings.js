@@ -259,6 +259,18 @@ export const STRINGS = {
   },
   'form.guide.s1.btn': { fr: 'Publier le formulaire', en: 'Publish the form' },
   'form.guide.s1.working': { fr: 'Publication…', en: 'Publishing…' },
+  // Refus de la personne dans la fenêtre d'accord de GFS (GFS_ANNULE) : ce n'est pas une panne.
+  'form.guide.s1.declined': { fr: 'Vous avez refusé : le formulaire n\'est pas publié.', en: 'You declined: the form is not published.' },
+  // « Même lien que… » : seulement quand un autre formulaire de Form+ est déjà publié (clé connue).
+  'form.guide.same.label': { fr: 'Même lien que « {name} » : rien à copier.', en: 'Same link as "{name}": nothing to copy.' },
+  'form.guide.same.cost': {
+    fr: 'Une seule adresse ouvre alors les deux formulaires, et si elle fuit, elle les ouvre tous les deux (chacun reçoit des lignes dans sa propre table). Dépublier l\'un dans Grist ferme aussi le lien de l\'autre.',
+    en: 'A single address then opens both forms, and if it leaks it opens both (each one receives rows in its own table). Unpublishing one in Grist also closes the other\'s link.',
+  },
+  'form.guide.same.notOpen': {
+    fr: 'Le lien du premier formulaire n\'ouvre pas encore celui-ci. Copiez son lien dans Grist, comme d\'habitude.',
+    en: 'The first form\'s link does not open this one yet. Copy its link in Grist, as usual.',
+  },
   'form.guide.manual.text': {
     fr: 'Form+ n\'a pas pu publier à votre place. Faites-le dans Grist : ouvrez la page <strong>{page}</strong> (tout en bas de la liste des pages), cliquez sur <strong>Publier</strong> en bas à droite, puis confirmez.',
     en: 'Form+ could not publish for you. Do it in Grist: open the page <strong>{page}</strong> (at the very bottom of the page list), click <strong>Publish</strong> at the bottom right, then confirm.',
