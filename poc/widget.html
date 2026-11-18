@@ -35,6 +35,7 @@
   <div id="config" class="hidden">
     <div class="card" id="step1">
       <div id="start-choices">
+        <p id="start-notice" class="nolink-banner hidden" role="status"></p>
         <h2 data-i18n="form.start.question">Comment voulez-vous démarrer ?</h2>
         <div class="start-tiles">
           <button type="button" class="start-tile" data-startgo="existing">
@@ -81,6 +82,9 @@
 
       <!-- Guide de publication (publish-guide.js) : rempli par le script, affiché après « Créer le formulaire ». -->
       <div id="start-panel-guide" class="hidden"></div>
+
+      <!-- Modèle de départ (consigne GFS 033, config-editor.js showModelPanel) : rempli par le script quand GFS ouvre Form+ sur un modèle. -->
+      <div id="start-panel-model" class="hidden"></div>
 
       <div id="start-panel-link" class="hidden">
         <button type="button" class="qf-link start-back" data-startgo="choices" data-i18n="form.start.back">‹ Changer de méthode</button>

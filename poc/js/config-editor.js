@@ -14,13 +14,14 @@ import {
   ensureTableGate, ensureChoiceField, ensureRefListField, ensureFreeColumn,
   findViewRefForSection, ensureFormulairesTable, ensureRespondentDefinitionField, saveFormDefinition, fetchManagedVsIds,
   duplicateFormSection, clearAutoFields, createFormSectionOnNewPage, otherManagedFormOnPage, getColumnType, KIND_TO_GRIST_TYPE,
-  ensureRespondentProbeTable, isFormPlusOwnTable, fetchNativeForm, isSectionPublished,
+  ensureRespondentProbeTable, isFormPlusOwnTable, fetchNativeForm, isSectionPublished, nameFormPage,
   getAttachmentColumns, parseAttachmentList, fetchAttachmentFileNames, downloadAttachmentAsDataUrl,
 } from './grist-meta.js';
 import { state } from './state.js';
 import { startPublishGuide, startAttachGuide, resumePublishGuide, forgetPublishGuide, initPublishGuide } from './publish-guide.js';
 import { renderFill, layoutOrder, renderNativeField } from './respond.js';
 import { blobToResizedDataUrl, imageBlockHtml, IMAGE_WIDTH_PRESETS, IMAGE_DEFAULT_WIDTH } from './image-block.js';
+import { findModel, pick, modelColumns, buildQuestions, answerCount } from './templates.js';
 
 // ───────────────────────── Configuration (concepteur) ─────────────────────────
 // Exactement 2 façons de commencer, jamais plus :
@@ -150,14 +151,17 @@ export async function generate(opts) {
 // d'une réponse par un visiteur, donc au moment de DIFFUSER, pas de construire. `published` : la
 // section est-elle déjà publiée (Form+ l'a publiée, ou la personne) ? Sinon la copie reste un brouillon
 // non publié, que le bandeau du haut propose de publier (refreshLinkBanner).
-export async function buildWithoutLink({ sourceVsId, published, msgEl }) {
+export async function buildWithoutLink({ sourceVsId, published, msgEl, seed }) {
   const msg = msgEl || $('guide-msg');
-  return withGenerating(() => prepareForm({ sourceVsId, pastedLink: null, msg, published }));
+  return withGenerating(() => prepareForm({ sourceVsId, pastedLink: null, msg, published, seed }));
 }
 
 // Prépare le formulaire géré par FormPlus (une COPIE du natif, voir l'en-tête de ce fichier) puis
 // montre l'éditeur. `pastedLink` : le lien collé, ou null pour un formulaire construit avant son lien.
-async function prepareForm({ sourceVsId, pastedLink, msg, published = true }) {
+// `seed` (facultatif, « Depuis un modèle », createFormFromModel) : appelée une fois la copie posée et AVANT le premier
+// enregistrement, pour y mettre les questions et l'apparence d'un modèle - ainsi le formulaire n'existe jamais, même un
+// instant, vide dans le document ni dans l'éditeur, et tout s'écrit d'un seul coup.
+async function prepareForm({ sourceVsId, pastedLink, msg, published = true, seed }) {
   msg.textContent = I18n.t('form.editor.searchingPage');
   let formPage = null, widgetPage = null, self = null, samePage = null, onFormPage = 0, ambiguous = false;
   try { ({ formPage, widgetPage, self, samePage, onFormPage, ambiguous } = await findViewRefForSection(sourceVsId)); }
@@ -242,6 +246,7 @@ async function prepareForm({ sourceVsId, pastedLink, msg, published = true }) {
   state.mainTableIdCache = await tableIdOfRef(state.currentFormSection.tableRef);
   // On garde les questions déjà enregistrées si ce lien était déjà configuré.
   state.cfgQuestions = isSameSource ? migrateLegacy(state.options) : [];
+  if (seed) await seed();
   state.stayOnConfig = true;
   const publicUrl = pastedLink ? buildPublicUrl(link) : null;
   if (!pastedLink) $('link').value = '';
@@ -473,7 +478,7 @@ $('edit').addEventListener('click', showConfig);
 // cette dernière étape sans passer par un compte propriétaire en dehors du widget (voir
 // docs/01-etude-comparative.md).
 // ───────────────────────── Démarrage : tuiles + panneau déplié, un seul à la fois ─────────────────────────
-const START_VIEWS = { choices: 'start-choices', existing: 'start-panel-existing', scratch: 'start-panel-scratch', link: 'start-panel-link', guide: 'start-panel-guide' };
+const START_VIEWS = { choices: 'start-choices', existing: 'start-panel-existing', scratch: 'start-panel-scratch', link: 'start-panel-link', guide: 'start-panel-guide', model: 'start-panel-model' };
 export function showStartView(view) {
   state.startView = view;
   Object.entries(START_VIEWS).forEach(([v, id]) => $(id).classList.toggle('hidden', v !== view));
@@ -564,6 +569,117 @@ export async function createEmptyForm() {
   } catch (e) {
     msg.innerHTML = `<span class="err">${I18n.t('form.editor.genericError', { message: esc(e.message) })}</span>`;
   }
+}
+
+// ───────────────────────── Modèle de départ (consigne GFS 033) ─────────────────────────
+// « Nouveau > Depuis un modèle » de GFS ouvre Form+ sur un modèle de templates.js (raison 'modele', main.js). Comme
+// « Nouveau », cela n'écrit RIEN dans le document : le panneau ci-dessous montre ce que le modèle va créer, et c'est
+// le clic sur « Créer ce formulaire » (createFormFromModel) qui crée la table des réponses, le formulaire natif et
+// ses questions. Un modèle ne réutilise jamais une table existante : il crée la sienne.
+let currentModelId = null;
+
+// Un message tout en haut de l'écran de départ (sous son titre), ou plus rien quand `text` est vide.
+export function showStartNotice(text) {
+  const el = $('start-notice');
+  el.textContent = text || '';
+  el.classList.toggle('hidden', !text);
+}
+
+// Affiche le panneau du modèle `id` sur l'écran de départ. Faux quand ce modèle n'existe pas : rien n'est affiché
+// (jamais un formulaire vierge à la place, contrats de GFS 5.4 point 13).
+export function showModelPanel(id) {
+  const model = findModel(id);
+  if (!model) return false;
+  currentModelId = model.id;
+  const lang = I18n.language;
+  const t = (k, v) => I18n.t(k, v);
+  const rows = model.questions.map((q) => {
+    const label = esc(pick(q.label, lang));
+    if (q.kind === 'section') return `<li class="model-section">${label}</li>`;
+    const icon = (KINDS.find(k => k.id === q.kind) || {}).icon || '';
+    return `<li><span class="model-q-icon" aria-hidden="true">${icon}</span><span class="model-q-label">${label}${q.required ? ' *' : ''}</span><span class="model-q-kind muted">${esc(kindLabel(q.kind))}</span></li>`;
+  }).join('');
+  $('start-panel-model').innerHTML = `<button type="button" class="qf-link start-back" data-model="back">${t('form.start.back')}</button>
+    <span class="model-badge">${t('form.model.badge')}</span>
+    <h2>${esc(pick(model.nom, lang))}</h2>
+    <p class="muted">${esc(pick(model.description, lang))}</p>
+    <p class="muted">${t('form.model.intro')}</p>
+    <h3 class="model-sub">${t('form.model.questionsTitle', { n: answerCount(model) })}</h3>
+    <ul class="model-list">${rows}</ul>
+    <label for="modelTable">${t('form.model.tableLabel')}</label>
+    <input id="modelTable" type="text" value="${esc(pick(model.table, lang))}" autocomplete="off">
+    <p class="muted" style="margin-top:4px">${t('form.model.tableHint')}</p>
+    <p class="muted">${t('form.model.nothingYet')}</p>
+    <button id="modelCreate" type="button" class="primary" data-model="create">${t('form.model.createBtn')}</button>
+    <p id="model-msg" class="muted" role="status" aria-live="polite"></p>`;
+  showStartView('model');
+  return true;
+}
+$('start-panel-model').addEventListener('click', (e) => {
+  const el = e.target.closest('[data-model]');
+  if (!el) return;
+  if (el.dataset.model === 'back') showStartView('choices');
+  else if (el.dataset.model === 'create') createFormFromModel();
+});
+$('start-panel-model').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.id === 'modelTable') createFormFromModel();
+});
+
+// Le geste : crée la table des réponses (une colonne par question, dans le type que Form+ lui donne), le formulaire
+// natif sur une page neuve, puis construit le formulaire de Form+ dessus SANS lien (comme « Construire le formulaire
+// d'abord » : brouillon non publié, bandeau de rappel) et y met le titre, l'accueil et les questions du modèle.
+// L'accord de créer FormPlus_Formulaires (un document neuf) se demande AVANT toute création : un refus ne laisse
+// donc ni table ni page à moitié faites.
+export async function createFormFromModel() {
+  const model = findModel(currentModelId);
+  const msg = $('model-msg');
+  const btn = $('modelCreate');
+  if (!model || !msg || btn.disabled || state.generating) return; // un seul clic à la fois (le bouton et la touche Entrée viennent ici tous les deux)
+  const wanted = $('modelTable').value.trim();
+  if (!wanted) { msg.innerHTML = `<span class="err">${I18n.t('form.model.needTable')}</span>`; return; }
+  const lang = I18n.language;
+  btn.disabled = true;
+  msg.textContent = I18n.t('form.model.creating');
+  try {
+    await ensureFormulairesTable();
+    const columns = modelColumns(model, lang).map(c => ({ id: c.id, type: KIND_TO_GRIST_TYPE[c.kind] || 'Text', label: c.id.replace(/_/g, ' ') }));
+    const before = await fetchMeta('_grist_Tables');
+    const res = await grist.docApi.applyUserActions([['AddTable', wanted, columns]]);
+    let tableId = res?.retValues?.[0]?.table_id;
+    if (!tableId) {
+      const after = await fetchMeta('_grist_Tables');
+      tableId = after.tableId.find(t => !before.tableId.includes(t));
+    }
+    if (!tableId) throw new Error(I18n.t('form.editor.tableCreateFailed'));
+    const tref = await getTableRef(tableId);
+    const { sectionId, viewRef } = await createFormSectionOnNewPage(tref, tableId);
+    await clearAutoFields(sectionId);
+    await nameFormPage(viewRef, I18n.t('form.guide.pageName', { table: tableId }));
+    await buildWithoutLink({ sourceVsId: sectionId, published: false, msgEl: msg, seed: () => seedFromModel(model, tableId, lang) });
+    if (state.options?.sourceVsId !== sectionId || state.currentFormSection?.id !== state.options?.vsId) return; // la préparation n'a pas abouti : elle a dit pourquoi dans `msg`
+    state.expandedId = null; // l'éditeur est déjà affiché sur l'onglet Questions par prepareForm
+    saveMsg($('import-msg'), !msg.querySelector('.err'), I18n.t('form.model.created', { name: pick(model.nom, lang), n: answerCount(model), table: tableId }));
+  } catch (e) {
+    msg.innerHTML = `<span class="err">${I18n.t('form.model.failed', { message: esc(e.message) })}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// Met dans le formulaire que Form+ est en train de construire (voir `seed`, prepareForm) le titre, le texte d'accueil, le
+// message de fin et les questions du modèle, dans la langue de l'interface. N'enregistre rien : prepareForm le fait juste
+// après, d'un seul coup (saveConfig relit les champs d'apparence et state.cfgQuestions).
+async function seedFromModel(model, tableId, lang) {
+  const questions = buildQuestions(model, lang, tableId, uid);
+  for (const q of questions) {
+    // Les colonnes viennent d'être créées avec ce nom et ce type : l'appel les retrouve (il ne crée une colonne que si
+    // Grist en a changé le nom).
+    if (q.writeCol) q.writeCol = await ensureFreeColumn(tableId, q.writeCol, q.kind);
+  }
+  state.cfgQuestions = questions;
+  $('opt-title').value = pick(model.form.title, lang);
+  $('opt-desc').value = pick(model.form.description, lang);
+  $('opt-endmsg').value = pick(model.form.endMessage, lang);
 }
 
 // ───────────────────────── Éditeur : onglets Questions / Réponses / Paramètres ─────────────────────────
@@ -1771,6 +1887,7 @@ $('change-source-btn').addEventListener('click', () => {
 export async function showConfig() {
   show('config');
   showStartView('choices');
+  showStartNotice(null);
   setScratchMode('new');
   populateFormPicker();
   // Course corrigée le 21 oct 2026 : showConfig() reste async jusqu'à la ligne forçant l'onglet

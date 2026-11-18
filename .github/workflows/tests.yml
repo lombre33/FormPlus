@@ -27,3 +27,6 @@ jobs:
 
       - name: Servir le dépôt et lancer la suite de tests du widget (#test)
         run: node .github/scripts/run-widget-tests.js
+
+      - name: Contrôler les modèles de formulaire (contenu, catalogue pour GFS, vignettes)
+        run: node tests/check-modeles.mjs

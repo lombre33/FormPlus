@@ -1,0 +1,162 @@
+[
+  {
+    "id": "inscription-evenement",
+    "type": "formulaire",
+    "nom": {
+      "fr": "Inscription à un événement",
+      "en": "Event registration"
+    },
+    "description": {
+      "fr": "Coordonnées, présence sur place ou à distance, repas et besoins particuliers.",
+      "en": "Contact details, on-site or remote attendance, meals and special needs."
+    },
+    "etiquettes": [
+      {
+        "fr": "événement",
+        "en": "event"
+      },
+      {
+        "fr": "inscription",
+        "en": "registration"
+      },
+      {
+        "fr": "réunion",
+        "en": "meeting"
+      },
+      {
+        "fr": "formation",
+        "en": "training"
+      }
+    ],
+    "vignette": "inscription-evenement.webp",
+    "tables": true
+  },
+  {
+    "id": "enquete-satisfaction",
+    "type": "formulaire",
+    "nom": {
+      "fr": "Enquête de satisfaction",
+      "en": "Satisfaction survey"
+    },
+    "description": {
+      "fr": "Une note générale, ce qui a plu, ce qui peut être amélioré, et un contact facultatif.",
+      "en": "An overall score, what worked, what could be better, and an optional contact."
+    },
+    "etiquettes": [
+      {
+        "fr": "satisfaction",
+        "en": "satisfaction"
+      },
+      {
+        "fr": "avis",
+        "en": "feedback"
+      },
+      {
+        "fr": "enquête",
+        "en": "survey"
+      },
+      {
+        "fr": "retour",
+        "en": "review"
+      }
+    ],
+    "vignette": "enquete-satisfaction.webp",
+    "tables": true
+  },
+  {
+    "id": "demande-contact",
+    "type": "formulaire",
+    "nom": {
+      "fr": "Demande de contact",
+      "en": "Contact request"
+    },
+    "description": {
+      "fr": "Nom, adresse e-mail, objet de la demande et message : le formulaire de contact le plus simple.",
+      "en": "Name, email address, subject and message: the simplest contact form."
+    },
+    "etiquettes": [
+      {
+        "fr": "contact",
+        "en": "contact"
+      },
+      {
+        "fr": "message",
+        "en": "message"
+      },
+      {
+        "fr": "question",
+        "en": "question"
+      },
+      {
+        "fr": "demande",
+        "en": "request"
+      }
+    ],
+    "vignette": "demande-contact.webp",
+    "tables": true
+  },
+  {
+    "id": "signalement-probleme",
+    "type": "formulaire",
+    "nom": {
+      "fr": "Signalement d’un problème",
+      "en": "Problem report"
+    },
+    "description": {
+      "fr": "Nature, lieu, date et urgence d’un problème constaté, avec une description libre.",
+      "en": "Type, place, date and urgency of a problem, with a free description."
+    },
+    "etiquettes": [
+      {
+        "fr": "signalement",
+        "en": "report"
+      },
+      {
+        "fr": "incident",
+        "en": "incident"
+      },
+      {
+        "fr": "panne",
+        "en": "breakdown"
+      },
+      {
+        "fr": "assistance",
+        "en": "support"
+      }
+    ],
+    "vignette": "signalement-probleme.webp",
+    "tables": true
+  },
+  {
+    "id": "reservation-creneau",
+    "type": "formulaire",
+    "nom": {
+      "fr": "Réservation d’un créneau",
+      "en": "Time slot booking"
+    },
+    "description": {
+      "fr": "Chaque personne choisit un créneau dans une liste que vous réglez, et laisse ses coordonnées.",
+      "en": "Each person picks a time slot from a list you set, and leaves their details."
+    },
+    "etiquettes": [
+      {
+        "fr": "réservation",
+        "en": "booking"
+      },
+      {
+        "fr": "rendez-vous",
+        "en": "appointment"
+      },
+      {
+        "fr": "créneau",
+        "en": "time slot"
+      },
+      {
+        "fr": "permanence",
+        "en": "office hours"
+      }
+    ],
+    "vignette": "reservation-creneau.webp",
+    "tables": true
+  }
+]

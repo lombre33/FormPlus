@@ -12,7 +12,7 @@ import {
   questionSummary, conditionSourceCandidates, renderCardBody, saveQuestionFromCard,
   customizeNativeField, resetQuestions, createEmptyForm, populateFormPicker, generate, saveConfig,
   renderQuestionList, showEditorTab, showConfig, loadResponsesSummary, setScratchMode, showStartView,
-  refreshLinkBanner,
+  refreshLinkBanner, showModelPanel, showStartNotice,
 } from './config-editor.js';
 import {
   ensureTableGate, ensureFreeColumn, FORMULAIRES_TABLE,
@@ -26,6 +26,8 @@ import {
 import { PENDING_KEY, forgetPublishGuide, resumePublishGuide, refreshPublication, submitGuideLink, initPublishGuide, publishNow, isCancelled } from './publish-guide.js';
 import { GfsLink } from '../../kit/js/gfs-link.js';
 import { loadPluginApi, isPluginApiReady } from './plugin-loader.js';
+import { MODELS, MODEL_TYPE, findModel, pick, modelColumns, buildQuestions, answerCount, catalogue, modelProblems } from './templates.js';
+import { KIND_TO_GRIST_TYPE } from './grist-meta.js';
 import { state } from './state.js';
 import { imageBlockHtml, blobToResizedDataUrl, IMAGE_MAX_DATA_URL_BYTES } from './image-block.js';
 
@@ -4560,6 +4562,123 @@ export async function runTests() {
     assert('--on-accent posé sur #fill', !!$('fill').style.getPropertyValue('--on-accent'));
     applyBranding({}); // sans couleur : les jetons posés plus haut sont retirés, pas juste vidés
     assertEqual('--accent retiré de #fill sans couleur choisie', $('fill').style.getPropertyValue('--accent'), '');
+  });
+
+  // ───────────────────────── Modèles de départ (consigne GFS 033, templates.js) ─────────────────────────
+  await group('modèles : le contenu respecte les règles du contrat de GFS et de Form+ (modelProblems)', () => {
+    assertEqual('aucun défaut dans les modèles', modelProblems(), []);
+    assert('au moins un modèle', MODELS.length >= 1);
+    assertEqual('identifiants uniques', new Set(MODELS.map(m => m.id)).size, MODELS.length);
+    // Le contrôle lui-même ne laisse rien passer : chaque règle a son cas de défaut.
+    const base = JSON.parse(JSON.stringify(MODELS[0]));
+    const bad = (mutate) => { const m = JSON.parse(JSON.stringify(base)); mutate(m); return modelProblems([m]).length > 0; };
+    assert('un identifiant hors règle est refusé', bad(m => { m.id = 'Mauvais Id'; }));
+    assert('un nom de plus de 60 signes est refusé', bad(m => { m.nom.fr = 'x'.repeat(61); }));
+    assert('une description de plus de 140 signes est refusée', bad(m => { m.description.en = 'x'.repeat(141); }));
+    assert('une colonne en double est refusée', bad(m => { m.questions.filter(q => q.col).forEach(q => { q.col.fr = 'Meme'; }); }));
+    assert('un type « carte » est refusé', bad(m => { m.questions.find(q => q.col).kind = 'map'; }));
+    assert('des choix fr et en de longueurs différentes sont refusés', bad(m => { m.questions.find(q => q.kind === 'select').choices.en.pop(); }));
+    assert('une condition qui vise une valeur absente des choix est refusée', bad(m => { m.questions.find(q => q.showIf).showIf.equals.fr = 'Peut-être'; }));
+  });
+
+  await group('modèles : le catalogue pour GFS (catalogue) a la forme du contrat', () => {
+    const cat = catalogue();
+    assertEqual('une entrée par modèle', cat.map(e => e.id), MODELS.map(m => m.id));
+    cat.forEach((e) => {
+      assertEqual(`« ${e.id} » : le type est celui de l'app (${MODEL_TYPE})`, e.type, MODEL_TYPE);
+      assert(`« ${e.id} » : tables: true (chaque modèle crée sa table de réponses)`, e.tables === true);
+      assert(`« ${e.id} » : nom et description dans les deux langues`, !!(e.nom.fr && e.nom.en && e.description.fr && e.description.en));
+      assert(`« ${e.id} » : une vignette .webp`, /\.webp$/.test(e.vignette));
+    });
+    assertEqual('findModel retrouve un modèle par son identifiant', findModel(MODELS[0].id)?.id, MODELS[0].id);
+    assertEqual('findModel : un identifiant inconnu ne rend rien', findModel('modele-qui-n-existe-pas'), null);
+    assertEqual('findModel : pas d’identifiant, rien non plus', findModel(undefined), null);
+  });
+
+  for (const lang of ['fr', 'en']) {
+    await group(`modèles (${lang}) : chaque modèle donne des questions que Form+ sait enregistrer et afficher`, () => {
+      for (const m of MODELS) {
+        let n = 0;
+        const questions = buildQuestions(m, lang, 'Table_test', () => `q_${++n}`);
+        assertEqual(`« ${m.id} » : une question par entrée du modèle`, questions.length, m.questions.length);
+        assertEqual(`« ${m.id} » : le décompte des réponses attendues`, questions.filter(q => !LAYOUT_KINDS.has(q.kind)).length, answerCount(m));
+        assertEqual(`« ${m.id} » : identifiants de question uniques`, new Set(questions.map(q => q.id)).size, questions.length);
+        const cols = modelColumns(m, lang);
+        assertEqual(`« ${m.id} » : une colonne par question qui reçoit une réponse`, cols.map(c => c.id), questions.filter(q => !LAYOUT_KINDS.has(q.kind)).map(q => q.writeCol));
+        cols.forEach(c => assert(`« ${m.id} » : le type « ${c.kind} » a un type de colonne Grist`, !!KIND_TO_GRIST_TYPE[c.kind]));
+        questions.forEach((q) => {
+          assert(`« ${m.id} » / ${q.label} : un type que l’éditeur connaît`, KINDS.some(k => k.id === q.kind));
+          assert(`« ${m.id} » / ${q.label} : ni carte ni pièce jointe`, q.kind !== 'map' && q.kind !== 'attachments' && q.kind !== 'signature');
+          if (!LAYOUT_KINDS.has(q.kind)) assertEqual(`« ${m.id} » / ${q.label} : écrit dans la table des réponses`, q.writeTable, 'Table_test');
+          if (q.condition) {
+            const rule = q.condition.rules[0];
+            const src = questions.find(x => x.id === rule.questionId);
+            assert(`« ${m.id} » / ${q.label} : la condition vise une question qui précède`, !!src && questions.indexOf(src) < questions.indexOf(q));
+            assert(`« ${m.id} » / ${q.label} : la condition attend l’un des choix de sa source`, !!src && (src.choices || []).includes(rule.value));
+          }
+          // Affichage réel côté répondant : le libellé de la question y figure, sans exception.
+          const host = mount(document.createElement('div'));
+          host.innerHTML = renderExtraQuestion(q);
+          assert(`« ${m.id} » / ${q.label} : s’affiche côté répondant`, host.textContent.includes(q.label));
+        });
+        // La saisie qui déclenche une condition la fait aboutir : mêmes valeurs que celles proposées au répondant.
+        const cond = questions.find(q => q.condition);
+        if (cond) {
+          const rule = cond.condition.rules[0];
+          const src = questions.find(x => x.id === rule.questionId);
+          const host = mount(document.createElement('div'));
+          host.innerHTML = [src, cond].map(renderExtraQuestion).join('');
+          const choose = (value) => {
+            const input = [...host.querySelectorAll(`#eq-${src.id} input, #eq-${src.id}`)].find(el => el.value === value && el.matches('input'));
+            if (input) { input.checked = true; return true; }
+            const sel = host.querySelector(`#eq-${src.id}`);
+            if (sel && sel.tagName === 'SELECT') { sel.value = value; return true; }
+            return false;
+          };
+          if (choose(rule.value)) assert(`« ${m.id} » : la condition de « ${cond.label} » est remplie quand on choisit « ${rule.value} »`, conditionMet(cond.condition, questions));
+          else assert(`« ${m.id} » : la valeur de la condition se choisit dans « ${src.label} »`, false);
+        }
+        sandbox.innerHTML = '';
+      }
+    });
+  }
+
+  await group('modèles : le panneau du modèle ne crée rien et rend faux pour un modèle inconnu', () => {
+    const { grist, calls } = makeGristStub({ fetchTable: () => ({}) });
+    window.grist = grist;
+    showStartView('choices');
+    const m = MODELS[0];
+    assertEqual('un modèle connu : le panneau s’affiche', showModelPanel(m.id), true);
+    assertEqual('l’écran de départ est sur le panneau du modèle', state.startView, 'model');
+    assert('le panneau est visible, les choix de départ cachés', !$('start-panel-model').classList.contains('hidden') && $('start-choices').classList.contains('hidden'));
+    const text = $('start-panel-model').textContent;
+    assert('le nom du modèle est dit', text.includes(pick(m.nom, I18n.language)));
+    assert('les questions du modèle sont listées', m.questions.every(q => text.includes(pick(q.label, I18n.language))));
+    assertEqual('le nom de la table de réponses est proposé', $('modelTable').value, pick(m.table, I18n.language));
+    assert('le bouton « Créer ce formulaire » est là, avec la phrase qui dit que rien n’est créé avant', !!$('modelCreate') && text.includes(I18n.t('form.model.nothingYet')));
+    assertEqual('aucune écriture ni lecture dans le document pour l’avoir affiché', calls.length, 0);
+    $('start-panel-model').querySelector('[data-model="back"]').click();
+    assertEqual('« Changer de méthode » ramène aux choix de départ', state.startView, 'choices');
+    // Un modèle inconnu : faux, et rien ne change à l'écran (jamais un formulaire vierge à la place).
+    assertEqual('un modèle inconnu : faux', showModelPanel('modele-qui-n-existe-pas'), false);
+    assertEqual('un modèle inconnu : l’écran de départ reste sur les choix', state.startView, 'choices');
+    assertEqual('sans identifiant : faux', showModelPanel(undefined), false);
+    showStartNotice('Un message');
+    assert('la notice de départ s’affiche', !$('start-notice').classList.contains('hidden') && $('start-notice').textContent === 'Un message');
+    showStartNotice(null);
+    assert('puis se retire', $('start-notice').classList.contains('hidden') && $('start-notice').textContent === '');
+  });
+
+  await group('modèles : « Créer ce formulaire » sans nom de table ne crée rien', async () => {
+    const { grist, calls } = makeGristStub({ fetchTable: () => ({ tableId: [], id: [] }) });
+    window.grist = grist;
+    showModelPanel(MODELS[0].id);
+    $('modelTable').value = '   ';
+    $('modelCreate').click();
+    await new Promise(r => setTimeout(r, 50));
+    assertEqual('aucune action sur le document', calls.length, 0);
+    assert('le message demande un nom', $('model-msg').textContent.includes(I18n.t('form.model.needTable')));
+    showStartView('choices');
   });
 
   // Restauration de l'état global et des stubs, pour ne rien laisser fuiter si la page reste ouverte.

@@ -634,6 +634,36 @@ export const STRINGS = {
   'form.gfs.duplicateNotFound': { fr: 'Formulaire introuvable.', en: 'Form not found.' },
   'form.gfs.duplicateNotPublished': { fr: 'Elle n’est pas publiée. Ses réponses iront dans une nouvelle table, « {table} », vide.', en: 'It isn’t published. Its answers will go to a new, empty table, “{table}”.' },
   'form.gfs.duplicateFailed': { fr: 'Impossible de copier ce formulaire.', en: 'Could not duplicate this form.' },
+
+  // Consigne GFS 033 : « Nouveau > Depuis un modèle » de GFS ouvre Form+ sur un modèle de départ
+  // (poc/js/templates.js). Le panneau le montre, ne crée rien tant que la personne n'a pas cliqué.
+  'form.model.badge': { fr: 'Modèle de départ', en: 'Starting template' },
+  'form.model.intro': {
+    fr: 'Form+ crée une nouvelle table pour les réponses et un formulaire sur une nouvelle page de ce document, puis y met les questions ci-dessous. Vous pourrez tout modifier ensuite.',
+    en: 'Form+ creates a new table for the answers and a form on a new page of this document, then adds the questions below. You can change everything afterwards.',
+  },
+  'form.model.questionsTitle': { fr: '{n} {n|question|questions} dans ce modèle', en: '{n} {n|question|questions} in this template' },
+  'form.model.tableLabel': { fr: 'Nom de la table qui recevra les réponses', en: 'Name of the table that will receive the answers' },
+  'form.model.tableHint': {
+    fr: 'Une nouvelle table est toujours créée : une table du même nom déjà présente n’est jamais modifiée.',
+    en: 'A new table is always created: an existing table with the same name is never changed.',
+  },
+  'form.model.nothingYet': {
+    fr: 'Rien n’est créé dans votre document tant que vous n’avez pas cliqué sur « Créer ce formulaire ».',
+    en: 'Nothing is created in your document until you click “Create this form”.',
+  },
+  'form.model.createBtn': { fr: 'Créer ce formulaire', en: 'Create this form' },
+  'form.model.creating': { fr: 'Création du formulaire…', en: 'Creating the form…' },
+  'form.model.needTable': { fr: 'Donnez un nom à la table des réponses.', en: 'Give the answers table a name.' },
+  'form.model.failed': { fr: 'Le formulaire n’a pas pu être créé d’après ce modèle : {message}', en: 'The form could not be created from this template: {message}' },
+  'form.model.created': {
+    fr: 'Formulaire créé d’après le modèle « {name} » : {n} {n|question|questions}, réponses dans la table « {table} ». Il n’est pas encore publié (bandeau ci-dessus).',
+    en: 'Form created from the “{name}” template: {n} {n|question|questions}, answers in the “{table}” table. It is not published yet (banner above).',
+  },
+  'form.model.unknown': {
+    fr: 'Ce modèle n’existe pas (ou plus) dans cette version de Form+ : rien n’a été créé. Choisissez une méthode ci-dessous.',
+    en: 'This template does not exist (any more) in this version of Form+: nothing was created. Pick a method below.',
+  },
 };
 
 // Enregistrée dès que ce module est importé (pas seulement depuis main.js) : config-editor.js

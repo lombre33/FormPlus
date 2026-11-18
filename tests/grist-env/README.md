@@ -197,6 +197,32 @@ NODE_PATH=$(npm root -g) node tests/grist-env/vitrine-captures.js vitrine
 images après un changement d'apparence, relancer la commande puis redire la ligne « vitrine » à GFS (nouveau
 commit dans `GFS-ETAT.md`).
 
+## Les modèles de « Nouveau > Depuis un modèle » de GFS (consigne GFS 033, 18 nov 2026)
+
+`modeles/` (à la racine du dépôt) porte le catalogue (`modeles.json`) et une vignette de 240 x 320 px par modèle. Le
+contenu des modèles vit dans `poc/js/templates.js` ; `node tests/check-modeles.mjs` (sans Grist, sans dépendance, joué
+par la CI) vérifie les règles du contrat de GFS (identifiants, 60 et 140 signes, étiquettes), que le catalogue
+correspond au module (`--ecrire` le réécrit) et que chaque vignette est un WebP de 240 x 320 px sous 12 Ko.
+
+`e2e-model.js` joue le parcours dans un vrai Grist, GFS étant simulé par la page de Grist elle-même (l'adresse du
+cadre porte `gfs=1`, la page répond à `contexte` avec l'ouverture `raison: 'modele'`, puis envoie l'appel `ouvrir`) :
+A le panneau du modèle s'affiche et RIEN n'est écrit dans le document (tables, pages, sections comptées avant et
+après) ; B « Créer ce formulaire » crée la table (une colonne par question, au bon type, aucune colonne en trop),
+le formulaire natif, la copie non publiée, le titre, l'accueil, le message de fin et toutes les questions, condition
+comprise, et l'accord de créer `FormPlus_Formulaires` se demande AVANT toute création ; C le formulaire se publie, un
+visiteur anonyme répond (la question à condition n'apparaît qu'après le bon choix) et sa réponse arrive dans les
+bonnes colonnes ; D l'appel `ouvrir` d'un cadre ouvert rend `{ ouvert: true }` pour un modèle connu, `{ ouvert: false }`
+pour un identifiant inconnu, un autre type ou aucun identifiant, sans rien changer à l'écran ni au document ; E une
+ouverture de démarrage sur un modèle inconnu laisse l'écran de départ avec sa notice, sans formulaire rouvert.
+`MODEL=<id>` rejoue le parcours d'un autre modèle.
+
+`modeles-captures.js` prend les vignettes : pour chaque modèle, même parcours, publication par Form+, puis la page
+publique vue par une personne qui répond dans un cadre de 360 x 480 px (rapport 3:4), à deux fois la taille puis
+ramenée à 240 x 320 et écrite en WebP sous 12 Ko (Pillow est requis). Aucune donnée saisie. Pour changer un modèle :
+modifier `templates.js`, relancer
+`NODE_PATH=$(npm root -g) node tests/grist-env/modeles-captures.js modeles [id …]`, puis
+`node tests/check-modeles.mjs --ecrire`, et redire la ligne « modeles » à GFS (nouveau commit dans `GFS-ETAT.md`).
+
 ## « Envoyer une autre réponse » sous la CSP réelle (17 nov 2026)
 
 `e2e-send-another.js` : un visiteur anonyme ouvre un formulaire publié du document de test (`#form=` vers
@@ -394,6 +420,8 @@ tester la suite du transport 1 en anonyme.
 
 - `vitrine-captures.js` — les trois captures de la vitrine de GFS (voir plus haut).
 - `e2e-late-connection.js` — connexion à Grist tardive, avec ou sans GFS (voir plus haut).
+- `e2e-model.js` — « Nouveau > Depuis un modèle » de GFS, de l'ouverture au visiteur anonyme (voir plus haut).
+- `modeles-captures.js` — les vignettes des modèles (voir plus haut).
 - `start-grist-test.sh` — le script de démarrage.
 - `grist_test_doc.py` — crée/recrée le document de test (appelé par le
   script ci-dessus, utilisable seul avec `GRIST_URL`, `GRIST_API_KEY`,

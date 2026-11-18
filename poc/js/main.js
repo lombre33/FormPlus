@@ -14,7 +14,8 @@ import { diag, hashParams, fragmentFormLink } from './diag.js';
 import { decideStartScreen } from './links.js';
 import { resolveMyDefinition, loadDefinitionByRowId, closeManagedFormPublicLink, duplicateManagedForm } from './grist-meta.js';
 import { state } from './state.js';
-import { showConfig } from './config-editor.js';
+import { showConfig, showModelPanel, showStartNotice } from './config-editor.js';
+import { findModel, MODEL_TYPE } from './templates.js';
 import { renderFill, hasPendingFillAnswers } from './respond.js';
 import { loadPluginApi } from './plugin-loader.js';
 
@@ -183,7 +184,19 @@ $('themeToggle').addEventListener('click', () => {
       // FormPlus enregistre à chaque champ sur #config (pas de bouton "Enregistrer"), donc rien n'y
       // est jamais en attente ; sur #fill, confirmLeaveIfPending (consigne GFS 019, ci-dessus) pose
       // la question d'abord si une réponse est en cours.
-      GfsLink.onOpen(async ({ fichier }) => {
+      GfsLink.onOpen(async ({ fichier, raison, modele, type }) => {
+        // Consigne GFS 033 : « Nouveau > Depuis un modèle » de GFS (raison 'modele', modele: { id }). Un modèle
+        // que Form+ ne connaît pas, ou un type que sa garde refuse : rien ne s'ouvre ({ ouvert: false }), jamais un
+        // formulaire vierge à la place (contrats de GFS 5.4, point 13). Un modèle connu s'ouvre NON ENREGISTRÉ :
+        // le panneau le montre, rien n'est écrit dans le document avant le clic de la personne (showModelPanel).
+        if (raison === 'modele') {
+          if (!findModel(modele?.id) || (type && type !== MODEL_TYPE)) return false;
+          if (!(await confirmLeaveIfPending())) return false;
+          resetToNewForm();
+          state.stayOnConfig = true;
+          await showConfig();
+          return showModelPanel(modele.id);
+        }
         if (!(await confirmLeaveIfPending())) return false;
         if (!fichier) {
           if (state.formRowId == null) return true; // déjà sur l'écran de départ
@@ -249,7 +262,10 @@ $('themeToggle').addEventListener('click', () => {
     // : sans ce test, fichier null ne faisait qu'échouer le premier `if` ci-dessous, puis le
     // formulaire gardé ouvert (storedRow) ou resolveMyDefinition() rouvraient silencieusement un
     // ancien formulaire au tout premier chargement du cadre - jamais l'écran de départ demandé.
-    const isNew = wanted?.raison === 'nouveau';
+    // « Depuis un modèle » (raison 'modele', consigne GFS 033) part, lui aussi, d'un formulaire neuf : pas d'ancien
+    // formulaire rouvert à sa place, le panneau du modèle s'affiche à la fin (plus bas).
+    const isModel = wanted?.raison === 'modele';
+    const isNew = wanted?.raison === 'nouveau' || isModel;
     if (isNew) resetToNewForm();
     else if (wanted?.fichier) opened = await openRow(wanted.fichier.id);
     if (!isNew && !opened && GfsLink.hosted) {
@@ -273,6 +289,9 @@ $('themeToggle').addEventListener('click', () => {
     if (!state.stayOnConfig) {
       const screen = decideStartScreen({ formLink: state.options.formLink, fragmentFormLink, accessLevel: settings?.accessLevel });
       if (screen === 'fill') await renderFill(); else await showConfig();
+      // Le modèle demandé se montre sur l'écran de départ ; un modèle inconnu ne se remplace par rien (le cadre
+      // est déjà ouvert, GFS n'attend pas de réponse ici) : l'écran de départ le dit, c'est tout.
+      if (isModel && screen !== 'fill' && !showModelPanel(wanted.modele?.id)) showStartNotice(I18n.t('form.model.unknown'));
     }
   });
 })();
