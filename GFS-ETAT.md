@@ -1,8 +1,25 @@
 # GFS-ETAT : Form+
 
-Mis à jour le 2026-11-18, au commit `8f5131c` (dernier commit de l'app que cette page décrit : les modèles de formulaire pour « Nouveau > Depuis un modèle », consigne 033 ; le précédent, `b6e4d67`, corrigeait la connexion tardive dans GFS, consigne 032 point 2).
+Mis à jour le 2026-11-18, au commit `8f5131c` (dernier commit de l'app que cette page décrit : les modèles de formulaire pour « Nouveau > Depuis un modèle », consigne 033 ; le précédent, `b6e4d67`, corrigeait la connexion tardive dans GFS, consigne 032 point 2). La consigne 034 (lue, aucun code) n'a changé que cette page.
 
 ## Consignes
+- 034 · lue · aucun code à changer · page à `b9a2ab2` (le commit de cette page qui disait la 033 faite), relue le 18/11. Rien à redire de ton côté :
+  1. **Mes cinq modèles sont dans ta galerie** (`modeles/form/` chez toi, ton manifeste déclare `modeles` et `ouverture.modele`).
+     Ma demande « modeles » sort donc de « Demandes à GFS » ci-dessous.
+  2. **Tes dix vérifications** (« Créer » sur « Inscription à un événement » dans ta fenêtre à 700 x 400, à la vraie souris : le panneau
+     « Modèle de départ » sans rien écrire, l'accord « Table « FormPlus_Formulaires » », rien de créé avant « Créer la table », puis les
+     deux tables et le concepteur ouvert sur « Votre avis nous intéresse », l'app déjà ouverte qui reçoit un autre modèle sans
+     rechargement) couvrent deux des trois choses que la 033 disait « non mesurées » de mon côté : ta vraie fenêtre « Depuis un modèle »
+     (à 700 x 400) et ton courtier avec l'écriture de plusieurs colonnes (`AddTable`). Restent non mesurés, ni par toi ni par moi : le
+     clair et le sombre dans cette fenêtre, Firefox, une version de Grist autre que la 1.7.22.
+  3. **Ma 032 est lue chez toi** : le point 2 est corrigé par `b6e4d67` et ton `labo/run-ouvrir-form.mjs` passe en entier (16 sur 16, sans
+     l'attente de 4 secondes). Rien de plus de mon côté.
+  4. **Ta référence passe de `ab8bf38` à `b9a2ab2`**. Je confirme ta lecture sur mon dépôt (`git diff ab8bf38 b9a2ab2`) : `poc/widget.html`
+     gagne deux éléments (`#start-notice` et `#start-panel-model`), aucune table, colonne ni verbe de plus, `manifest.json` et la
+     politique de sécurité inchangés ; le reste est le catalogue `modeles/`, `templates.js`, le panneau de `config-editor.js`,
+     l'abonnement d'options de `main.js` (032) et les essais.
+  5. **Reste en attente du mot du porteur** (028, inchangé) : ouvrir une page du document hors du cadre, et Leaflet 1.9.4 pour « Lieu sur
+     carte ». Pas de question nouvelle pour GFS.
 - 033 · lue · faite · `8f5131c` · **cinq modèles de formulaire** et l'ouverture `modele`. Ta référence passe à `8f5131c`
   (kit relevé à 0.24.0, `7aa030c`, comme tu le demandes : `GfsLink.opening()` et l'argument d'`onOpen` rendent `modele: { id }` ;
   rien d'autre ne change dans le kit pour Form+, la suite `#test` et les six essais réels sont inchangés). `widget.html`, sa politique
@@ -711,5 +728,6 @@ Mis à jour le 2026-11-18, au commit `8f5131c` (dernier commit de l'app que cett
   en attente de l'entrée de Form+ dans GFS (décision du porteur, consigne 006) ; d'ici là, le
   chargement autonome (`window.FORMPLUS_ENABLE_MAP`, unpkg) reste le mécanisme hors GFS
 - vitrine · `700798a` · `vitrine/vitrine.json` · description et trois captures pour la carte et la fiche
-- modeles · `8f5131c` · `modeles/modeles.json` · mes modèles de départ pour « Depuis un modèle » (5 formulaires, une vignette WebP de
-  240 x 320 px chacun) ; `ouverture.modele` : oui, Form+ sait ouvrir un modèle non enregistré (`raison: 'modele'`, au démarrage et par `ouvrir`)
+
+(« modeles » · `8f5131c` · `modeles/modeles.json` : sortie de cette liste par la 034, GFS les a rangés dans sa galerie `modeles/form/`
+et déclare `modeles` et `ouverture.modele` dans son manifeste.)
