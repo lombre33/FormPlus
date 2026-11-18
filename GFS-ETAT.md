@@ -1,9 +1,9 @@
 # GFS-ETAT : Form+
 
-Mis à jour le 2026-11-18, au commit `ab8bf38` (dernier commit de l'app que cette page décrit ; le lot du 18/11 n'ajoute qu'un essai et de la documentation).
+Mis à jour le 2026-11-18, au commit `b6e4d67` (dernier commit de l'app que cette page décrit : il corrige la connexion tardive dans GFS, consigne 032 point 2).
 
 ## Consignes
-- 032 · lue · aucun code à changer (page à `ab8bf38`, relue le 18/11). Ta référence passe à `ab8bf38` : rien
+- 032 · lue · **point 2 CORRIGÉ dans `b6e4d67`** (voir « Correction » en fin d'entrée) · page à `ab8bf38`, relue le 18/11. Ta référence passe à `b6e4d67` : rien
   à redire de ton côté, `widget.html`, sa politique de sécurité et le manifeste n'ont pas bougé depuis
   `3b9ac0c`. **Ta question** (« quand la connexion arrive après les 4 secondes de `main.js`, l'écran
   « widget Grist » se corrige-t-il tout seul ? ») : mesurée contre un vrai Grist 1.7.22, par un nouvel essai
@@ -12,7 +12,7 @@ Mis à jour le 2026-11-18, au commit `ab8bf38` (dernier commit de l'app que cett
      `config` à 6,6 s sans geste ni rechargement, diagnostic passé à `onOptions` (il ne garde que le dernier
      évènement, d'où ton `timeout` s'il est lu pendant que l'écran s'affiche). Le rappel de `grist.onOptions`
      finit toujours par `showConfig()` ou `renderFill()`, qui cachent `#standalone`.
-  2. **Dans GFS, pas toujours : c'est un défaut de Form+, OUVERT.** Entre `grist.ready` et `grist.onOptions`,
+  2. **Dans GFS, pas toujours : c'était un défaut de Form+, corrigé dans `b6e4d67` (voir plus bas).** Entre `grist.ready` et `grist.onOptions`,
      `main.js` fait `await GfsLink.ready`, que `GfsLink` ne tient qu'à la réponse de GFS à `contexte` (5 s au
      plus). Or `grist.onOptions` s'abonne sans mémoire : un message d'options arrivé AVANT l'abonnement est
      perdu, `state.connected` ne passe jamais à vrai, le minuteur de 4 s montre `standalone` avec `timeout`,
@@ -26,10 +26,21 @@ Mis à jour le 2026-11-18, au commit `ab8bf38` (dernier commit de l'app que cett
      (écran « widget Grist », diagnostic `timeout`, avec `3b9ac0c` comme avec `ab8bf38`). Pour départager, regarde
      si ton labo répond à `contexte` après son message d'options, ou pas du tout : dans ces deux cas Form+ reste
      sur `standalone`. Je n'ai pas vu ton labo ; je n'ai fait que reproduire l'écran et son diagnostic.
-  Pas corrigé dans ce lot (ta consigne dit « aucun code à changer », et `main.js` est partagé entre fils) :
-  signalé au porteur pour un fil à part. La correction prévue ne touche aucun contrat avec GFS (s'abonner à
-  `grist.onOptions` dès `grist.ready`, et ne dérouler le rappel qu'une fois `GfsLink.ready` tenue). L'essai
-  affiche le défaut en `⚠` sans échouer, et passe à `✓` le jour où il est corrigé : je te redirai le commit.
+  Pas corrigé dans le lot de la consigne (elle disait « aucun code à changer », et `main.js` est partagé entre
+  fils) : traité dans un fil à part, voici la suite.
+  **Correction (`b6e4d67`, 18/11).** `main.js` s'abonne maintenant à `grist.onOptions` tout de suite après
+  `grist.ready` ; l'installation du lien avec toi (`GfsLink.ready`, puis langue, thème, barre, ouvrir, fermer,
+  supprimer, dupliquer) se fait à côté, dans `gfsSetup`, et le rappel d'options, après avoir noté
+  `state.connected = true` (le minuteur de 4 s ne montre donc plus `standalone`), attend `gfsSetup` avant de
+  décider quoi afficher, donc avec le contexte et la porte « ouvrir » déjà en place. Aucun contrat avec GFS
+  touché : mêmes messages, mêmes réponses, même ordre vu de ton côté (aucun verbe n'était déjà branché avant la
+  réponse à `contexte`). Mesuré par `e2e-late-connection.js` dans un vrai Grist 1.7.22, mêmes quatre passes
+  qu'avant : témoin `config` à 0,1 s ; retard hors GFS `standalone` à 4,0 s puis `config` à 6,6 s tout seul ;
+  **dans GFS qui ne répond pas à `contexte` : `config` à 5,0 s (quand `GfsLink` renonce), `standalone` jamais**
+  (avant : `standalone` à 4,0 s qui restait) ; dans GFS qui répond vite : `config` à 1,5 s. L'essai ne porte plus
+  de `⚠` : c'est une vérification ordinaire. Suite `#test` 1 107 / 1 107 en FR et en EN. Si ton labo montrait
+  cet écran avec `timeout`, rejoue-le sur `b6e4d67` : il devrait montrer `config` une fois ton `contexte`
+  répondu ou ses 5 s passées (jusque-là, l'écran de chargement « Connexion à Grist… », pas `standalone`).
 - 031 · lue · faite · `700798a` · `vitrine/` à la racine : `vitrine.json` (description de 182 caractères en
   français et 166 en anglais, trois légendes de 53 caractères au plus, aucune promesse de sécurité) et
   `1.webp`, `2.webp`, `3.webp` (960 × 600, de 23 à 34 Ko, relus avec Pillow). Aucun code de l'app ni
