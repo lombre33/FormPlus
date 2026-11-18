@@ -1,8 +1,59 @@
 # GFS-ETAT : Form+
 
-Mis à jour le 2026-11-18, au commit `b6e4d67` (dernier commit de l'app que cette page décrit : il corrige la connexion tardive dans GFS, consigne 032 point 2).
+Mis à jour le 2026-11-18, au commit `8f5131c` (dernier commit de l'app que cette page décrit : les modèles de formulaire pour « Nouveau > Depuis un modèle », consigne 033 ; le précédent, `b6e4d67`, corrigeait la connexion tardive dans GFS, consigne 032 point 2).
 
 ## Consignes
+- 033 · lue · faite · `8f5131c` · **cinq modèles de formulaire** et l'ouverture `modele`. Ta référence passe à `8f5131c`
+  (kit relevé à 0.24.0, `7aa030c`, comme tu le demandes : `GfsLink.opening()` et l'argument d'`onOpen` rendent `modele: { id }` ;
+  rien d'autre ne change dans le kit pour Form+, la suite `#test` et les six essais réels sont inchangés). `widget.html`, sa politique
+  de sécurité (018) et le manifeste de l'app n'ont pas bougé : le catalogue vit dans `modeles/`, tu le copies.
+  1. **Catalogue** : `modeles/modeles.json` (5 entrées, `type: "formulaire"`, `tables: true`, nom et description en français et en
+     anglais, étiquettes bilingues) et une vignette WebP de 240 x 320 px par modèle (6 à 9 Ko) : `inscription-evenement`
+     (inscription à un événement : coordonnées, sur place ou à distance, contraintes alimentaires seulement pour qui vient sur place,
+     besoins particuliers), `enquete-satisfaction` (note de 1 à 5, ce qui a plu, ce qui peut être amélioré, contact facultatif),
+     `demande-contact`, `signalement-probleme` (nature, lieu, date, urgence, description) et `reservation-creneau` (le type
+     « Créneau horaire » de Form+, des créneaux à régler). Les `id` ne changeront ni ne seront réutilisés. Le contenu des
+     modèles vit dans `poc/js/templates.js` (source unique, FR et EN) ; `modeles.json` s'en déduit
+     (`node tests/check-modeles.mjs --ecrire`) et le même script, joué par la CI, refuse un identifiant hors règle, un nom de plus de
+     60 signes, une description de plus de 140, un catalogue qui ne correspond plus au module, une vignette qui n'est pas un WebP de
+     240 x 320 sous 12 Ko. Pas de type « Lieu sur carte » (grisé hors GFS) ni de pièce jointe (le 403 d'un visiteur anonyme est une
+     limite de Grist) dans les modèles. Vignettes prises par `tests/grist-env/modeles-captures.js` dans un vrai Grist 1.7.22 avec la
+     vraie app : la page publique d'un formulaire créé par le modèle, publié par Form+, vue par un visiteur anonyme dans un cadre de
+     360 x 480 px (le haut du formulaire, rapport 3:4) ; aucune donnée saisie, aucun nom.
+  2. **Ouverture** (contrats 5.2 point 3, 5.4 point 13). `raison: 'modele'` au démarrage du cadre (`main.js`, comme `nouveau` : jamais
+     l'ancien formulaire rouvert à la place) et par l'appel `ouvrir` d'un cadre déjà ouvert (`GfsLink.onOpen`, après la question
+     « Quitter ce formulaire ? » de la 019 s'il y a une réponse en cours). Le modèle s'ouvre **non enregistré** : un panneau sur l'écran
+     de départ (nom, description, les questions du modèle avec leur type, le nom de la table des réponses proposé, la phrase « Rien
+     n'est créé dans votre document tant que vous n'avez pas cliqué sur « Créer ce formulaire » »). Mesuré : tables, pages et sections
+     du document sont identiques avant et après l'affichage du panneau. **Un identifiant inconnu, un type autre que « formulaire »
+     ou aucun identifiant : `{ ouvert: false }`, rien ne change à l'écran ni dans le document** (mesuré, trois appels de suite).
+     Seul cas où Form+ ne peut pas dire `{ ouvert: false }` : une ouverture de DÉMARRAGE sur un identifiant inconnu (le cadre est
+     déjà ouvert, `ouverture` ne se répond pas) : il affiche l'écran de départ ordinaire avec une phrase en haut (« Ce modèle
+     n'existe pas (ou plus) dans cette version de Form+ : rien n'a été créé »), aucun panneau, aucun formulaire ancien rouvert.
+  3. **Le geste** : « Créer ce formulaire » est le clic qui crée (et la seule écriture, `tables: true` : chaque modèle vient avec sa
+     table de réponses, toujours une table neuve, jamais une existante ; un nom déjà pris donne une table de nom voisin, Grist ne
+     modifie jamais l'ancienne). Ordre : l'accord de créer `FormPlus_Formulaires` (document neuf), demandé AVANT toute création (un
+     refus ne laisse ni table ni page à moitié faites, mesuré) ; puis `AddTable` avec une colonne par question, au type que Form+ lui
+     donne (aucune colonne « A » vide en trop) ; la page du formulaire, nommée « Formulaire <table> » ; la copie que Form+ gère, en
+     brouillon NON publié (le bandeau « Pas encore publié » mène au guide) ; le titre, l'accueil, le message de fin et toutes les
+     questions, conditions comprises, écrits d'un seul coup avec la copie (`seed` de `prepareForm`). Ni lien ni publication.
+  4. **Mesuré dans un vrai Grist 1.7.22** par `tests/grist-env/e2e-model.js` (GFS simulé par la page de Grist : cadre en `gfs=1`,
+     réponse à `contexte` avec l'ouverture, appel `ouvrir`), 43 vérifications vertes pour `inscription-evenement` et le même
+     parcours vert pour les quatre autres modèles (`MODEL=<id>`) : le panneau, rien d'écrit avant le clic, la table (colonnes et
+     types), la définition enregistrée (identique aux questions du module), la page nommée, la copie non publiée, l'aperçu, puis la
+     publication par Form+, le lien copié par le bouton de Grist et collé, et un visiteur ANONYME qui répond (la question à condition
+     n'apparaît qu'après le bon choix) : sa réponse arrive dans les bonnes colonnes (texte, choix, nombre, choix multiple) ;
+     `ouvrir` sur modèle connu, inconnu, autre type, sans identifiant ; ouverture de démarrage sur un modèle inconnu. Suite
+     `#test` : 1 491 / 1 491 en FR et en EN (1 107 avant : contenu des modèles et de leur catalogue, questions de chaque
+     modèle dans les deux langues, affichage côté répondant, panneau). Rejoués verts sur ce code : `e2e-late-connection.js`,
+     `e2e-build-first.js`, `e2e-guided-visitor.js`, `e2e-same-link.js` et, une fois `FormPlus_Formulaires` présente dans le
+     document de test, `e2e-onboarding.js` (qui s'arrêtait sur « Recherche de la page du formulaire… » dans un document neuf
+     parce que l'essai ne clique pas la fenêtre d'accord, déjà dit en 030).
+  Ce que je n'ai pas mesuré : ta vraie fenêtre « Depuis un modèle » (la vignette et les textes dans ta fenêtre à 700 x 400, en
+     clair et en sombre, sous Firefox) ; le courtier de GFS avec cette écriture (`AddTable` d'une table de plusieurs colonnes de
+     types différents, `AddColumn`, comme dans « Partir de zéro » mais avec plus de colonnes) : à rejouer chez toi avec ma vraie app ;
+     une version de Grist autre que la 1.7.22. La capacité d'un créneau (anti-double-réservation) n'existe toujours pas : le modèle
+     « Réservation d'un créneau » le dit dans sa description (« une liste que vous réglez »), rien de plus.
 - 032 · lue · **point 2 CORRIGÉ dans `b6e4d67`** (voir « Correction » en fin d'entrée) · page à `ab8bf38`, relue le 18/11. Ta référence passe à `b6e4d67` : rien
   à redire de ton côté, `widget.html`, sa politique de sécurité et le manifeste n'ont pas bougé depuis
   `3b9ac0c`. **Ta question** (« quand la connexion arrive après les 4 secondes de `main.js`, l'écran
@@ -660,3 +711,5 @@ Mis à jour le 2026-11-18, au commit `b6e4d67` (dernier commit de l'app que cett
   en attente de l'entrée de Form+ dans GFS (décision du porteur, consigne 006) ; d'ici là, le
   chargement autonome (`window.FORMPLUS_ENABLE_MAP`, unpkg) reste le mécanisme hors GFS
 - vitrine · `700798a` · `vitrine/vitrine.json` · description et trois captures pour la carte et la fiche
+- modeles · `8f5131c` · `modeles/modeles.json` · mes modèles de départ pour « Depuis un modèle » (5 formulaires, une vignette WebP de
+  240 x 320 px chacun) ; `ouverture.modele` : oui, Form+ sait ouvrir un modèle non enregistré (`raison: 'modele'`, au démarrage et par `ouvrir`)
