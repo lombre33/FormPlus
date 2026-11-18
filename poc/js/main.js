@@ -160,75 +160,84 @@ $('themeToggle').addEventListener('click', () => {
 
   // Le lien avec GFS (kit 0.2.0, consigne GFS 010) : sans effet si GFS n'héberge pas ce cadre
   // (GfsLink.ready se résout tout de suite, hosted reste faux, le reste de ce bloc est inerte).
-  await GfsLink.ready;
-  if (GfsLink.hosted) {
-    const storedTheme = GfsLink.storageGet('formplus_theme');
-    if (storedTheme) Theme.set(storedTheme);
-    updateThemeToggleIcon();
-    // La langue est un choix unique pour GFS et ses apps (point 4) : on se recharge plutôt que de
-    // retraduire en direct, trop de texte étant écrit directement par I18n.t() (messages,
-    // dialogues) sans jamais repasser par translateDom(). GFS redonne alors réglages/thème/table
-    // au cadre rechargé (consigne 011, point 4) ; le formulaire ouvert, lui, se retrouve par
-    // GFS_OPEN_ROW_KEY (ci-dessous), puisqu'un cadre rechargé n'a plus d'ouverture.
-    GfsLink.onLanguage(() => location.reload());
-    applyGfsBar(GfsLink.bar());
-    GfsLink.onBar(applyGfsBar);
-    // Le double-clic sur un AUTRE formulaire pendant que celui-ci tourne déjà (point 3) :
-    // FormPlus enregistre à chaque champ sur #config (pas de bouton "Enregistrer"), donc rien n'y
-    // est jamais en attente ; sur #fill, confirmLeaveIfPending (consigne GFS 019, ci-dessus) pose
-    // la question d'abord si une réponse est en cours.
-    GfsLink.onOpen(async ({ fichier }) => {
-      if (!(await confirmLeaveIfPending())) return false;
-      if (!fichier) {
-        if (state.formRowId == null) return true; // déjà sur l'écran de départ
-        resetToNewForm();
-        state.stayOnConfig = true;
-        await showConfig();
-        return true;
-      }
-      if (state.formRowId != null && String(state.formRowId) === String(fichier.id)) return true; // déjà ouvert
-      return await openRow(fichier.id);
-    });
-    // Consigne GFS 019 : GFS détruit le cadre de cette app dès que la réponse est { ferme: true } -
-    // jamais avant, et jamais nous-mêmes (point 3 de la consigne).
-    GfsLink.onClose(async () => confirmLeaveIfPending());
-    // Consigne GFS 020 (kit 0.10.0) : GFS met un fichier à la corbeille depuis son explorateur -
-    // ferme son lien public (closeManagedFormPublicLink, grist-meta.js) avant que GFS ne retire sa
-    // ligne de FormPlus_Formulaires (qu'il garde lui-même, pour la restaurer). Jamais le fichier
-    // qu'affiche CE cadre forcément : fichier.id vient de l'explorateur, pas de state.formRowId.
-    GfsLink.onDelete(async ({ fichier }) => {
-      try {
-        await closeManagedFormPublicLink(fichier.id);
-        return { fait: true, dit: I18n.t('form.gfs.deleteClosedLink') };
-      } catch (e) {
-        return { fait: false, dit: I18n.t('form.gfs.deleteFailed') };
-      }
-    });
-    // Consigne GFS 021 (kit 0.10.0) : GFS copie un fichier depuis son explorateur - duplicateManagedForm
-    // (grist-meta.js) copie la section native, la définition et les questions sous le nom déjà
-    // calculé par GFS, avec sa propre table de réponses vide, jamais publiée.
-    // Consigne GFS 026, point 3 : cette table nouvelle naît sans fenêtre d'accord (guide 1.1,
-    // règle 4) - choix délibéré, pas un oubli. Une fenêtre à ce moment précis attendrait un clic
-    // de la personne alors que Form+ n'est pas forcément l'écran affiché (GFS vient de l'appeler
-    // depuis son explorateur) : elle resterait invisible, et GFS abandonnerait l'appel au bout de
-    // 20 s (contrats 5.4) en disant à la personne que Form+ ne répond pas - pire que l'absence de
-    // fenêtre. Le geste « Dupliquer » lui-même, déjà explicitement demandé par la personne sur UN
-    // formulaire dont elle sait qu'il a sa table de réponses, en tient lieu (hypothèse de GFS,
-    // reprise ici) ; `dit` dit quand même le nom de cette table, pour qu'elle le sache sans avoir
-    // à cliquer.
-    GfsLink.onDuplicate(async ({ fichier, nom }) => {
-      try {
-        const copy = await duplicateManagedForm(fichier.id, nom);
-        if (!copy) return { dit: I18n.t('form.gfs.duplicateNotFound') };
-        return { id: copy.id, dit: I18n.t('form.gfs.duplicateNotPublished', { table: copy.tableId }) };
-      } catch (e) {
-        return { dit: I18n.t('form.gfs.duplicateFailed') };
-      }
-    });
-  }
+  // Consigne GFS 032 : ce bloc s'installe À CÔTÉ de l'abonnement à grist.onOptions, jamais avant. Dans GFS
+  // (adresse avec gfs=<n>), GfsLink.ready attend la réponse de GFS à `contexte` (5 s au plus) : un `await`
+  // placé entre grist.ready et grist.onOptions laissait le message d'options de Grist, arrivé entre-temps,
+  // se perdre (grist.onOptions n'a pas de mémoire), et l'écran « widget Grist » restait pour toujours.
+  // Le rappel d'options attend donc `gfsSetup` lui-même, après avoir noté la connexion.
+  const gfsSetup = (async () => {
+    await GfsLink.ready;
+    if (GfsLink.hosted) {
+      const storedTheme = GfsLink.storageGet('formplus_theme');
+      if (storedTheme) Theme.set(storedTheme);
+      updateThemeToggleIcon();
+      // La langue est un choix unique pour GFS et ses apps (point 4) : on se recharge plutôt que de
+      // retraduire en direct, trop de texte étant écrit directement par I18n.t() (messages,
+      // dialogues) sans jamais repasser par translateDom(). GFS redonne alors réglages/thème/table
+      // au cadre rechargé (consigne 011, point 4) ; le formulaire ouvert, lui, se retrouve par
+      // GFS_OPEN_ROW_KEY (ci-dessous), puisqu'un cadre rechargé n'a plus d'ouverture.
+      GfsLink.onLanguage(() => location.reload());
+      applyGfsBar(GfsLink.bar());
+      GfsLink.onBar(applyGfsBar);
+      // Le double-clic sur un AUTRE formulaire pendant que celui-ci tourne déjà (point 3) :
+      // FormPlus enregistre à chaque champ sur #config (pas de bouton "Enregistrer"), donc rien n'y
+      // est jamais en attente ; sur #fill, confirmLeaveIfPending (consigne GFS 019, ci-dessus) pose
+      // la question d'abord si une réponse est en cours.
+      GfsLink.onOpen(async ({ fichier }) => {
+        if (!(await confirmLeaveIfPending())) return false;
+        if (!fichier) {
+          if (state.formRowId == null) return true; // déjà sur l'écran de départ
+          resetToNewForm();
+          state.stayOnConfig = true;
+          await showConfig();
+          return true;
+        }
+        if (state.formRowId != null && String(state.formRowId) === String(fichier.id)) return true; // déjà ouvert
+        return await openRow(fichier.id);
+      });
+      // Consigne GFS 019 : GFS détruit le cadre de cette app dès que la réponse est { ferme: true } -
+      // jamais avant, et jamais nous-mêmes (point 3 de la consigne).
+      GfsLink.onClose(async () => confirmLeaveIfPending());
+      // Consigne GFS 020 (kit 0.10.0) : GFS met un fichier à la corbeille depuis son explorateur -
+      // ferme son lien public (closeManagedFormPublicLink, grist-meta.js) avant que GFS ne retire sa
+      // ligne de FormPlus_Formulaires (qu'il garde lui-même, pour la restaurer). Jamais le fichier
+      // qu'affiche CE cadre forcément : fichier.id vient de l'explorateur, pas de state.formRowId.
+      GfsLink.onDelete(async ({ fichier }) => {
+        try {
+          await closeManagedFormPublicLink(fichier.id);
+          return { fait: true, dit: I18n.t('form.gfs.deleteClosedLink') };
+        } catch (e) {
+          return { fait: false, dit: I18n.t('form.gfs.deleteFailed') };
+        }
+      });
+      // Consigne GFS 021 (kit 0.10.0) : GFS copie un fichier depuis son explorateur - duplicateManagedForm
+      // (grist-meta.js) copie la section native, la définition et les questions sous le nom déjà
+      // calculé par GFS, avec sa propre table de réponses vide, jamais publiée.
+      // Consigne GFS 026, point 3 : cette table nouvelle naît sans fenêtre d'accord (guide 1.1,
+      // règle 4) - choix délibéré, pas un oubli. Une fenêtre à ce moment précis attendrait un clic
+      // de la personne alors que Form+ n'est pas forcément l'écran affiché (GFS vient de l'appeler
+      // depuis son explorateur) : elle resterait invisible, et GFS abandonnerait l'appel au bout de
+      // 20 s (contrats 5.4) en disant à la personne que Form+ ne répond pas - pire que l'absence de
+      // fenêtre. Le geste « Dupliquer » lui-même, déjà explicitement demandé par la personne sur UN
+      // formulaire dont elle sait qu'il a sa table de réponses, en tient lieu (hypothèse de GFS,
+      // reprise ici) ; `dit` dit quand même le nom de cette table, pour qu'elle le sache sans avoir
+      // à cliquer.
+      GfsLink.onDuplicate(async ({ fichier, nom }) => {
+        try {
+          const copy = await duplicateManagedForm(fichier.id, nom);
+          if (!copy) return { dit: I18n.t('form.gfs.duplicateNotFound') };
+          return { id: copy.id, dit: I18n.t('form.gfs.duplicateNotPublished', { table: copy.tableId }) };
+        } catch (e) {
+          return { dit: I18n.t('form.gfs.duplicateFailed') };
+        }
+      });
+    }
+  })().catch(e => diag({ event: 'gfsLinkFailed', error: String(e?.message || e) }));
 
   grist.onOptions(async (opts, settings) => {
     state.connected = true; clearTimeout(timeout);
+    // Les verbes et le contexte de GFS sont installés (ou GFS n'héberge pas ce cadre) avant de décider quoi afficher.
+    await gfsSetup;
     // La porte "ouvrir" de GFS (consigne GFS 010, point 2) décide avant tout le reste : un cadre
     // neuf que GFS vient d'ouvrir sur un formulaire précis (fichier.id, l'identifiant de sa ligne
     // dans FormPlus_Formulaires), ou, à défaut (cadre rechargé : GfsLink.opening() redevient nul),

@@ -21,12 +21,13 @@
 //   1. témoin (aucun retard) : #standalone n'apparaît jamais, l'écran final est config ou fill ;
 //   2. retard : #standalone apparaît à 4 s avec `timeout` au diagnostic ; la connexion arrivée, il est remplacé tout seul
 //      par la configuration (sans rechargement ni geste) et le diagnostic passe à `onOptions` ; l'écran est utilisable ;
-//   3. GFS muet : [défaut ouvert, voir plus bas] #standalone ne devrait pas rester ; mesuré, il reste.
+//   3. GFS muet : #standalone n'apparaît jamais, la configuration ou le formulaire s'affiche dès que `GfsLink.ready`
+//      est tenue (≈ 5 s) ; avant la correction du 18 nov, #standalone arrivait à 4 s et restait pour toujours.
 //   Aucune erreur de page pendant tout le parcours.
 //
-// Le cas 3 est un DÉFAUT OUVERT de l'app (à corriger dans un fil à part, jamais dans celui de la consigne 032) : ce
-// script l'affiche sans faire échouer l'exécution tant que l'écran reste, et passe à « ✓ » dès qu'il est corrigé
-// (la ligne `⚠` redevient une vérification ordinaire). STRICT=1 le fait échouer.
+// Le cas 3 était un défaut de l'app (poc/js/main.js : `await GfsLink.ready` placé entre `grist.ready` et
+// `grist.onOptions`, le message d'options arrivé entre-temps était perdu). Corrigé : main.js s'abonne à `grist.onOptions`
+// tout de suite et le rappel attend lui-même l'installation du lien GFS. Ce cas garde la correction.
 //
 // Usage : tests/grist-env/start-grist-test.sh   (une fois, démarre Grist et sert le widget)
 //         NODE_PATH=$(npm root -g) node tests/grist-env/e2e-late-connection.js [dossier_captures]
@@ -43,7 +44,6 @@ const GRIST_PORT = process.env.GRIST_PORT || '8484';
 const WIDGET_PORT = process.env.WIDGET_PORT || '8010';
 const STATE_DIR = process.env.GRIST_TEST_STATE_DIR || path.join(os.homedir(), '.formplus-grist-test');
 const LATE_MS = Number(process.env.LATE_MS || '6500');
-const STRICT = process.env.STRICT === '1';
 const SHOTS = process.argv[2] || fs.mkdtempSync(path.join(os.tmpdir(), 'formplus-e2e-late-'));
 const info = JSON.parse(fs.readFileSync(path.join(STATE_DIR, 'grist-test-doc.json'), 'utf8'));
 const GRIST = `http://localhost:${GRIST_PORT}`;
@@ -54,11 +54,6 @@ let failed = 0;
 const check = (name, cond, detail) => {
   console.log(`${cond ? '✓' : '✗'} ${name}${!cond && detail ? ` — ${detail}` : ''}`);
   if (!cond) failed++;
-};
-// Une vérification sur un défaut connu et ouvert : « ✓ » s'il est corrigé, « ⚠ » sinon (sans faire échouer, sauf STRICT=1).
-const knownOpen = (name, cond, detail) => {
-  console.log(`${cond ? '✓' : (STRICT ? '✗' : '⚠ défaut ouvert')} ${name}${!cond && detail ? ` — ${detail}` : ''}`);
-  if (!cond && STRICT) failed++;
 };
 const get = (url) => new Promise((resolve, reject) => http.get(url, (r) => { let b = ''; r.on('data', (c) => { b += c; }); r.on('end', () => resolve(b)); }).on('error', reject));
 
@@ -161,8 +156,9 @@ const get = (url) => new Promise((resolve, reject) => http.get(url, (r) => { let
   // ─── 3. Dans GFS qui ne répond pas à `contexte` : `GfsLink.ready` prend ses 5 s, Grist a répondu avant ───
   const mute = await run({ label: 'gfs-muet', hold: 0, gfs: true, watchMs: 12000 });
   check('GFS muet : le widget s\'est bien cru hébergé (`gfs=1` dans l\'adresse du cadre)', mute.hostedSeen);
-  check('GFS muet : le minuteur de 4 s a joué, #standalone apparaît (la connexion de Grist, elle, a eu lieu tout de suite)', at(mute, (s) => s === 'standalone') != null, JSON.stringify(mute.timeline));
-  knownOpen('GFS muet : #standalone est remplacé par la configuration ou le formulaire une fois `GfsLink.ready` tenue (5 s)', isMain(mute.final), `écran final « ${mute.final} » après 12 s : la réponse de Grist est arrivée avant l'abonnement à grist.onOptions, donc perdue`);
+  check('GFS muet : #standalone n\'apparaît jamais (la connexion de Grist, elle, a eu lieu tout de suite : le minuteur de 4 s ne se déclenche pas)', !mute.timeline.some(([, s]) => s.includes('standalone')), JSON.stringify(mute.timeline));
+  const muteMainAt = at(mute, isMain);
+  check('GFS muet : la configuration ou le formulaire s\'affiche une fois `GfsLink.ready` tenue (≈ 5 s, pas avant)', muteMainAt != null && muteMainAt >= 4500 && isMain(mute.final), `écran final « ${mute.final} », ${JSON.stringify(mute.timeline)}`);
 
   // ─── 4. Dans GFS qui répond vite à `contexte`, Grist plus lent : l'abonnement est déjà posé, rien n'est perdu ───
   const quick = await run({ label: 'gfs-rapide', hold: 1500, gfs: true, watchMs: 12000, replyAt: 300 });

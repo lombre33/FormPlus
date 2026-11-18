@@ -228,17 +228,19 @@ lecture seule ; la redirection qui ajoute `gfs=1` à l'adresse du cadre simule l
 |---|---|
 | témoin, connexion immédiate | `config` dès 0,1 s, jamais `standalone` |
 | Grist répond à 6,5 s, hors GFS | `standalone` à 4,1 s (diagnostic `timeout`), puis `config` à 6,6 s **tout seul**, diagnostic `onOptions` |
-| dans GFS (`gfs=1`) qui ne répond pas à `contexte`, Grist répond tout de suite | `standalone` à 4,0 s, **il reste** (plus de 12 s) : DÉFAUT OUVERT |
+| dans GFS (`gfs=1`) qui ne répond pas à `contexte`, Grist répond tout de suite | `config` à 5,0 s (quand `GfsLink.ready` renonce), jamais `standalone` ; **avant le 18 nov** : `standalone` à 4,0 s qui restait (plus de 12 s) |
 | dans GFS qui répond à `contexte` à 0,3 s, Grist à 1,5 s | `config` à 1,5 s, jamais `standalone` |
 
-Cause du défaut (sondée : le message d'options de Grist arrive 42 ms après le départ du cadre, `GfsLink.ready` renonce à
-5 s, « contexte indisponible ») : entre `grist.ready(...)` et `grist.onOptions(...)`, `main.js` fait
-`await GfsLink.ready` ; sans GFS c'est une promesse déjà tenue, dans GFS elle attend la réponse à `contexte` (5 s au
-plus). Or `grist.onOptions` s'abonne à un `EventEmitter` sans mémoire : un message d'options arrivé avant l'abonnement
-est perdu, `state.connected` ne passe jamais à vrai, le minuteur montre `standalone` à 4 s et plus rien ne le corrige.
-C'est une course : il suffit que les options arrivent avant la réponse à `contexte`. Le défaut s'affiche en `⚠` sans
-faire échouer le script (`STRICT=1` le fait échouer) et passe à `✓` tout seul le jour où l'app est corrigée. Il n'a pas
-été corrigé dans le fil de la consigne 032 (« aucun code à changer », `main.js` partagé entre fils).
+Cause du défaut, **corrigé le 18 nov** (sondée : le message d'options de Grist arrive 42 ms après le départ du cadre,
+`GfsLink.ready` renonce à 5 s, « contexte indisponible ») : entre `grist.ready(...)` et `grist.onOptions(...)`, `main.js`
+faisait `await GfsLink.ready` ; sans GFS c'est une promesse déjà tenue, dans GFS elle attend la réponse à `contexte` (5 s
+au plus). Or `grist.onOptions` s'abonne à un `EventEmitter` sans mémoire : un message d'options arrivé avant
+l'abonnement est perdu, `state.connected` ne passait jamais à vrai, le minuteur montrait `standalone` à 4 s et plus rien
+ne le corrigeait. C'était une course : il suffisait que les options arrivent avant la réponse à `contexte`.
+Correction : `main.js` s'abonne à `grist.onOptions` tout de suite après `grist.ready`, l'installation du lien GFS
+(`gfsSetup`) se fait à côté, et le rappel d'options, après avoir noté `state.connected = true`, attend `gfsSetup` avant de
+décider quoi afficher. Le script garde maintenant ce cas en vérification ordinaire (plus de `⚠`, plus de `STRICT`) : ne
+jamais remettre un `await` entre `grist.ready` et `grist.onOptions`.
 
 Piège rencontré en montant ce banc dans une session neuve : si `kit/` (sous-module) n'est pas initialisé, le widget
 reste sur « Connexion à Grist… » sans aucune mise en forme et aucune erreur claire. `git submodule update --init` d'abord.
