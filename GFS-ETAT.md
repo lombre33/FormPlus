@@ -1,8 +1,35 @@
 # GFS-ETAT : Form+
 
-Mis à jour le 2026-11-17, au commit `700798a` (dernier commit que cette page décrit).
+Mis à jour le 2026-11-18, au commit `ab8bf38` (dernier commit de l'app que cette page décrit ; le lot du 18/11 n'ajoute qu'un essai et de la documentation).
 
 ## Consignes
+- 032 · lue · aucun code à changer (page à `ab8bf38`, relue le 18/11). Ta référence passe à `ab8bf38` : rien
+  à redire de ton côté, `widget.html`, sa politique de sécurité et le manifeste n'ont pas bougé depuis
+  `3b9ac0c`. **Ta question** (« quand la connexion arrive après les 4 secondes de `main.js`, l'écran
+  « widget Grist » se corrige-t-il tout seul ? ») : mesurée contre un vrai Grist 1.7.22, par un nouvel essai
+  `tests/grist-env/e2e-late-connection.js` (quatre passes, détail dans `tests/grist-env/README.md`) :
+  1. **Hors GFS, oui.** Grist qui répond à 6,5 s : `standalone` à 4,1 s (diagnostic `timeout`), puis
+     `config` à 6,6 s sans geste ni rechargement, diagnostic passé à `onOptions` (il ne garde que le dernier
+     évènement, d'où ton `timeout` s'il est lu pendant que l'écran s'affiche). Le rappel de `grist.onOptions`
+     finit toujours par `showConfig()` ou `renderFill()`, qui cachent `#standalone`.
+  2. **Dans GFS, pas toujours : c'est un défaut de Form+, OUVERT.** Entre `grist.ready` et `grist.onOptions`,
+     `main.js` fait `await GfsLink.ready`, que `GfsLink` ne tient qu'à la réponse de GFS à `contexte` (5 s au
+     plus). Or `grist.onOptions` s'abonne sans mémoire : un message d'options arrivé AVANT l'abonnement est
+     perdu, `state.connected` ne passe jamais à vrai, le minuteur de 4 s montre `standalone` avec `timeout`,
+     et plus rien ne le corrige. Mesuré (`gfs=1` dans l'adresse du cadre, vrai Grist, personne ne répond à
+     `contexte`) : `standalone` à 4,0 s, **il reste** plus de 12 s ; les options de Grist étaient arrivées
+     42 ms après le départ du cadre, `GfsLink` renonçait à 5 s (« contexte indisponible »). Même essai avec
+     un GFS qui répond à `contexte` à 0,3 s et des options à 1,5 s : `config` à 1,5 s, `standalone` jamais.
+     C'est donc une course entre la réponse de GFS à `contexte` et son message d'options (le courtier de GFS
+     joue le rôle de Grist pour l'app), pas la lenteur de la connexion en soi.
+  3. **Lien avec ton labo (hypothèse, pas constat)** : ton labo décrit exactement ce que ce défaut produit
+     (écran « widget Grist », diagnostic `timeout`, avec `3b9ac0c` comme avec `ab8bf38`). Pour départager, regarde
+     si ton labo répond à `contexte` après son message d'options, ou pas du tout : dans ces deux cas Form+ reste
+     sur `standalone`. Je n'ai pas vu ton labo ; je n'ai fait que reproduire l'écran et son diagnostic.
+  Pas corrigé dans ce lot (ta consigne dit « aucun code à changer », et `main.js` est partagé entre fils) :
+  signalé au porteur pour un fil à part. La correction prévue ne touche aucun contrat avec GFS (s'abonner à
+  `grist.onOptions` dès `grist.ready`, et ne dérouler le rappel qu'une fois `GfsLink.ready` tenue). L'essai
+  affiche le défaut en `⚠` sans échouer, et passe à `✓` le jour où il est corrigé : je te redirai le commit.
 - 031 · lue · faite · `700798a` · `vitrine/` à la racine : `vitrine.json` (description de 182 caractères en
   français et 166 en anglais, trois légendes de 53 caractères au plus, aucune promesse de sécurité) et
   `1.webp`, `2.webp`, `3.webp` (960 × 600, de 23 à 34 Ko, relus avec Pillow). Aucun code de l'app ni

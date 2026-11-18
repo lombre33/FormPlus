@@ -216,6 +216,33 @@ ne convient pas : la page perd son adresse réseau réelle et Chromium refuse al
 (« Permission was denied … `loopback` address space »). La clé de partage est la vraie, lue en lecture seule dans
 `home.sqlite3` (table `shares`, voir « Écart constaté »). Ce test n'écrit que dans `Reponses` (2 lignes de plus).
 
+## Connexion à Grist qui arrive après les 4 s de `main.js` (18 nov 2026, consigne GFS 032)
+
+`e2e-late-connection.js` répond à la question de la consigne 032 : quand `grist.onOptions` arrive après le minuteur de
+4 s de `poc/js/main.js` (écran « Cette page est un widget Grist », diagnostic `timeout`), l'écran se corrige-t-il tout
+seul ? Quatre passes sur la vraie page du document de test, avec le vrai `grist-plugin-api.js` (l'entrée du script est
+retenue quelques secondes pour simuler une connexion lente ; `grist.ready` n'est pas remplaçable, le script l'expose en
+lecture seule ; la redirection qui ajoute `gfs=1` à l'adresse du cadre simule l'hébergement par GFS) :
+
+| passe | mesuré (Grist 1.7.22, Chromium) |
+|---|---|
+| témoin, connexion immédiate | `config` dès 0,1 s, jamais `standalone` |
+| Grist répond à 6,5 s, hors GFS | `standalone` à 4,1 s (diagnostic `timeout`), puis `config` à 6,6 s **tout seul**, diagnostic `onOptions` |
+| dans GFS (`gfs=1`) qui ne répond pas à `contexte`, Grist répond tout de suite | `standalone` à 4,0 s, **il reste** (plus de 12 s) : DÉFAUT OUVERT |
+| dans GFS qui répond à `contexte` à 0,3 s, Grist à 1,5 s | `config` à 1,5 s, jamais `standalone` |
+
+Cause du défaut (sondée : le message d'options de Grist arrive 42 ms après le départ du cadre, `GfsLink.ready` renonce à
+5 s, « contexte indisponible ») : entre `grist.ready(...)` et `grist.onOptions(...)`, `main.js` fait
+`await GfsLink.ready` ; sans GFS c'est une promesse déjà tenue, dans GFS elle attend la réponse à `contexte` (5 s au
+plus). Or `grist.onOptions` s'abonne à un `EventEmitter` sans mémoire : un message d'options arrivé avant l'abonnement
+est perdu, `state.connected` ne passe jamais à vrai, le minuteur montre `standalone` à 4 s et plus rien ne le corrige.
+C'est une course : il suffit que les options arrivent avant la réponse à `contexte`. Le défaut s'affiche en `⚠` sans
+faire échouer le script (`STRICT=1` le fait échouer) et passe à `✓` tout seul le jour où l'app est corrigée. Il n'a pas
+été corrigé dans le fil de la consigne 032 (« aucun code à changer », `main.js` partagé entre fils).
+
+Piège rencontré en montant ce banc dans une session neuve : si `kit/` (sous-module) n'est pas initialisé, le widget
+reste sur « Connexion à Grist… » sans aucune mise en forme et aucune erreur claire. `git submodule update --init` d'abord.
+
 ## Peut-on se passer de faire copier le lien du formulaire publié ? Non (sonde du 9 nov 2026)
 
 `probe-share-key.js` essaie, contre CE Grist (1.7.22), tout ce qu'un widget à accès complet pourrait tenter
@@ -364,6 +391,7 @@ tester la suite du transport 1 en anonyme.
 ## Fichiers
 
 - `vitrine-captures.js` — les trois captures de la vitrine de GFS (voir plus haut).
+- `e2e-late-connection.js` — connexion à Grist tardive, avec ou sans GFS (voir plus haut).
 - `start-grist-test.sh` — le script de démarrage.
 - `grist_test_doc.py` — crée/recrée le document de test (appelé par le
   script ci-dessus, utilisable seul avec `GRIST_URL`, `GRIST_API_KEY`,
