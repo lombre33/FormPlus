@@ -5,21 +5,38 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- CSP en <meta> : repli acceptable pour un widget statique sans serveur applicatif (pas de
      frame-ancestors ici, ignoré par les navigateurs dans un <meta> — Grist encadre déjà le
-     widget dans son iframe, voir le README). unpkg.com : uniquement Leaflet (carte GPS),
-     chargé à la demande, jamais au démarrage (js/kinds.js, js/respond.js). L'adresse entière de
-     grist-plugin-api.js (plugin-loader.js), pas seulement son origine — repli systématique dès que
-     l'origine qui héberge ce widget n'est pas dans sa propre liste blanche (TRUSTED_ORIGINS, qui ne
-     contient que docs.getgrist.com aujourd'hui), donc TOUTE instance Grist auto-hébergée (y compris
-     DINUM) en dépend à chaque chargement, pas seulement docs.getgrist.com elle-même. Régression
-     trouvée le 21 oct lors d'un test en conditions réelles contre un Grist auto-hébergé
-     (tests/grist-env/) : sans cette entrée, le widget ne peut jamais quitter l'écran "standalone"
-     une fois intégré hors du SaaS Grist. 'unsafe-eval' reste, faute de mieux : le fichier que Grist
-     sert à ce chemin s'évalue par eval() (bundle de développement) — sans elle, le script
-     s'interrompt au premier appel, window.grist reste vide et le widget ne quitte jamais "Connexion
-     à Grist…" (consigne GFS 018, panne vue par le porteur le 04/11 dans le Grist de la DINUM).
-     img-src et connect-src restent ouverts à tout https : logo et lien de formulaire sont saisis
-     par qui configure le widget, vers un hôte Grist qu'il choisit, jamais fixé par cette page. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' https://docs.getgrist.com/grist-plugin-api.js https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https:; connect-src 'self' https:; object-src 'none'; base-uri 'none'">
+     widget dans son iframe, voir le README). Consigne GFS 037 (règles S1 à S4 du guide des apps,
+     1.4) : on part de default-src 'none' et on rouvre seulement ce que la page utilise, chaque
+     ouverture est dite avec sa raison dans « Adresses que l'app appelle » de GFS-ETAT.md.
+     - script-src : 'self' (js/, kit/, qrcode.js) ; l'adresse ENTIÈRE de grist-plugin-api.js
+       (plugin-loader.js), pas seulement son origine — repli systématique dès que l'origine qui
+       héberge ce widget n'est pas dans sa propre liste blanche (TRUSTED_ORIGINS, qui ne contient
+       que docs.getgrist.com aujourd'hui), donc TOUTE instance Grist auto-hébergée (y compris
+       DINUM) en dépend à chaque chargement. Régression trouvée le 21 oct lors d'un test en
+       conditions réelles contre un Grist auto-hébergé (tests/grist-env/) : sans cette entrée, le
+       widget ne peut jamais quitter l'écran "standalone" une fois intégré hors du SaaS Grist.
+       'unsafe-eval' reste, faute de mieux : le fichier que Grist sert à ce chemin s'évalue par
+       eval() (bundle de développement) — sans elle, le script s'interrompt au premier appel,
+       window.grist reste vide et le widget ne quitte jamais "Connexion à Grist…" (consigne GFS
+       018, panne vue par le porteur le 04/11 dans le Grist de la DINUM). Leaflet (carte GPS,
+       INACTIVE : js/kinds.js, rien ne pose FORMPLUS_ENABLE_MAP) : les deux fichiers de la 1.9.4
+       par leur adresse exacte et versionnée, jamais unpkg.com entier (règle S4) ; js/respond.js
+       les charge avec leur empreinte (SRI).
+     - style-src : 'self' + la feuille de Leaflet exacte. 'unsafe-inline' reste nécessaire : une
+       vingtaine d'attributs style="…" ici et dans les gabarits de js/ (largeurs, affichage) ; GFS
+       le note sans le compter contre l'app (règle S4).
+     - connect-src https: et img-src https: : L'EXCEPTION DITE du guide des apps (règle S3).
+       connect-src : toutes les requêtes de la page vont au serveur Grist de la personne, dont
+       l'hôte n'est connu qu'à l'exécution (getAccessToken().baseUrl, ou l'hôte du lien collé) :
+       pièces jointes avec jeton, formulaire natif par la route du document avec jeton, route de
+       partage (clé), envoi des réponses. img-src : le logo du formulaire est une adresse https
+       saisie par qui configure le widget (champ « Logo ou image d'en-tête (URL) », js/respond.js), vers un hôte qu'il
+       choisit — ce n'est PAS une image du serveur Grist, donc hors de l'exception, et GFS-ETAT.md
+       le dit (S3 non tenue pour img-src). Aucune autre ouverture en https:.
+     - form-action 'none' : le <form> du répondant n'est jamais soumis par le navigateur
+       (novalidate, submit intercepté, envoi par fetch) ; la redirection d'après envoi passe par
+       location.href, que form-action ne concerne pas. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-eval' https://docs.getgrist.com/grist-plugin-api.js https://unpkg.com/leaflet@1.9.4/dist/leaflet.js; style-src 'self' 'unsafe-inline' https://unpkg.com/leaflet@1.9.4/dist/leaflet.css; img-src 'self' data: https:; connect-src 'self' https:; font-src 'none'; media-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>FormPlus</title>
 <!-- Consigne GFS 023 : script CLASSIQUE (pas type="module"), avant les feuilles, pour poser
      [data-gfs-pending] avant la première image - voir js/gfs-pending.js. -->

@@ -6,7 +6,7 @@ import { normalizeAmbiance } from '../../kit/js/ambiance-message.js';
 import { paintAmbiance } from '../../kit/js/ambiance-pose.js';
 import { hostContract } from '../../kit/js/host.js';
 import { STRINGS } from './strings.js';
-import { KINDS, LAYOUT_KINDS, TABLE_SOURCED_KINDS, FIXED_LIST_KINDS, mapFeatureEnabled } from './kinds.js';
+import { KINDS, LAYOUT_KINDS, TABLE_SOURCED_KINDS, FIXED_LIST_KINDS, mapFeatureEnabled, LEAFLET_CDN_URL, LEAFLET_CDN_CSS, LEAFLET_CDN_JS_INTEGRITY, LEAFLET_CDN_CSS_INTEGRITY } from './kinds.js';
 import { singleValueOf, isAnswered, renderExtraQuestion, renderNativeField, onSubmit, conditionMet, reservationOk, splitIntoPages, wirePages, wireConditions, resolveFormTitle, hasPendingFillAnswers, renderFill, successActions } from './respond.js';
 import {
   questionSummary, conditionSourceCandidates, renderCardBody, saveQuestionFromCard,
@@ -286,6 +286,30 @@ export async function runTests() {
     const csp = html.match(/Content-Security-Policy"\s+content="([^"]+)"/)[1];
     assert('\'unsafe-eval\' présent (le fichier que Grist sert s’évalue par eval())', csp.includes('\'unsafe-eval\''));
     assert('adresse entière du script, pas seulement l’origine (guide des apps, règle 11)', csp.includes('https://docs.getgrist.com/grist-plugin-api.js'));
+  });
+
+  // Consigne GFS 037 (règles S1 à S4 du guide des apps, 1.4) et 038 (S8) : la page que GFS ouvre part de
+  // default-src 'none', ne rouvre en https: large que ce que la règle S3 permet (le serveur Grist de la
+  // personne : connect-src ; img-src pour le logo saisi par adresse), nomme Leaflet par ses adresses
+  // exactes, et démarre le relais des appels bloqués avant tout autre import.
+  await group('CSP de poc/widget.html : default-src \'none\', rien d\'ouvert en https: hors connect-src et img-src, Leaflet par adresse exacte (consigne GFS 037)', async () => {
+    const html = await (await REAL_FETCH('/poc/widget.html')).text();
+    const csp = html.match(/Content-Security-Policy"\s+content="([^"]+)"/)[1];
+    const dir = Object.fromEntries(csp.split(';').map((d) => d.trim()).filter(Boolean).map((d) => { const [name, ...sources] = d.split(/\s+/); return [name, sources]; }));
+    assertEqual('default-src \'none\' (S2)', dir['default-src'], ['\'none\'']);
+    assertEqual('form-action \'none\' (S2)', dir['form-action'], ['\'none\'']);
+    assertEqual('object-src \'none\' et base-uri \'none\'', [dir['object-src'], dir['base-uri']], [['\'none\''], ['\'none\'']]);
+    for (const name of ['font-src', 'media-src', 'frame-src', 'worker-src']) assertEqual(`${name} fermé`, dir[name], ['\'none\'']);
+    const wide = Object.entries(dir).filter(([, sources]) => sources.some((src) => src === 'https:' || src === 'http:' || src === '*')).map(([name]) => name).sort();
+    assertEqual('https: large seulement en connect-src et img-src (exception dite de la règle S3)', wide, ['connect-src', 'img-src']);
+    assert('aucun script en ligne ni data:/blob: pour un script (S4)', !dir['script-src'].some((src) => src === '\'unsafe-inline\'' || src === 'data:' || src === 'blob:'));
+    assert('aucune source unpkg.com sans chemin (S4) : script-src et style-src', ![...dir['script-src'], ...dir['style-src']].some((src) => /^https:\/\/unpkg\.com\/?$/.test(src)));
+    assert('script-src nomme l\'adresse exacte du script de Leaflet (LEAFLET_CDN_URL)', dir['script-src'].includes(LEAFLET_CDN_URL));
+    assert('style-src nomme l\'adresse exacte de la feuille de Leaflet (LEAFLET_CDN_CSS)', dir['style-src'].includes(LEAFLET_CDN_CSS));
+    assert('les empreintes SRI de Leaflet ont la forme sha256-<43 caractères>=', [LEAFLET_CDN_JS_INTEGRITY, LEAFLET_CDN_CSS_INTEGRITY].every((h) => /^sha256-[A-Za-z0-9+/]{43}=$/.test(h)));
+    const main = await (await REAL_FETCH('/poc/js/main.js')).text();
+    const firstImport = main.split('\n').find((line) => /^import\b/.test(line));
+    assertEqual('main.js démarre le relais S8 avant tout autre import (consigne GFS 038)', firstImport, 'import \'../../kit/js/violations-start.js\';');
   });
 
   // Consigne GFS 023 : [data-gfs-pending] posé par poc/js/main.js (un <script type="module">)

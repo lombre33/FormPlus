@@ -1,6 +1,11 @@
 // Point d'entrée du widget : icônes des boutons statiques, thème initial, puis démarrage
 // (détection du mode #test/standalone/config/fill). Importer ce module suffit à
 // charger — et à câbler leurs propres écouteurs — tous les autres modules du widget.
+// Consigne GFS 038 (règle S8) : le relais des appels que la politique de sécurité de la page
+// bloque (hôte seul, jamais le chemin ni les paramètres) démarre ICI, avant tout autre import :
+// les imports s'évaluent dans l'ordre, et une violation qui arrive avant le relais n'est pas
+// vue. Sans effet hors GFS (rien n'écoute quand GFS n'héberge pas l'app). Informe, ne protège pas.
+import '../../kit/js/violations-start.js';
 import { $, show } from './dom.js';
 import { ICONS } from './icons.js';
 import { Theme } from '../../kit/js/theme.js';

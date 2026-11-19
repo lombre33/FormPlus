@@ -38,8 +38,19 @@ l'autoriser lui-même :
    - le script `https://unpkg.com/leaflet@1.9.4/dist/leaflet.js` et la feuille de style
      `https://unpkg.com/leaflet@1.9.4/dist/leaflet.css` (`script-src`/`style-src`) — ou héberger ces
      deux fichiers soi-même et changer `LEAFLET_CDN_URL`/`LEAFLET_CDN_CSS` dans `poc/js/kinds.js` ;
+     **depuis la consigne GFS 037, `poc/widget.html` nomme déjà ces deux adresses exactes** (jamais
+     `unpkg.com` entier, règle S4) et `loadLeaflet` les charge avec leur empreinte SRI
+     (`LEAFLET_CDN_JS_INTEGRITY`/`LEAFLET_CDN_CSS_INTEGRITY`) : changer de version, c'est changer les
+     adresses ET les deux empreintes (`npm pack leaflet@<version>`, puis `openssl dgst -sha256 -binary
+     dist/leaflet.js | openssl base64 -A`, précédé de `sha256-`) ;
    - les tuiles `https://*.tile.openstreetmap.org` (`img-src`, et `connect-src` si la CSP distingue
-     les deux).
+     les deux) : `img-src https:` de `widget.html` les couvre déjà aujourd'hui (le logo saisi par
+     adresse l'impose, voir `GFS-ETAT.md`, « Adresses que l'app appelle »).
+
+   Attention au réglage de l'étape 1 sur `poc/widget.html` : sa CSP n'a ni `'unsafe-inline'` ni
+   empreinte pour un script, donc une balise `<script>` en ligne y serait refusée. Il faut soit un
+   petit fichier du dépôt chargé en classique avant `main.js` (comme `js/gfs-pending.js`), soit
+   l'empreinte `'sha256-…'` de la balise ajoutée à `script-src`.
 
 Rien d'autre à faire côté Grist : la colonne de destination reste une colonne Texte ordinaire,
 comme pour tout autre type de question texte libre.

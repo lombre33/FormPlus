@@ -6,8 +6,12 @@
 <!-- CSP en <meta> : repli acceptable pour une page statique sans serveur applicatif (pas de
      frame-ancestors ici, ignoré par les navigateurs dans un <meta>, voir le README).
      connect-src doit rester ouvert à tout hôte https : #form=<lien> peut désigner n'importe
-     quelle instance Grist, choisie par qui a publié ce lien, pas par cette page. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self' https:; object-src 'none'; base-uri 'none'">
+     quelle instance Grist, choisie par qui a publié ce lien, pas par cette page (l'exception dite
+     de la règle S3 du guide des apps de GFS : le serveur Grist de la personne, hôte inconnu
+     d'avance). Consigne GFS 037 : on part de default-src 'none' (règle S2), form-action 'none'
+     (le <form> est intercepté, l'envoi passe par fetch) ; 'unsafe-inline' en style-src pour le
+     <style> de cette page et des attributs style. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self' https:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Formulaire</title>
 <style>
   :root {

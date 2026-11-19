@@ -2,7 +2,7 @@ import { $, esc, show } from './dom.js';
 import { ICONS } from './icons.js';
 import { I18n } from '../../kit/js/i18n.js';
 import './strings.js'; // enregistre form.* avant tout usage de I18n.t() au chargement de ce module (voir strings.js)
-import { LAYOUT_KINDS, SINGLE_CHOICE_KINDS, mapFeatureEnabled, LEAFLET_CDN_URL, LEAFLET_CDN_CSS } from './kinds.js';
+import { LAYOUT_KINDS, SINGLE_CHOICE_KINDS, mapFeatureEnabled, LEAFLET_CDN_URL, LEAFLET_CDN_CSS, LEAFLET_CDN_JS_INTEGRITY, LEAFLET_CDN_CSS_INTEGRITY } from './kinds.js';
 import { parseFormLink, migrateLegacy, normalizeCondition } from './links.js';
 import { applyBranding } from './theme.js';
 import { probeCanEdit, probeRespondentIdentity, definitionFieldColId, fetchNativeForm } from './grist-meta.js';
@@ -550,9 +550,11 @@ function loadLeaflet() {
       const link = document.createElement('link');
       link.rel = 'stylesheet';
       link.href = LEAFLET_CDN_CSS;
+      link.integrity = LEAFLET_CDN_CSS_INTEGRITY; link.crossOrigin = 'anonymous'; // règle S5 : empreinte vérifiée par le navigateur
       document.head.appendChild(link);
       const script = document.createElement('script');
       script.src = LEAFLET_CDN_URL;
+      script.integrity = LEAFLET_CDN_JS_INTEGRITY; script.crossOrigin = 'anonymous';
       script.onload = resolve;
       script.onerror = () => reject(new Error('Impossible de charger Leaflet depuis le CDN'));
       document.head.appendChild(script);

@@ -62,8 +62,15 @@ export const FIXED_LIST_KINDS = new Set(['select', 'multiselect', 'ranking', 'ti
 //   <script>window.FORMPLUS_ENABLE_MAP = true;</script>
 // et autoriser en CSP le script LEAFLET_CDN_URL/LEAFLET_CDN_CSS ci-dessous ainsi que les tuiles
 // OpenStreetMap (tile.openstreetmap.org, en img-src/connect-src). Voir docs/06-carte-interactive.md.
+// Depuis la consigne GFS 037, la CSP de widget.html nomme déjà ces deux adresses exactes (jamais
+// unpkg.com entier) ; changer de version, c'est changer ici ET dans cette CSP.
 export function mapFeatureEnabled() {
   return typeof window !== 'undefined' && window.FORMPLUS_ENABLE_MAP === true;
 }
 export const LEAFLET_CDN_URL = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
 export const LEAFLET_CDN_CSS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+// Empreintes SRI (règle S5, consigne GFS 037) : celles que publie Leaflet pour la 1.9.4, recalculées
+// le 19/11/2026 sur dist/leaflet.js et dist/leaflet.css du paquet npm leaflet@1.9.4 (unpkg sert ces
+// fichiers tels quels pour une version exacte). Si la version change, les deux changent avec elle.
+export const LEAFLET_CDN_JS_INTEGRITY = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
+export const LEAFLET_CDN_CSS_INTEGRITY = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
