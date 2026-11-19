@@ -9,7 +9,7 @@ jobs:
   widget-tests:
     runs-on: ubuntu-24.04 # épinglé : ubuntu-latest est passé à 26.04 que Playwright 1.56 ne gère pas (CI rouge depuis le 4 nov)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
 
