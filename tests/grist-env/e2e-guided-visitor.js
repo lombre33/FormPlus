@@ -55,7 +55,7 @@ const get = (url) => new Promise((resolve, reject) => http.get(url, (r) => { let
   const pluginApi = await get(`${GRIST}/grist-plugin-api.js`);
   const browser = await chromium.launch();
   // bypassCSP : ce Grist de test est en HTTP nu, le `connect-src 'self' https:` du widget bloquerait ses appels vers lui (voir tests/grist-env/README.md, point 5).
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: 'fr-FR', permissions: ['clipboard-read', 'clipboard-write'], bypassCSP: true });
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: 'fr-FR', permissions: ['clipboard-read', 'clipboard-write'], bypassCSP: !process.env.FORMPLUS_CSP });
   const routePlugin = (c) => c.route('https://docs.getgrist.com/grist-plugin-api.js', (route) => route.fulfill({ status: 200, contentType: 'application/javascript', body: `eval(${JSON.stringify(pluginApi)});` }));
   await routePlugin(ctx);
   const problems = [];
@@ -147,7 +147,7 @@ const get = (url) => new Promise((resolve, reject) => http.get(url, (r) => { let
     });
     return v;
   };
-  const anon = await browser.newContext({ viewport: { width: 900, height: 900 }, locale: 'fr-FR', bypassCSP: true });
+  const anon = await browser.newContext({ viewport: { width: 900, height: 900 }, locale: 'fr-FR', bypassCSP: !process.env.FORMPLUS_CSP });
   await routePlugin(anon);
   const visitor = await openAsVisitor(anon, 'visiteur');
   const text = await visitor.locator('#fill-card').innerText();

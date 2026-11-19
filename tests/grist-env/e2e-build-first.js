@@ -57,7 +57,7 @@ const shares = async () => ((await api('GET', '/tables/_grist_Shares/records')).
   const pluginApi = await get(`${GRIST}/grist-plugin-api.js`);
   const browser = await chromium.launch();
   // bypassCSP : ce Grist de test est en HTTP nu, le `connect-src 'self' https:` du widget bloquerait ses appels vers lui (voir tests/grist-env/README.md, point 5).
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: 'fr-FR', permissions: ['clipboard-read', 'clipboard-write'], bypassCSP: true });
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: 'fr-FR', permissions: ['clipboard-read', 'clipboard-write'], bypassCSP: !process.env.FORMPLUS_CSP });
   await ctx.route('https://docs.getgrist.com/grist-plugin-api.js', (route) => route.fulfill({ status: 200, contentType: 'application/javascript', body: `eval(${JSON.stringify(pluginApi)});` }));
   const problems = [];
   ctx.on('page', (p) => p.on('pageerror', (e) => problems.push(`PAGEERROR ${e.message}`)));
@@ -213,7 +213,7 @@ const shares = async () => ((await api('GET', '/tables/_grist_Shares/records')).
   await w.locator('body').screenshot({ path: path.join(SHOTS, '6-parametres-avec-adresse.png') });
 
   // 5. Un visiteur anonyme (contexte vierge, sans cookie) répond : ce qui a été construit avant la publication fonctionne.
-  const anon = await browser.newContext({ viewport: { width: 900, height: 800 }, locale: 'fr-FR', bypassCSP: true });
+  const anon = await browser.newContext({ viewport: { width: 900, height: 800 }, locale: 'fr-FR', bypassCSP: !process.env.FORMPLUS_CSP });
   await anon.route('https://docs.getgrist.com/grist-plugin-api.js', (route) => route.fulfill({ status: 200, contentType: 'application/javascript', body: `eval(${JSON.stringify(pluginApi)});` }));
   const visitor = await anon.newPage();
   visitor.on('pageerror', (e) => problems.push(`VISITEUR PAGEERROR ${e.message}`));

@@ -53,7 +53,7 @@ const recs = async (table) => (await api('GET', `/tables/${table}/records`)).rec
 (async () => {
   const pluginApi = await get(`${GRIST}/grist-plugin-api.js`);
   const browser = await chromium.launch();
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 820 }, locale: 'fr-FR', permissions: ['clipboard-read', 'clipboard-write'], bypassCSP: true }); // bypassCSP : ce Grist de test est en HTTP nu, le `connect-src 'self' https:` du widget bloquerait ses appels (README.md, point 5)
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 820 }, locale: 'fr-FR', permissions: ['clipboard-read', 'clipboard-write'], bypassCSP: !process.env.FORMPLUS_CSP }); // bypassCSP : ce Grist de test est en HTTP nu, le `connect-src 'self' https:` du widget bloquerait ses appels (README.md, point 5)
   await ctx.route('https://docs.getgrist.com/grist-plugin-api.js', (route) => route.fulfill({ status: 200, contentType: 'application/javascript', body: `eval(${JSON.stringify(pluginApi)});` }));
   const problems = [];
   ctx.on('page', (p) => p.on('pageerror', (e) => problems.push(`PAGEERROR ${e.message}`)));

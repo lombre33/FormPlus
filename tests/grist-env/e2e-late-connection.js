@@ -61,7 +61,7 @@ const get = (url) => new Promise((resolve, reject) => http.get(url, (r) => { let
   const pluginApi = await get(`${GRIST}/grist-plugin-api.js`);
   const browser = await chromium.launch();
   // bypassCSP : ce Grist de test est en HTTP nu, le `connect-src 'self' https:` du widget bloquerait ses appels vers lui (README, point 5).
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: 'fr-FR', bypassCSP: true });
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: 'fr-FR', bypassCSP: !process.env.FORMPLUS_CSP });
   let holdMs = 0;
   let hosted = false;
   // Le vrai script, précédé (seulement si `holdMs`) d'une retenue de l'ENTRÉE du script de Grist : tout message de Grist
