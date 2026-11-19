@@ -1,0 +1,18 @@
+# Règle S7 du guide des apps de GFS (consigne 037) : dépendances suivies.
+# Les deux seuls endroits où ce dépôt déclare des dépendances qu'un outil peut monter :
+#   - les actions GitHub de la CI (.github/workflows/tests.yml) ;
+#   - Playwright, outillage de CI seulement (.github/scripts/package.json), sans lien avec le widget.
+# Le kit commun (sous-module `kit/`) n'est volontairement PAS suivi ici : sa référence avance par une
+# consigne de GFS, dans un commit à part, relu (consignes 038 et 039) ; une montée de version se dit
+# dans « Changements qui touchent GFS » de GFS-ETAT.md. Le widget lui-même n'a aucune dépendance npm
+# (modules ES natifs, pas de package.json à la racine).
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "npm"
+    directory: "/.github/scripts"
+    schedule:
+      interval: "weekly"
