@@ -18,16 +18,29 @@ export const IMAGE_DEFAULT_WIDTH = 50;
 // même méthode, quelle que soit la source (presse-papiers ou pièce jointe Grist téléchargée).
 // Lève si le résultat reste trop lourd malgré la réduction (ex. photo très détaillée) : jamais
 // stocké à moitié, l'appelant affiche un message plutôt que d'enregistrer une image inutilisable.
-export async function blobToResizedDataUrl(blob) {
+// `options` : maxDimension (défaut IMAGE_MAX_DIMENSION) ; keepAlpha (le logo : un PNG détouré ne
+// doit pas devenir un rectangle noir) = PNG d'abord, puis, seulement si trop lourd, JPEG sur fond blanc.
+export const LOGO_IMAGE_OPTIONS = Object.freeze({ maxDimension: 512, keepAlpha: true });
+
+export async function blobToResizedDataUrl(blob, options = {}) {
+  const maxDimension = options.maxDimension || IMAGE_MAX_DIMENSION;
   const bitmap = await createImageBitmap(blob);
   try {
-    const scale = Math.min(1, IMAGE_MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
+    const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
     const w = Math.max(1, Math.round(bitmap.width * scale));
     const h = Math.max(1, Math.round(bitmap.height * scale));
     const canvas = document.createElement('canvas');
     canvas.width = w; canvas.height = h;
     const ctx = canvas.getContext('2d');
-    ctx.drawImage(bitmap, 0, 0, w, h);
+    if (options.keepAlpha) {
+      ctx.drawImage(bitmap, 0, 0, w, h);
+      const png = canvas.toDataURL('image/png');
+      if (png.length <= IMAGE_MAX_DATA_URL_BYTES) return png;
+      ctx.globalCompositeOperation = 'destination-over'; // trop lourd en PNG : repli JPEG, la transparence devient du blanc
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
+    } else {
+      ctx.drawImage(bitmap, 0, 0, w, h);
+    }
     const dataUrl = canvas.toDataURL('image/jpeg', IMAGE_JPEG_QUALITY);
     if (dataUrl.length > IMAGE_MAX_DATA_URL_BYTES) throw new Error('image-too-large');
     return dataUrl;
@@ -41,6 +54,13 @@ export async function blobToResizedDataUrl(blob) {
 // modification manuelle de la table par quelqu'un d'autre ne doit jamais pouvoir glisser une URL
 // arbitraire, encore moins javascript:, dans un attribut src rendu sans échappement par nature).
 const DATA_URL_RE = /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/]+=*$/;
+
+// La seule valeur qu'une image du formulaire (description, logo) peut poser en `src` : la data: URL
+// si elle a la forme ci-dessus, sinon rien. Depuis la consigne GFS 037, la politique de widget.html
+// n'ouvre plus `img-src https:` : aucune image n'est jamais chargée depuis une adresse.
+export function safeImageDataUrl(dataUrl) {
+  return typeof dataUrl === 'string' && DATA_URL_RE.test(dataUrl) ? dataUrl : '';
+}
 
 export function imageBlockHtml(image, extraClass) {
   if (!image?.dataUrl || !DATA_URL_RE.test(image.dataUrl)) return '';

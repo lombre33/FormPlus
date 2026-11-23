@@ -25,18 +25,21 @@
      - style-src : 'self' + la feuille de Leaflet exacte. 'unsafe-inline' reste nécessaire : une
        vingtaine d'attributs style="…" ici et dans les gabarits de js/ (largeurs, affichage) ; GFS
        le note sans le compter contre l'app (règle S4).
-     - connect-src https: et img-src https: : L'EXCEPTION DITE du guide des apps (règle S3).
-       connect-src : toutes les requêtes de la page vont au serveur Grist de la personne, dont
-       l'hôte n'est connu qu'à l'exécution (getAccessToken().baseUrl, ou l'hôte du lien collé) :
-       pièces jointes avec jeton, formulaire natif par la route du document avec jeton, route de
-       partage (clé), envoi des réponses. img-src : le logo du formulaire est une adresse https
-       saisie par qui configure le widget (champ « Logo ou image d'en-tête (URL) », js/respond.js), vers un hôte qu'il
-       choisit — ce n'est PAS une image du serveur Grist, donc hors de l'exception, et GFS-ETAT.md
-       le dit (S3 non tenue pour img-src). Aucune autre ouverture en https:.
+     - connect-src https: : L'EXCEPTION DITE du guide des apps (règle S3). Toutes les requêtes de la
+       page vont au serveur Grist de la personne, dont l'hôte n'est connu qu'à l'exécution
+       (getAccessToken().baseUrl, ou l'hôte du lien collé) : pièces jointes avec jeton, formulaire
+       natif par la route du document avec jeton, route de partage (clé), envoi des réponses.
+       Aucune autre ouverture en https:.
+     - img-src 'self' data: : AUCUNE image d'un formulaire ne vient d'une adresse. Les images
+       (description d'une question, logo ou image d'en-tête) sont intégrées au formulaire sous forme
+       de data: URL, collées ou prises dans une pièce jointe du document (js/image-block.js) ; le
+       logo saisi par adresse a été remplacé le 23/11/2026 (img-src https: fermé, règle S3 tenue).
+       Seules autres entrées, pour la carte Leaflet INACTIVE : les trois sous-domaines de tuiles
+       d'OpenStreetMap (a, b, c) et le dossier d'images de Leaflet 1.9.4 (icône du marqueur).
      - form-action 'none' : le <form> du répondant n'est jamais soumis par le navigateur
        (novalidate, submit intercepté, envoi par fetch) ; la redirection d'après envoi passe par
        location.href, que form-action ne concerne pas. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-eval' https://docs.getgrist.com/grist-plugin-api.js https://unpkg.com/leaflet@1.9.4/dist/leaflet.js; style-src 'self' 'unsafe-inline' https://unpkg.com/leaflet@1.9.4/dist/leaflet.css; img-src 'self' data: https:; connect-src 'self' https:; font-src 'none'; media-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-eval' https://docs.getgrist.com/grist-plugin-api.js https://unpkg.com/leaflet@1.9.4/dist/leaflet.js; style-src 'self' 'unsafe-inline' https://unpkg.com/leaflet@1.9.4/dist/leaflet.css; img-src 'self' data: https://a.tile.openstreetmap.org https://b.tile.openstreetmap.org https://c.tile.openstreetmap.org https://unpkg.com/leaflet@1.9.4/dist/images/; connect-src 'self' https:; font-src 'none'; media-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>FormPlus</title>
 <!-- Consigne GFS 023 : script CLASSIQUE (pas type="module"), avant les feuilles, pour poser
      [data-gfs-pending] avant la première image - voir js/gfs-pending.js. -->
@@ -168,8 +171,8 @@
         <input id="opt-title" type="text" data-i18n-placeholder="form.appearance.titlePlaceholder" placeholder="Repris du formulaire natif si laissé vide">
         <label for="opt-desc" data-i18n="form.appearance.descLabel">Description</label>
         <input id="opt-desc" type="text" data-i18n-placeholder="form.appearance.descPlaceholder" placeholder="Facultatif">
-        <label for="opt-logo" data-i18n="form.appearance.logoLabel">Logo ou image d'en-tête (URL)</label>
-        <input id="opt-logo" type="url" placeholder="https://…">
+        <label data-i18n="form.appearance.logoLabel">Logo ou image d'en-tête</label>
+        <div id="opt-logo-host"></div>
         <label for="opt-emoji" data-i18n="form.appearance.emojiLabel">Icône d'en-tête (emoji, facultatif, remplace le logo)</label>
         <input id="opt-emoji" type="text" maxlength="4" style="width:76px;text-align:center;font-size:1.1rem" placeholder="📝">
         <label for="opt-accent" data-i18n="form.appearance.accentLabel">Couleur d'accent</label>

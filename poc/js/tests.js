@@ -12,7 +12,7 @@ import {
   questionSummary, conditionSourceCandidates, renderCardBody, saveQuestionFromCard,
   customizeNativeField, resetQuestions, createEmptyForm, populateFormPicker, generate, saveConfig,
   renderQuestionList, showEditorTab, showConfig, loadResponsesSummary, setScratchMode, showStartView,
-  refreshLinkBanner, showModelPanel, showStartNotice,
+  refreshLinkBanner, showModelPanel, showStartNotice, fillAppearanceFields,
 } from './config-editor.js';
 import {
   ensureTableGate, ensureFreeColumn, FORMULAIRES_TABLE,
@@ -29,7 +29,7 @@ import { loadPluginApi, isPluginApiReady } from './plugin-loader.js';
 import { MODELS, MODEL_TYPE, findModel, pick, modelColumns, buildQuestions, answerCount, catalogue, modelProblems } from './templates.js';
 import { KIND_TO_GRIST_TYPE } from './grist-meta.js';
 import { state } from './state.js';
-import { imageBlockHtml, blobToResizedDataUrl, IMAGE_MAX_DATA_URL_BYTES } from './image-block.js';
+import { imageBlockHtml, blobToResizedDataUrl, safeImageDataUrl, LOGO_IMAGE_OPTIONS, IMAGE_MAX_DATA_URL_BYTES } from './image-block.js';
 
 // PNG 1x1 transparent minimal (67 octets), utilisé comme pièce jointe/image collée de test dans
 // plusieurs suites ci-dessous : jamais un vrai fichier à charger, juste assez pour que
@@ -292,7 +292,7 @@ export async function runTests() {
   // default-src 'none', ne rouvre en https: large que ce que la règle S3 permet (le serveur Grist de la
   // personne : connect-src ; img-src pour le logo saisi par adresse), nomme Leaflet par ses adresses
   // exactes, et démarre le relais des appels bloqués avant tout autre import.
-  await group('CSP de poc/widget.html : default-src \'none\', rien d\'ouvert en https: hors connect-src et img-src, Leaflet par adresse exacte (consigne GFS 037)', async () => {
+  await group('CSP de poc/widget.html : default-src \'none\', rien d\'ouvert en https: hors connect-src, Leaflet par adresse exacte (consigne GFS 037)', async () => {
     const html = await (await REAL_FETCH('/poc/widget.html')).text();
     const csp = html.match(/Content-Security-Policy"\s+content="([^"]+)"/)[1];
     const dir = Object.fromEntries(csp.split(';').map((d) => d.trim()).filter(Boolean).map((d) => { const [name, ...sources] = d.split(/\s+/); return [name, sources]; }));
@@ -301,7 +301,8 @@ export async function runTests() {
     assertEqual('object-src \'none\' et base-uri \'none\'', [dir['object-src'], dir['base-uri']], [['\'none\''], ['\'none\'']]);
     for (const name of ['font-src', 'media-src', 'frame-src', 'worker-src']) assertEqual(`${name} fermé`, dir[name], ['\'none\'']);
     const wide = Object.entries(dir).filter(([, sources]) => sources.some((src) => src === 'https:' || src === 'http:' || src === '*')).map(([name]) => name).sort();
-    assertEqual('https: large seulement en connect-src et img-src (exception dite de la règle S3)', wide, ['connect-src', 'img-src']);
+    assertEqual('https: large seulement en connect-src (l\'exception dite de la règle S3) : img-src est fermé depuis le 23/11 (le logo est une image intégrée)', wide, ['connect-src']);
+    assert('img-src : \'self\', data:, les tuiles OpenStreetMap et le dossier d\'images de Leaflet, rien d\'autre', dir['img-src'].every((src) => ['\'self\'', 'data:', 'https://a.tile.openstreetmap.org', 'https://b.tile.openstreetmap.org', 'https://c.tile.openstreetmap.org', 'https://unpkg.com/leaflet@1.9.4/dist/images/'].includes(src)), dir['img-src'].join(' '));
     assert('aucun script en ligne ni data:/blob: pour un script (S4)', !dir['script-src'].some((src) => src === '\'unsafe-inline\'' || src === 'data:' || src === 'blob:'));
     assert('aucune source unpkg.com sans chemin (S4) : script-src et style-src', ![...dir['script-src'], ...dir['style-src']].some((src) => /^https:\/\/unpkg\.com\/?$/.test(src)));
     assert('script-src nomme l\'adresse exacte du script de Leaflet (LEAFLET_CDN_URL)', dir['script-src'].includes(LEAFLET_CDN_URL));
@@ -655,6 +656,50 @@ export async function runTests() {
     const dataUrl = await blobToResizedDataUrl(tinyPngBlob());
     assert('réencodée en JPEG', dataUrl.startsWith('data:image/jpeg;base64,'));
     assert('reste sous la limite de taille', dataUrl.length < IMAGE_MAX_DATA_URL_BYTES);
+  });
+
+  await group('image-block : le logo garde sa transparence (PNG) et se réduit à 512 px ; safeImageDataUrl ne laisse passer qu\'une data: URL d\'image', async () => {
+    const logo = await blobToResizedDataUrl(tinyPngBlob(), LOGO_IMAGE_OPTIONS);
+    assert('logo : PNG conservé (jamais un JPEG sur fond noir)', logo.startsWith('data:image/png;base64,'));
+    assert('…et sous la limite de taille', logo.length < IMAGE_MAX_DATA_URL_BYTES);
+    assertEqual('safeImageDataUrl : une data: URL PNG passe', safeImageDataUrl(logo), logo);
+    assertEqual('…une adresse https non', safeImageDataUrl('https://exemple.fr/logo.png'), '');
+    assertEqual('…javascript: non', safeImageDataUrl('javascript:alert(1)'), '');
+    assertEqual('…ni rien du tout', [safeImageDataUrl(undefined), safeImageDataUrl(null), safeImageDataUrl(42)], ['', '', '']);
+  });
+
+  await group('Apparence : le logo est une image intégrée (collée ou prise dans une pièce jointe), jamais une adresse (consigne GFS 037, img-src https: fermé)', async () => {
+    const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+    const host = $('opt-logo-host');
+    fillAppearanceFields({ logoImage: { dataUrl: PNG } });
+    await tick();
+    assertEqual('l\'aperçu montre le logo enregistré', host.querySelector('.qf-image-thumb').getAttribute('src'), PNG);
+    assert('…sans choix de taille (le CSS borne le logo)', !host.querySelector('.qf-image-size'));
+    assert('…les boutons « coller » et « pièce jointe » sont masqués tant qu\'un logo est là', host.querySelector('.qf-image-actions').classList.contains('hidden'));
+    assertEqual('le logo courant est relu depuis l\'éditeur', host.getImage()?.dataUrl, PNG);
+    host.querySelector('.qf-image-remove').click();
+    assertEqual('« supprimer » retire le logo', host.getImage(), null);
+    assert('…et propose de nouveau de coller ou de choisir', !host.querySelector('.qf-image-actions').classList.contains('hidden'));
+    // Un formulaire d'avant : logo saisi par adresse, qui ne s'affiche plus.
+    fillAppearanceFields({ logoUrl: 'https://exemple.fr/logo.png' });
+    await tick();
+    assert('un ancien logo par adresse : la note l\'explique', !!host.querySelector('.qf-logo-legacy'));
+    assertEqual('…sans aucun logo', host.getImage(), null);
+    assert('…et aucune adresse n\'est posée dans la page', !host.innerHTML.includes('exemple.fr'));
+    // Une data: URL invalide relue de la table n'est jamais posée en src.
+    fillAppearanceFields({ logoImage: { dataUrl: 'javascript:alert(1)' } });
+    await tick();
+    assert('une valeur qui n\'est pas une data: URL d\'image n\'est pas montrée', !host.innerHTML.includes('javascript:'));
+    fillAppearanceFields({});
+    await tick();
+    assert('sans logo ni ancien logo : pas de note', !host.querySelector('.qf-logo-legacy') && host.getImage() === null);
+    // Un éditeur ouvert sans fillAppearanceFields (lien collé après coup, « Construire d'abord ») : le logo se monte à la première visite de Paramètres.
+    host.innerHTML = '';
+    const savedTab = state.editorTab;
+    showEditorTab('settings');
+    await tick();
+    assert('Paramètres ouvert sans remplissage préalable : les boutons « coller » et « pièce jointe » sont là', !!host.querySelector('.qf-image-paste') && !!host.querySelector('.qf-image-pick'));
+    showEditorTab(savedTab || 'questions');
   });
 
   await group('splitIntoPages : découpe sur les marqueurs de type "page"', () => {
@@ -3100,6 +3145,19 @@ export async function runTests() {
       state.options = { vsId: 51, formLink: LIEN_COPIE, questions };
       card = await dessin(undefined);
       assertEqual('options du widget sur son propre lien : ses questions', card.querySelectorAll('#f [data-extra]').length, 2);
+
+      // 5. Logo (consigne GFS 037 : img-src https: fermé) : une image intégrée s'affiche, une adresse jamais.
+      const PNG_LOGO = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+      state.options = { vsId: 51, formLink: LIEN_COPIE, questions, logoImage: { dataUrl: PNG_LOGO } };
+      card = await dessin(undefined);
+      assertEqual('un logo intégré s\'affiche, en data: URL', card.querySelector('img.fill-logo')?.getAttribute('src'), PNG_LOGO);
+      state.options = { vsId: 51, formLink: LIEN_COPIE, questions, logoImage: { dataUrl: 'https://exemple.fr/logo.png' } };
+      card = await dessin(undefined);
+      assertEqual('un logo dont la valeur est une adresse ne s\'affiche pas', card.querySelectorAll('img').length, 0);
+      state.options = { vsId: 51, formLink: LIEN_COPIE, questions, logoUrl: 'https://exemple.fr/logo.png' };
+      card = await dessin(undefined);
+      assertEqual('un ancien logo saisi par adresse ne s\'affiche plus (aucune image, aucune requête vers cette adresse)', card.querySelectorAll('img').length, 0);
+      assert('…le formulaire reste complet', card.querySelectorAll('#f [data-extra]').length === 2);
     } finally {
       window.grist = g; window.fetch = fetchAvantSansLien; resetEditeur();
       // La carte dessinée garde des #eq-<id> que d'autres essais (onSubmit) retrouveraient avant les leurs, par $().
@@ -3620,7 +3678,8 @@ export async function runTests() {
   await group('saveConfig : deux sauvegardes rapprochées, l’ordre d’appel décide toujours (jamais la vitesse du réseau)', async () => {
     state.currentLink = null;
     state.cfgQuestions = [];
-    ['opt-title', 'opt-desc', 'opt-logo', 'opt-emoji', 'opt-accent', 'opt-submit', 'opt-endmsg', 'opt-redirect'].forEach(k => { $(k).value = ''; });
+    ['opt-title', 'opt-desc', 'opt-emoji', 'opt-accent', 'opt-submit', 'opt-endmsg', 'opt-redirect'].forEach(k => { $(k).value = ''; });
+    fillAppearanceFields({}); // vide aussi le logo (image intégrée, plus un champ texte)
     $('opt-progress').checked = false;
     state.options = { formLink: '' };
     let fetchCount = 0;

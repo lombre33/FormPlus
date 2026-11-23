@@ -251,7 +251,7 @@ politique des pages n'était mesurée nulle part en conditions réelles, hors `e
 
 ```bash
 pkill -f "http.server 8010"                       # le serveur de start-grist-test.sh, même port : le document y pointe
-node tests/grist-env/serveur-csp.js 8010 8484 &   # sert le dépôt tel quel, + http://localhost:8484 dans connect-src / img-src
+node tests/grist-env/serveur-csp.js 8010 8484 &   # sert le dépôt tel quel, + http://localhost:8484 dans connect-src
 FORMPLUS_CSP=1 NODE_PATH=$(npm root -g) node tests/grist-env/e2e-build-first.js   # etc. : bypassCSP est alors faux
 ```
 
@@ -278,6 +278,17 @@ avec `exemple.test` seul (`script-src-elem`, `connect-src`, `img-src`), aucun me
 `connect-src https:` le permet (l'exception de la règle S3 : l'app appelle le serveur Grist de la personne, hôte inconnu
 d'avance). Le « fetch https vers `exemple.test` » que propose le point 5 de la consigne 038 ne lève donc rien pour Form+ ;
 un script tiers, un appel ou une image en `http:` en lèvent.
+
+`e2e-logo.js` (avec `FORMPLUS_CSP=1`, 23 nov 2026) mesure le logo ou image d'en-tête, devenu une **image intégrée** quand
+`img-src https:` a été fermé (règle S3 tenue, GFS-ETAT.md). Dans l'onglet Paramètres d'un formulaire neuf : pas de champ
+d'adresse, pas de choix de taille ; un vrai PNG détouré 600 × 300 collé (événement `paste`) s'enregistre aussitôt dans
+`FormPlus_Formulaires` sous `logoImage` (jamais `logoUrl`), en `data:image/png`, réduit à 512 × 256 avec la transparence
+gardée ; une pièce jointe d'une table du document (table, colonne, fichier) est téléchargée avec le jeton sous
+`connect-src` puis enregistrée de même ; l'aperçu montre l'image (`img.fill-logo`, chargée). Un formulaire d'avant (Definition
+avec `logoUrl`) affiche la note qui l'explique, aucune image et aucune requête vers l'ancienne adresse ; l'adresse disparaît
+de la Definition à la sauvegarde suivante. Zéro violation de la politique. Il a servi à trouver un vrai trou : l'éditeur de
+logo restait vide quand on ouvrait Paramètres d'un formulaire construit sans passer par le remplissage des champs
+(`showEditorTab` le monte désormais à la première visite). Écrit un formulaire et une table `LogosTest` (un fichier).
 
 ## Connexion à Grist qui arrive après les 4 s de `main.js` (18 nov 2026, consigne GFS 032)
 

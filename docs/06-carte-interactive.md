@@ -43,9 +43,11 @@ l'autoriser lui-même :
      (`LEAFLET_CDN_JS_INTEGRITY`/`LEAFLET_CDN_CSS_INTEGRITY`) : changer de version, c'est changer les
      adresses ET les deux empreintes (`npm pack leaflet@<version>`, puis `openssl dgst -sha256 -binary
      dist/leaflet.js | openssl base64 -A`, précédé de `sha256-`) ;
-   - les tuiles `https://*.tile.openstreetmap.org` (`img-src`, et `connect-src` si la CSP distingue
-     les deux) : `img-src https:` de `widget.html` les couvre déjà aujourd'hui (le logo saisi par
-     adresse l'impose, voir `GFS-ETAT.md`, « Adresses que l'app appelle »).
+   - les tuiles `https://{a,b,c}.tile.openstreetmap.org` (`img-src` ; Leaflet les charge comme des
+     images, pas par `fetch`) et les images de Leaflet sous `https://unpkg.com/leaflet@1.9.4/dist/images/`
+     (marqueur) : **depuis le 23 nov 2026, `poc/widget.html` les nomme une à une** dans `img-src`
+     (plus de `https:` : le logo n'est plus une adresse, voir `GFS-ETAT.md`, « Adresses que l'app
+     appelle »). Un autre fournisseur de tuiles, c'est une autre adresse à ajouter à `img-src`.
 
    Attention au réglage de l'étape 1 sur `poc/widget.html` : sa CSP n'a ni `'unsafe-inline'` ni
    empreinte pour un script, donc une balise `<script>` en ligne y serait refusée. Il faut soit un

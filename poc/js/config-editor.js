@@ -20,7 +20,7 @@ import {
 import { state } from './state.js';
 import { startPublishGuide, startAttachGuide, resumePublishGuide, forgetPublishGuide, initPublishGuide } from './publish-guide.js';
 import { renderFill, layoutOrder, renderNativeField } from './respond.js';
-import { blobToResizedDataUrl, imageBlockHtml, IMAGE_WIDTH_PRESETS, IMAGE_DEFAULT_WIDTH } from './image-block.js';
+import { blobToResizedDataUrl, imageBlockHtml, IMAGE_WIDTH_PRESETS, IMAGE_DEFAULT_WIDTH, LOGO_IMAGE_OPTIONS, safeImageDataUrl } from './image-block.js';
 import { findModel, pick, modelColumns, buildQuestions, answerCount } from './templates.js';
 
 // ───────────────────────── Configuration (concepteur) ─────────────────────────
@@ -75,7 +75,9 @@ export async function saveConfig(publicUrl, widgetPage) {
     // une valeur déjà saisie entre deux sauvegardes.
     formTitle: $('opt-title').value.trim(),
     formDescription: $('opt-desc').value.trim(),
-    logoUrl: $('opt-logo').value.trim(),
+    // Logo : une image intégrée (data: URL), plus une adresse (consigne GFS 037 : img-src https: fermé).
+    // Jamais de `logoUrl` ici : l'ancienne adresse d'un formulaire déjà enregistré disparaît à sa prochaine sauvegarde.
+    logoImage: currentLogoImage(),
     headerEmoji: $('opt-emoji').value.trim(),
     accentColor: $('opt-accent').value || '',
     cornerStyle: state.cornerStyle === 'bold' ? 'bold' : 'soft',
@@ -385,13 +387,36 @@ $('generate').addEventListener('click', generate);
 $('link').addEventListener('keydown', (e) => { if (e.key === 'Enter') generate(); });
 
 // ───────────────────────── Apparence et personnalisation ─────────────────────────
-['opt-title', 'opt-desc', 'opt-logo', 'opt-emoji', 'opt-accent', 'opt-progress', 'opt-submit', 'opt-endmsg', 'opt-redirect'].forEach(id => {
-  $(id).addEventListener('change', async () => {
-    if (!state.currentFormSection) return; // rien à sauvegarder tant qu'aucun formulaire n'est lié
-    const persisted = await saveConfig(state.options.publicUrl, state.options.viewRef);
-    saveMsg($('appearance-msg'), persisted, I18n.t('form.editor.savedGeneric'));
-  });
+async function autosaveAppearance() {
+  if (!state.currentFormSection) return; // rien à sauvegarder tant qu'aucun formulaire n'est lié
+  const persisted = await saveConfig(state.options.publicUrl, state.options.viewRef);
+  saveMsg($('appearance-msg'), persisted, I18n.t('form.editor.savedGeneric'));
+}
+['opt-title', 'opt-desc', 'opt-emoji', 'opt-accent', 'opt-progress', 'opt-submit', 'opt-endmsg', 'opt-redirect'].forEach(id => {
+  $(id).addEventListener('change', autosaveAppearance);
 });
+
+// Logo ou image d'en-tête : la même image intégrée que celles des descriptions (collée, ou prise dans
+// une pièce jointe du document), sans choix de taille (le CSS borne le logo : .fill-logo). Consigne GFS
+// 037 : plus d'adresse https, la politique de widget.html n'ouvre plus img-src au-delà de 'self' et data:.
+// Un PNG garde sa transparence (LOGO_IMAGE_OPTIONS) et tient en 512 px au plus.
+let logoMountToken = 0;
+function currentLogoImage() {
+  const host = $('opt-logo-host');
+  return (host && host.getImage ? host.getImage() : state.options?.logoImage) || null;
+}
+async function mountLogoEditor(opts) {
+  const host = $('opt-logo-host');
+  const token = ++logoMountToken;
+  const legacy = opts?.logoUrl && !opts?.logoImage; // formulaire d'avant : un logo par adresse, qui ne s'affiche plus
+  host.innerHTML = `${legacy ? `<p class="muted qf-logo-legacy">${esc(I18n.t('form.appearance.logoLegacyNote'))}</p>` : ''}${imageEditorHtml(opts?.logoImage, { sizes: false })}`;
+  host.getImage = () => opts?.logoImage || null; // jusqu'au câblage ci-dessous (qui le remplace)
+  host._autoSave = autosaveAppearance;
+  let tables = [];
+  try { tables = await grist.docApi.listTables(); } catch (e) { tables = []; }
+  if (token !== logoMountToken) return; // un autre remplissage des champs a remplacé ce DOM entre-temps
+  wireImageEditor(host, { image: opts?.logoImage || null }, tables.filter(t => !isFormPlusOwnTable(t)).map(t => ({ value: t, label: t })), { logo: true });
+}
 // Mode interne : à l'activation, prépare tout de suite la table-sonde partagée (ensureRespondentProbeTable,
 // grist-meta.js) — un geste de SCHÉMA, qui a besoin des droits complets du concepteur, jamais de ceux d'un
 // répondant. Sans cette préparation ici, le premier répondant en mode interne tomberait sur une table encore
@@ -689,6 +714,9 @@ export function showEditorTab(tab) {
   $('editor').querySelectorAll('.tabbtn').forEach(b => b.classList.toggle('active', b.dataset.etab === tab));
   Object.entries(EDITOR_TABS).forEach(([t, id]) => $(id).classList.toggle('hidden', t !== tab));
   if (tab === 'responses') loadResponsesSummary();
+  // Le logo est un éditeur d'image, monté par fillAppearanceFields : les chemins qui ouvrent l'éditeur sans la remplir
+  // (lien collé après coup, « Construire d'abord ») le laissaient vide. Monté ici, à la première visite de Paramètres.
+  if (tab === 'settings' && !$('opt-logo-host').firstChild) mountLogoEditor(state.options);
 }
 $('editor').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-etab]');
@@ -1013,15 +1041,15 @@ export function mountCombo(host, placeholder) {
 // jamais incrustée dans le texte (voir image-block.js). Deux sources, l'édition directe
 // (collage/presse-papiers) et une pièce jointe déjà présente dans une table du document — jamais
 // les deux formes à la fois, l'une masque l'autre selon qu'une image est déjà choisie ou non.
-function imageEditorHtml(image) {
-  const hasImage = !!image?.dataUrl;
+function imageEditorHtml(image, { sizes = true } = {}) {
+  const hasImage = !!safeImageDataUrl(image?.dataUrl); // jamais autre chose qu'une data: URL d'image en src, même relue de la table
   return `
     <div class="qf-image-editor">
       <div class="qf-image-preview ${hasImage ? '' : 'hidden'}">
         <img class="qf-image-thumb" src="${hasImage ? image.dataUrl : ''}" alt="">
-        <div class="qf-image-size">
+        ${sizes ? `<div class="qf-image-size">
           ${IMAGE_WIDTH_PRESETS.map(w => `<button type="button" class="qf-image-size-btn${(image?.width || IMAGE_DEFAULT_WIDTH) === w ? ' active' : ''}" data-w="${w}">${I18n.t(`form.editor.imageSize.${w}`)}</button>`).join('')}
-        </div>
+        </div>` : ''}
         <button type="button" class="icon-btn danger qf-image-remove" title="${esc(I18n.t('form.editor.imageRemoveTitle'))}">${ICONS.trash}</button>
       </div>
       <div class="qf-image-actions ${hasImage ? 'hidden' : ''}">
@@ -1041,8 +1069,11 @@ function imageEditorHtml(image) {
 // Câblée après wireCardFooter (body._autoSave y est posé) : une image ajoutée/retirée/redimen-
 // sionnée s'enregistre tout de suite, comme les autres actions explicites de la carte (bascule de
 // type, obligatoire) — jamais au focusout, qui n'a aucun sens pour des boutons.
-function wireImageEditor(body, q, tableItems) {
+function wireImageEditor(body, q, tableItems, { logo = false } = {}) {
   let image = q?.image || null;
+  // Le logo ne porte que sa data: URL (pas de largeur), et se réduit autrement (512 px, PNG gardé).
+  const convert = logo ? LOGO_IMAGE_OPTIONS : undefined;
+  const newImage = (dataUrl) => (logo ? { dataUrl } : { dataUrl, width: IMAGE_DEFAULT_WIDTH });
   body.getImage = () => image;
   const msg = body.querySelector('.qf-image-msg');
   const preview = body.querySelector('.qf-image-preview');
@@ -1072,7 +1103,7 @@ function wireImageEditor(body, q, tableItems) {
   async function handleImageBlob(blob) {
     msg.textContent = I18n.t('form.editor.imageProcessing');
     try {
-      setImage({ dataUrl: await blobToResizedDataUrl(blob), width: IMAGE_DEFAULT_WIDTH });
+      setImage(newImage(await blobToResizedDataUrl(blob, convert)));
     } catch (e) {
       msg.innerHTML = `<span class="err">${I18n.t('form.editor.imageTooLarge')}</span>`;
     }
@@ -1122,7 +1153,7 @@ function wireImageEditor(body, q, tableItems) {
       msg.textContent = I18n.t('form.editor.imageProcessing');
       picker.classList.add('hidden');
       try {
-        setImage({ dataUrl: await downloadAttachmentAsDataUrl(Number(b.dataset.att)), width: IMAGE_DEFAULT_WIDTH });
+        setImage(newImage(await downloadAttachmentAsDataUrl(Number(b.dataset.att), convert)));
       } catch (e) {
         msg.innerHTML = `<span class="err">${esc(I18n.t('form.editor.imageDownloadError', { message: e.message }))}</span>`;
       }
@@ -1862,7 +1893,7 @@ export async function resetQuestions() {
 export function fillAppearanceFields(opts) {
   $('opt-title').value = opts?.formTitle || '';
   $('opt-desc').value = opts?.formDescription || '';
-  $('opt-logo').value = opts?.logoUrl || '';
+  mountLogoEditor(opts);
   $('opt-emoji').value = opts?.headerEmoji || '';
   $('opt-accent').value = opts?.accentColor || '#3452e1';
   setCornerStyle(opts?.cornerStyle === 'bold' ? 'bold' : 'soft');

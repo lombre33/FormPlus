@@ -75,11 +75,11 @@ export async function fetchAttachmentFileNames(attIds) {
 // plutôt qu'en cookie de session : seul chemin qui fonctionne depuis l'origine du widget, jamais
 // la même que celle du document Grist (voir docs/05-etude-synchro-inter-grist.md, § pièces
 // jointes — Grist refuse tout cookie cross-origine, mais sert ce jeton sans condition d'origine).
-export async function downloadAttachmentAsDataUrl(attId) {
+export async function downloadAttachmentAsDataUrl(attId, imageOptions) {
   const { token, baseUrl } = await grist.docApi.getAccessToken({ readOnly: true });
   const res = await fetch(`${baseUrl}/attachments/${attId}/download?auth=${token}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return blobToResizedDataUrl(await res.blob());
+  return blobToResizedDataUrl(await res.blob(), imageOptions);
 }
 export function fillSelect(sel, values, labels, selected) {
   sel.innerHTML = values.map((v, i) => `<option value="${esc(v)}" ${selected != null && String(v) === String(selected) ? 'selected' : ''}>${esc(labels ? labels[i] : v)}</option>`).join('');

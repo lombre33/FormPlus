@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Sert la racine du dépôt (à la place du `python3 -m http.server` de start-grist-test.sh) avec la politique de
 // sécurité des pages EXACTEMENT comme dans le dépôt, à une seule différence près : l'origine de ce Grist de test
-// (http://localhost:8484, en HTTP nu) est ajoutée à `connect-src` de poc/widget.html et poc/public-form.html, et à
-// `img-src` de poc/widget.html. Un vrai Grist est en https, que ces directives ouvrent déjà (règle S3, consigne GFS
-// 037) : cette origine n'est que l'équivalent, pour le banc, de « https: ». Rien d'autre n'est touché : script-src,
+// (http://localhost:8484, en HTTP nu) est ajoutée à `connect-src` de poc/widget.html et poc/public-form.html. Un vrai
+// Grist est en https, que cette directive ouvre déjà (règle S3, consigne GFS 037) : cette origine n'est que
+// l'équivalent, pour le banc, de « https: ». `img-src` n'est plus touchée : aucune image ne vient de Grist (le 23/11,
+// le logo saisi par adresse a été remplacé par une image intégrée ; les images passent par fetch puis data:). Rien d'autre n'est touché : script-src,
 // style-src, default-src, form-action… restent ceux du dépôt, et sont donc appliqués pour de bon dans les essais.
 //
 // Pourquoi : les essais réels ouvraient leur navigateur avec `bypassCSP: true` (ce Grist de test est en HTTP nu, le
@@ -33,8 +34,7 @@ function rewrite(file, html) {
   const base = path.basename(file);
   if (base !== 'widget.html' && base !== 'public-form.html') return html;
   return html.replace(/(http-equiv="Content-Security-Policy" content=")([^"]*)(")/, (all, a, csp, c) => {
-    let next = open(csp, 'connect-src', GRIST);
-    if (base === 'widget.html') next = open(next, 'img-src', GRIST);
+    const next = open(csp, 'connect-src', GRIST);
     if (next === csp) throw new Error(`${base} : rien à rouvrir pour ${GRIST}, la politique a changé de forme ?`);
     return `${a}${next}${c}`;
   });
@@ -53,4 +53,4 @@ http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
     res.end(body);
   });
-}).listen(PORT, () => console.log(`serveur-csp : ${ROOT} sur http://localhost:${PORT}, ${GRIST} ajouté à connect-src (et img-src de widget.html)`));
+}).listen(PORT, () => console.log(`serveur-csp : ${ROOT} sur http://localhost:${PORT}, ${GRIST} ajouté à connect-src`));

@@ -8,7 +8,7 @@ import { applyBranding } from './theme.js';
 import { probeCanEdit, probeRespondentIdentity, definitionFieldColId, fetchNativeForm } from './grist-meta.js';
 import { diag, fragmentFormLink } from './diag.js';
 import { state } from './state.js';
-import { imageBlockHtml } from './image-block.js';
+import { imageBlockHtml, safeImageDataUrl } from './image-block.js';
 
 // ───────────────────────── Rendu répondant (formulaire natif + questions supplémentaires) ─────────────────────────
 
@@ -707,6 +707,9 @@ export async function renderFill({ fragmentLink = fragmentFormLink } = {}) {
   const description = state.options?.formDescription || '';
   const submitLabel = state.options?.submitLabel || I18n.t('form.appearance.submitPlaceholder');
   const headerEmoji = state.options?.headerEmoji || '';
+  // Logo : une image intégrée au formulaire (data: URL validée), jamais une adresse - la politique de
+  // widget.html n'ouvre plus img-src https: (consigne GFS 037). Un ancien `logoUrl` n'est plus affiché.
+  const logoDataUrl = safeImageDataUrl(state.options?.logoImage?.dataUrl);
   const moodTinted = state.options?.bgMood === 'tinted';
 
   $('fill').dataset.corner = state.options?.cornerStyle === 'bold' ? 'bold' : 'soft';
@@ -714,7 +717,7 @@ export async function renderFill({ fragmentLink = fragmentFormLink } = {}) {
   card.innerHTML = `
     <div class="respond-band"></div>
     <div class="respond-head-wrap${moodTinted ? ' mood-tinted' : ''}">
-      ${headerEmoji ? `<div class="respond-avatar" aria-hidden="true">${esc(headerEmoji)}</div>` : (state.options?.logoUrl ? `<img class="fill-logo" src="${esc(state.options.logoUrl)}" alt="">` : '')}
+      ${headerEmoji ? `<div class="respond-avatar" aria-hidden="true">${esc(headerEmoji)}</div>` : (logoDataUrl ? `<img class="fill-logo" src="${logoDataUrl}" alt="">` : '')}
       <h1>${esc(title)}</h1>
       ${description ? `<p class="muted">${esc(description)}</p>` : ''}
     </div>
