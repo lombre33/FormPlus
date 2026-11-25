@@ -467,6 +467,7 @@ tester la suite du transport 1 en anonyme.
 ## Fichiers
 
 - `vitrine-captures.js` — les trois captures de la vitrine de GFS (voir plus haut).
+- `probe-noms-anglais.js` — SONDE (elle mesure, elle ne garde rien) : ce que Form+ fait devant un document dont ses tables ou ses colonnes ont été renommées en anglais sur place (consigne GFS 040, question 5a). Trois cas : colonnes seules, table seule, tout. Constat à `9204b8d` : colonnes seules, l'app recrée en silence les colonnes françaises au premier enregistrement ; table renommée, l'écran de départ sans aucun message, puis une nouvelle table française vide après la fenêtre de consentement. Repère : la fenêtre du kit est en position fixe, `offsetParent` y vaut toujours `null` ; pour savoir si elle est ouverte, lire son `display`.
 - `e2e-late-connection.js` — connexion à Grist tardive, avec ou sans GFS (voir plus haut).
 - `serveur-csp.js`, `e2e-public-form.js` et `e2e-relais-violations.js` — la politique de sécurité appliquée pour de bon, les deux pages statiques sous cette politique, et le relais S8 vers GFS (voir plus haut).
 - `e2e-model.js` — « Nouveau > Depuis un modèle » de GFS, de l'ouverture au visiteur anonyme (voir plus haut).
